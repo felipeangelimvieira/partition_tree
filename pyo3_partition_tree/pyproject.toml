@@ -4,11 +4,20 @@ build-backend = "maturin"
 
 [project]
 name = "pyo3_partition_tree"
-requires-python = ">=3.7"
+requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
-version = "0.1.0"
+version = "0.0.1"
 description = "A Python package for partition tree algorithms implemented in Rust."
+dependencies = [
+    "polars~=1.33.1",
+    "pyarrow>=23.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]

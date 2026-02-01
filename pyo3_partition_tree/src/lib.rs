@@ -94,6 +94,13 @@ impl PyPartitionTree {
 
         let x_df: PolarsDataFrame = x.into();
         let y_df: PolarsDataFrame = y.into();
+
+        // Assert same length
+        if x_df.height() != y_df.height() {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "X and y must have the same number of rows",
+            ));
+        }
         // Convert sample_weights to Float64Chunked if present, else weights of 1
         let w: Float64Chunked = match sample_weights {
             Some(sw) => {
@@ -490,7 +497,7 @@ impl PyProbabilityDistributionSingle {
 // Partition Forest
 
 #[pymodule]
-fn partition_tree_python(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
+fn pyo3_partition_tree(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyPartitionTree>()?;
     m.add_class::<PyPartitionForest>()?;
     Ok(())

@@ -1,33 +1,32 @@
-[tool.poetry]
+[project]
 name = "partition_tree"
 version = "0.0.1"
 description = "Partition Trees for Probabilistic Tasks"
-authors = ["felipeangelimvieira <felipeangelim@gmail.com>"]
+authors = [ {name = "felipeangelimvieira", email = "felipeangelim@gmail.com"} ]
 readme = "README.md"
-packages = [
-    { include = "partition_tree", from = "src" }
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "scikit-learn>=1.6.1,<2.0.0",
+    "pandas>=2.2.3,<3.0.0",
+    "skpro>=2.9.0,<3.0.0",
+    "tqdm>=4.67.1,<5.0.0",
+    "snakeviz>=2.2.2,<3.0.0",
+    "maturin>=1.9.3,<2.0.0",
+    "polars>=1.33.1,<2.0.0",
+    "pyarrow>=21.0.0",
 ]
 
-[tool.poetry.dependencies]
-python = ">=3.11, <3.14"
-scikit-learn = "^1.6.1"
-pandas = "^2.2.3"
-skpro = {version = "^2.9.0", python = ">=3.11,<3.14"}
-tqdm = "^4.67.1"
-snakeviz = "^2.2.2"
-maturin = "^1.9.3"
-pyo3_partition_tree = {path = "rust/pyo3-partition_tree"}
-polars = "^1.33.1"
-pyarrow = "^21.0.0"
-maturin-import-hook = "^0.3.0"
+[project.optional-dependencies]
+dev = ["pytest>=8.3.5,<9.0.0"]
 
-
-[tool.poetry.group.dev.dependencies]
-pytest = "^8.3.5"
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["setuptools>=61.0","wheel"]
+build-backend = "setuptools.build_meta"
 
-[tool.poetry.scripts]
-fastbench = "fastbench.cli:cli"
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["partition_tree*"]
+
+[tool.setuptools]
+# Console scripts intentionally removed (fastbench CLI removed per request)

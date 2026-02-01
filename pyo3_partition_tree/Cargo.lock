@@ -910,8 +910,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "estimator_api"
-version = "0.1.0"
+name = "estimators"
+version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0d5f8da3a77fb11eb85e65c87640dc95c01016c0b11652f9a3fb26da2985466"
 dependencies = [
  "polars 0.51.0",
 ]
@@ -2157,9 +2159,11 @@ dependencies = [
 
 [[package]]
 name = "partition_tree"
-version = "0.1.0"
+version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "13fc678e460b905460a5c240e5cb04ad372641af1f4e195cb092dc56b8892da9"
 dependencies = [
- "estimator_api",
+ "estimators",
  "flamegraph",
  "itertools",
  "polars 0.51.0",
@@ -2169,20 +2173,6 @@ dependencies = [
  "rayon",
  "statrs 0.18.0",
  "tqdm",
-]
-
-[[package]]
-name = "partition_tree_python"
-version = "0.1.0"
-dependencies = [
- "estimator_api",
- "partition_tree",
- "polars 0.51.0",
- "polars-core 0.51.0",
- "pyo3",
- "pyo3-polars 0.24.0",
- "rayon",
- "statrs 0.17.1",
 ]
 
 [[package]]
@@ -3170,6 +3160,20 @@ dependencies = [
  "polars-error 0.51.0",
  "pyo3",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "pyo3_partition_tree"
+version = "0.1.0"
+dependencies = [
+ "estimators",
+ "partition_tree",
+ "polars 0.51.0",
+ "polars-core 0.51.0",
+ "pyo3",
+ "pyo3-polars 0.24.0",
+ "rayon",
+ "statrs 0.17.1",
 ]
 
 [[package]]
