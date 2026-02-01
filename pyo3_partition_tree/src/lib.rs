@@ -1,4 +1,4 @@
-use estimator_api::api::*;
+use estimators::api::*;
 use partition_tree::estimator::*;
 use partition_tree::estimator_forest::PartitionForest;
 use partition_tree::predict::probability::*;

@@ -1,5 +1,5 @@
 use crate::{conf::TARGET_PREFIX, predict::probability::PiecewiseConstantDistribution, tree::*};
-use estimator_api::api::{Estimator, FitError, PredictError};
+use estimators::api::{Estimator, FitError, PredictError};
 use polars::prelude::*;
 use std::collections::HashMap;
 

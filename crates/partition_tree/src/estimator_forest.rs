@@ -1,5 +1,5 @@
 use crate::{conf::TARGET_PREFIX, predict::probability::PiecewiseConstantDistribution, tree::*};
-use estimator_api::api::{Estimator, FitError, PredictError};
+use estimators::api::{Estimator, FitError, PredictError};
 use polars::prelude::*;
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -141,11 +141,9 @@ impl PartitionForest {
         }
 
         let n_samples = per_tree_proba[0].len();
-        debug_assert!(
-            per_tree_proba
-                .iter()
-                .all(|predictions| predictions.len() == n_samples)
-        );
+        debug_assert!(per_tree_proba
+            .iter()
+            .all(|predictions| predictions.len() == n_samples));
 
         let proba: Vec<PiecewiseConstantDistribution> = (0..n_samples)
             .map(|sample_idx| {

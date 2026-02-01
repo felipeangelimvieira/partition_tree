@@ -1,14 +1,17 @@
 [package]
 name = "partition_tree"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2024"
+description = "Partition Tree: conditional density estimation in general outcome spaces"
+repository = "https://github.com/felipeangelimvieira/partition_tree"
+license-file = "LICENSE"
 
 [lib]
 name = "partition_tree"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-estimator_api = { version = "0.1.0", path = "../estimator_api" }
+estimators = "0.0.1"
 flamegraph = "0.6.8"
 itertools = "0.14.0"
 polars = { version = "0.51", features = ["dtype-categorical", "lazy", "dtype-u8", "dtype-u16"] }

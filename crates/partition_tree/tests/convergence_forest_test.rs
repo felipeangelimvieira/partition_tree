@@ -1,4 +1,4 @@
-use estimator_api::api::Estimator;
+use estimators::api::Estimator;
 use partition_tree::estimator_forest::PartitionForest;
 use polars::prelude::*;
 

@@ -1026,8 +1026,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "estimator_api"
-version = "0.1.0"
+name = "estimators"
+version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0d5f8da3a77fb11eb85e65c87640dc95c01016c0b11652f9a3fb26da2985466"
 dependencies = [
  "polars 0.51.0",
 ]
@@ -2238,10 +2240,10 @@ dependencies = [
 
 [[package]]
 name = "partition_tree"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "criterion",
- "estimator_api",
+ "estimators",
  "flamegraph",
  "itertools 0.14.0",
  "polars 0.51.0",

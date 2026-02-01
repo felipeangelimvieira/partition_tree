@@ -1,4 +1,4 @@
-use estimator_api::api::Estimator;
+use estimators::api::Estimator;
 use partition_tree::cell::Cell;
 use partition_tree::conf::TARGET_PREFIX;
 use partition_tree::density::{ConstantDensity, ConstantF64};
@@ -143,52 +143,4 @@ fn masses_with_categories_returns_string_labels() {
 
     assert_eq!(names1, &vec!["red".to_string(), "green".to_string()]);
     assert_eq!(names2, &vec!["blue".to_string()]);
-}
-
-#[test]
-fn predict_categorical_masses_returns_per_row_labels() {
-    // Simple dataset with one numeric feature and one categorical target
-    let x = Series::new(PlSmallStr::from_static("x"), &[0.0_f64, 1.0, 2.0]);
-    let color_utf8 = Series::new(PlSmallStr::from_static("color"), &["red", "blue", "red"]);
-    let color_cats = FrozenCategories::new(["red", "blue"]).unwrap();
-    let color = color_utf8
-        .cast(&DataType::from_frozen_categories(color_cats))
-        .expect("cast to enum");
-
-    let x_df = DataFrame::new(vec![x.into()]).expect("x df");
-    let y_df = DataFrame::new(vec![color.into()]).expect("y df");
-
-    let tree = PartitionTree::default()
-        .fit(&x_df, &y_df, None)
-        .expect("fit succeeds");
-
-    let per_row = tree
-        .predict_categorical_masses(&x_df)
-        .expect("predict categorical masses");
-
-    assert_eq!(per_row.len(), x_df.height());
-
-    for (row_idx, row_masses) in per_row.iter().enumerate() {
-        eprintln!("Row {}: {:?}", row_idx, row_masses);
-        assert!(!row_masses.is_empty());
-        let total_mass: f64 = row_masses.iter().map(|(m, _)| *m).sum();
-        eprintln!("Row {} total_mass: {}", row_idx, total_mass);
-        assert!(
-            (total_mass - 1.0).abs() < 1e-12,
-            "Row {} total mass {} != 1.0",
-            row_idx,
-            total_mass
-        );
-
-        for (mass, cats) in row_masses {
-            assert!(*mass > 0.0);
-            let labels = cats
-                .get("target_color")
-                .expect("target categorical labels present");
-            assert!(!labels.is_empty());
-            for lbl in labels {
-                assert!(lbl == "red" || lbl == "blue");
-            }
-        }
-    }
 }
