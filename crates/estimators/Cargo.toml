@@ -1,0 +1,11 @@
+[package]
+name = "estimators"
+version = "0.0.1"
+edition = "2024"
+description = "A estimator API for Machine Learning in Rust"
+repository = "https://github.com/felipeangelimvieira/partition_tree"
+license-file = "LICENSE"
+
+
+[dependencies]
+polars = "0.51"

@@ -1,0 +1,33 @@
+[tool.poetry]
+name = "partition_tree"
+version = "0.0.1"
+description = "Partition Trees for Probabilistic Tasks"
+authors = ["felipeangelimvieira <felipeangelim@gmail.com>"]
+readme = "README.md"
+packages = [
+    { include = "partition_tree", from = "src" }
+]
+
+[tool.poetry.dependencies]
+python = ">=3.11, <3.14"
+scikit-learn = "^1.6.1"
+pandas = "^2.2.3"
+skpro = {version = "^2.9.0", python = ">=3.11,<3.14"}
+tqdm = "^4.67.1"
+snakeviz = "^2.2.2"
+maturin = "^1.9.3"
+pyo3_partition_tree = {path = "rust/pyo3-partition_tree"}
+polars = "^1.33.1"
+pyarrow = "^21.0.0"
+maturin-import-hook = "^0.3.0"
+
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.5"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+fastbench = "fastbench.cli:cli"

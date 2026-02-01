@@ -1,0 +1,18 @@
+[package]
+name = "pyo3_partition_tree"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "pyo3_partition_tree"
+crate-type = ["cdylib"]
+
+[dependencies]
+estimator_api = { version = "0.1.0", path = "../estimator_api" }
+partition_tree = { version = "0.1.0", path = "../ptree" }
+polars = { version = "0.51.0", features = ["full"] }
+polars-core = "0.51.0"
+pyo3 = { version = "0.25.1", features = ["extension-module"] }
+pyo3-polars = "0.24"
+rayon = "1.11.0"
+statrs = "0.17"

@@ -1,0 +1,53 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "cargo build",
+			"type": "shell",
+			"command": "cargo",
+			"args": [
+				"build",
+				"--quiet"
+			],
+			"problemMatcher": [
+				"$rustc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "cargo build 2",
+			"type": "shell",
+			"command": "cargo",
+			"args": [
+				"build",
+				"--quiet"
+			],
+			"problemMatcher": [
+				"$rustc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "cargo build 3",
+			"type": "shell",
+			"command": "cargo",
+			"args": [
+				"build",
+				"--quiet"
+			],
+			"problemMatcher": [
+				"$rustc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "cargo test",
+			"type": "shell",
+			"command": "cargo",
+			"args": [
+				"test",
+				"--quiet"
+			]
+		}
+	]
+}
