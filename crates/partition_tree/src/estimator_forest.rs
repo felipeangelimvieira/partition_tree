@@ -1,9 +1,12 @@
+use crate::serde::schema as schema_serde;
 use crate::{conf::TARGET_PREFIX, predict::probability::PiecewiseConstantDistribution, tree::*};
 use estimators::api::{Estimator, FitError, PredictError};
 use polars::prelude::*;
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+#[derive(Serialize, Deserialize)]
 pub struct PartitionForest {
     pub n_estimators: usize,
     pub max_iter: usize,
@@ -24,6 +27,7 @@ pub struct PartitionForest {
     pub feature_split_fraction: Option<f64>,
     pub seed: Option<usize>,
     pub tree: Option<Vec<Tree>>,
+    #[serde(with = "schema_serde")]
     pub schema: Option<Schema>,
 }
 

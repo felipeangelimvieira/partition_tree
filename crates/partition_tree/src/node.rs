@@ -9,11 +9,37 @@ use crate::rules::*;
 use polars::prelude::*;
 use rand::Rng;
 use rand::rngs::StdRng;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::{HashMap, HashSet};
-#[derive(Clone)]
+
+// Custom serde for UInt32Chunked - serialize as Vec<u32>
+mod uint32_chunked_serde {
+    use super::*;
+
+    pub fn serialize<S>(chunked: &UInt32Chunked, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let vec: Vec<u32> = chunked.into_no_null_iter().collect();
+        vec.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<UInt32Chunked, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let vec: Vec<u32> = Vec::deserialize(deserializer)?;
+        Ok(UInt32Chunked::from_vec("".into(), vec))
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Node {
+    #[serde(with = "uint32_chunked_serde")]
     pub indices_xy: UInt32Chunked,
+    #[serde(with = "uint32_chunked_serde")]
     pub indices_x: UInt32Chunked,
+    #[serde(with = "uint32_chunked_serde")]
     pub indices_y: UInt32Chunked,
     pub cell: Cell,
     pub depth: usize,

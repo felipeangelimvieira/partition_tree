@@ -9,6 +9,7 @@
 //! - `integrate_rule(rule)`: Integrate the density over a given rule (interval or categorical set).
 
 use crate::rules::*;
+use serde::{Deserialize, Serialize};
 use statrs::function::erf::erf;
 use std::f64::consts::PI;
 use std::marker::PhantomData;
@@ -26,7 +27,7 @@ pub trait DensityFunction: Send + Sync {
 }
 
 // ------------------- ConstantDensity (generic) -------------------
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConstantDensity<T> {
     pub c: f64,              // constant value
     _marker: PhantomData<T>, // tracks the input type
@@ -70,7 +71,7 @@ pub type ConstantI32 = ConstantDensity<i32>;
 pub type ConstantU32 = ConstantDensity<u32>;
 
 // ------------------- HalfNormalDensity (continuous) -------------------
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HalfNormalDensity {
     pub scale: f64,   // sigma
     pub offset: f64,  // mu (location)

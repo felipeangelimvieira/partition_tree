@@ -1,6 +1,6 @@
 [package]
 name = "pyo3_partition_tree"
-version = "0.1.0"
+version = "0.0.2"
 edition = "2024"
 
 [lib]
@@ -8,11 +8,13 @@ name = "pyo3_partition_tree"
 crate-type = ["cdylib"]
 
 [dependencies]
+bincode = "1.3"
 estimators = "0.0.1"
-partition_tree = { version = "0.0.1"}
+partition_tree = { path = "../crates/partition_tree" }
 polars = { version = "0.51.0", features = ["full"] }
 polars-core = "0.51.0"
 pyo3 = { version = "0.25.1", features = ["extension-module"] }
 pyo3-polars = "0.24"
 rayon = "1.11.0"
+serde = { version = "1.0", features = ["derive"] }
 statrs = "0.17"

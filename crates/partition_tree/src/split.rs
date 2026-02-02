@@ -10,11 +10,12 @@ use rand::rng;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::hash_map::RandomState;
 use std::hash::{BuildHasher, Hash};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum SplitResult {
     ContinuousSplit(f64, f64, Option<bool>),
     /// Categorical split: (subset of category codes, gain, none_to_left)
@@ -82,7 +83,7 @@ impl fmt::Display for SplitResult {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SplitRestrictions {
     pub min_samples_split: usize,
     pub min_samples_leaf_y: usize,
