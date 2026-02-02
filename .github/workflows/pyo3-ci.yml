@@ -3,7 +3,7 @@
 #
 #    maturin generate-ci github
 #
-name: CI
+name: PyO3 CI
 
 on:
   release:
@@ -15,6 +15,7 @@ permissions:
 
 jobs:
   linux:
+    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/pyo3-v') }}
     runs-on: ${{ matrix.platform.runner }}
     env:
       CFLAGS_aarch64-unknown-linux-gnu: "-D__ARM_ARCH=8"
@@ -49,6 +50,7 @@ jobs:
           path: pyo3_partition_tree/dist
 
   musllinux:
+    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/pyo3-v') }}
     runs-on: ${{ matrix.platform.runner }}
     env:
       CFLAGS_aarch64-unknown-linux-gnu: "-D__ARM_ARCH=8"
@@ -83,6 +85,7 @@ jobs:
           path: pyo3_partition_tree/dist
 
   windows:
+    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/pyo3-v') }}
     runs-on: ${{ matrix.platform.runner }}
     strategy:
       matrix:
@@ -116,6 +119,7 @@ jobs:
           path: pyo3_partition_tree/dist
 
   macos:
+    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/pyo3-v') }}
     runs-on: ${{ matrix.platform.runner }}
     strategy:
       matrix:
@@ -143,6 +147,7 @@ jobs:
           path: pyo3_partition_tree/dist
 
   sdist:
+    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/pyo3-v') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -161,7 +166,7 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
-    if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
+    if: ${{ startsWith(github.ref, 'refs/tags/pyo3-v') || github.event_name == 'workflow_dispatch' }}
     needs: [linux, musllinux, windows, macos, sdist]
     permissions:
       # Use to sign the release artifacts
@@ -177,10 +182,10 @@ jobs:
         with:
           subject-path: 'wheels-*/*'
       - name: Install uv
-        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        if: ${{ startsWith(github.ref, 'refs/tags/pyo3-v') }}
         uses: astral-sh/setup-uv@v7
       - name: Publish to PyPI
-        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        if: ${{ startsWith(github.ref, 'refs/tags/pyo3-v') }}
         run: uv publish 'wheels-*/*'
         env:
           UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
