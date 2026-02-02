@@ -10,7 +10,7 @@ crate-type = ["cdylib"]
 [dependencies]
 bincode = "1.3"
 estimators = "0.0.1"
-partition_tree = { path = "../crates/partition_tree" }
+partition_tree = "0.0.2"
 polars = { version = "0.51.0", features = ["full"] }
 polars-core = "0.51.0"
 pyo3 = { version = "0.25.1", features = ["extension-module"] }
