@@ -182,4 +182,4 @@ cython_debug/
 *.dll
 *.exe
 # Uncomment if you want to ignore Cargo.lock (for libraries)
-# Cargo.lock
+Cargo.lock
