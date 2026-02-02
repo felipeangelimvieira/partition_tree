@@ -2189,6 +2189,8 @@ dependencies = [
 [[package]]
 name = "partition_tree"
 version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "74fa011583f500f4123889b8df2e83695bdf5a6040150f983ca5e6b449d0b514"
 dependencies = [
  "bincode 1.3.3",
  "estimators",
