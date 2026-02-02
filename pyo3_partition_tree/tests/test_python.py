@@ -1,3 +1,5 @@
+import pickle
+
 import pytest
 import polars as pl
 
@@ -77,3 +79,55 @@ def test_fit_with_mismatched_row_counts_raises():
     )
     with pytest.raises(ValueError):
         model.fit(X, y_bad, None)
+
+
+def test_pickle_unfitted_model():
+    """Test that an unfitted PyPartitionTree can be pickled and unpickled."""
+    model = PyPartitionTree(
+        max_iter=10,
+        min_samples_split=2,
+        min_samples_leaf_y=1,
+        min_samples_leaf_x=1,
+        min_samples_leaf=1,
+        min_target_volume=0.0,
+        max_depth=5,
+        min_split_gain=0.0,
+        boundaries_expansion_factor=0,
+    )
+    # Pickle and unpickle
+    pickled = pickle.dumps(model)
+    unpickled_model = pickle.loads(pickled)
+
+    # Verify the unpickled model is a PyPartitionTree
+    assert isinstance(unpickled_model, PyPartitionTree)
+
+
+def test_pickle_fitted_model():
+    """Test that a fitted PyPartitionTree can be pickled and unpickled, and predictions match."""
+    X, y = make_simple_data(12)
+    model = PyPartitionTree(
+        max_iter=50,
+        min_samples_split=2,
+        min_samples_leaf_y=1,
+        min_samples_leaf_x=1,
+        min_samples_leaf=1,
+        min_target_volume=0.0,
+        max_depth=10,
+        min_split_gain=0.0,
+        boundaries_expansion_factor=0,
+    )
+    model.fit(X, y, None)
+
+    # Get predictions before pickling
+    preds_before = model.predict(X)
+
+    # Pickle and unpickle
+    pickled = pickle.dumps(model)
+    unpickled_model = pickle.loads(pickled)
+
+    # Verify the unpickled model is a PyPartitionTree
+    assert isinstance(unpickled_model, PyPartitionTree)
+
+    # Verify predictions match after unpickling
+    preds_after = unpickled_model.predict(X)
+    assert preds_before.equals(preds_after)

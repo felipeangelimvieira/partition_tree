@@ -8,12 +8,13 @@
 
 use crate::density::*;
 use crate::rules::*;
+use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::collections::HashSet;
 
 // ------------------- OneDimPartition -------------------
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OneDimPartition<R, D>
 where
     R: Rule<D::Input>,
@@ -296,5 +297,46 @@ where
 impl Clone for Box<dyn DynOneDimPartition> {
     fn clone(&self) -> Self {
         self.clone_box()
+    }
+}
+
+// ------------------- Serialization support for trait objects -------------------
+
+// Type aliases for the concrete OneDimPartition types used in the codebase
+pub type ContinuousPartition = OneDimPartition<ContinuousInterval, ConstantF64>;
+pub type CategoricalU32Partition = OneDimPartition<BelongsToU32, ConstantU32>;
+pub type CategoricalStringPartition = OneDimPartition<BelongsToString, ConstantDensity<String>>;
+
+/// Enum wrapper for serializing DynOneDimPartition trait objects
+#[derive(Serialize, Deserialize)]
+pub enum PartitionVariant {
+    Continuous(ContinuousPartition),
+    CategoricalU32(CategoricalU32Partition),
+    CategoricalString(CategoricalStringPartition),
+}
+
+impl PartitionVariant {
+    /// Convert from a boxed trait object to the enum variant
+    pub fn from_dyn(part: &dyn DynOneDimPartition) -> Self {
+        // Try each concrete type
+        if let Some(p) = part.as_any().downcast_ref::<ContinuousPartition>() {
+            return PartitionVariant::Continuous(p.clone());
+        }
+        if let Some(p) = part.as_any().downcast_ref::<CategoricalU32Partition>() {
+            return PartitionVariant::CategoricalU32(p.clone());
+        }
+        if let Some(p) = part.as_any().downcast_ref::<CategoricalStringPartition>() {
+            return PartitionVariant::CategoricalString(p.clone());
+        }
+        panic!("Unknown partition type for serialization")
+    }
+
+    /// Convert to a boxed trait object
+    pub fn into_dyn(self) -> Box<dyn DynOneDimPartition> {
+        match self {
+            PartitionVariant::Continuous(p) => Box::new(p),
+            PartitionVariant::CategoricalU32(p) => Box::new(p),
+            PartitionVariant::CategoricalString(p) => Box::new(p),
+        }
     }
 }

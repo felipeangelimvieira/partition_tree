@@ -1,4 +1,5 @@
 use core::fmt;
+use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::collections::HashSet;
 use std::hash::Hash;
@@ -60,7 +61,7 @@ pub trait Rule<T>: Any {
 /// -------------------
 /// Represents a continuous interval with bounds and closure properties
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ContinuousInterval {
     // Represents a continuous interval with bounds and closure properties
     pub low: f64,
@@ -222,7 +223,7 @@ impl fmt::Display for ContinuousInterval {
 // Generic BelongsTo over any physical type (u32, i64, bool, String, ...)
 // ---------------------------
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BelongsToGeneric<T: RuleValue> {
     // Set for O(1) membership checks during evaluation
     pub values: HashSet<T>,
@@ -442,7 +443,7 @@ impl BelongsToGeneric<usize> {
 }
 
 // Rule types
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum RuleType {
     Continuous(ContinuousInterval),
     BelongsTo(BelongsTo),

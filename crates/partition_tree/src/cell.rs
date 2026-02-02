@@ -5,17 +5,20 @@
 use crate::conf::*;
 use crate::density::*;
 use crate::dtype_adapter::*;
-use crate::onedimpartition::*;
+use crate::onedimpartition::{DynOneDimPartition, OneDimPartition};
 use crate::rules::*;
+use crate::serde::partitions as partitions_serde;
 use core::panic;
 use polars::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Cell {
+    #[serde(with = "partitions_serde")]
     pub partitions: HashMap<String, Box<dyn DynOneDimPartition>>,
 }
 

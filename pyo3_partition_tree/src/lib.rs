@@ -1,3 +1,4 @@
+use bincode;
 use estimators::api::*;
 use partition_tree::estimator::*;
 use partition_tree::estimator_forest::PartitionForest;
@@ -21,29 +22,43 @@ pub enum PyValue {
 #[global_allocator]
 static ALLOC: PolarsAllocator = PolarsAllocator::new();
 
-#[pyclass]
+#[pyclass(module = "pyo3_partition_tree")]
 pub struct PyPartitionTree {
     inner: PartitionTree,
 }
 
 #[pymethods]
 impl PyPartitionTree {
+    /// Serialize the tree state for pickling
+    pub fn __getstate__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        let bytes = bincode::serialize(&self.inner)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Serialization error: {}", e)))?;
+        Ok(PyBytes::new(py, &bytes))
+    }
+
+    /// Deserialize the tree state for unpickling
+    pub fn __setstate__(&mut self, state: &Bound<'_, PyBytes>) -> PyResult<()> {
+        self.inner = bincode::deserialize(state.as_bytes())
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Deserialization error: {}", e)))?;
+        Ok(())
+    }
+
     #[new]
     #[pyo3(signature = (
-        max_iter,
-        min_samples_split,
-        min_samples_leaf_y,
-        min_samples_leaf_x,
-        min_samples_leaf,
-        min_target_volume,
-        max_depth,
-        min_split_gain,
-        boundaries_expansion_factor,
+        max_iter = 100,
+        min_samples_split = 2,
+        min_samples_leaf_y = 1,
+        min_samples_leaf_x = 1,
+        min_samples_leaf = 1,
+        min_target_volume = 0.0,
+        max_depth = usize::MAX,
+        min_split_gain = 0.0,
+        boundaries_expansion_factor = 0.1,
         min_density_value = 0.0,
         max_density_value = f64::INFINITY,
         max_measure_value = f64::INFINITY,
         exploration_split_budget = 0,
-        feature_split_fraction = 0.0,
+        feature_split_fraction = None,
         seed = None,
     ))]
     pub fn new(
@@ -265,33 +280,47 @@ impl PyPartitionTree {
     }
 }
 
-#[pyclass]
+#[pyclass(module = "pyo3_partition_tree")]
 pub struct PyPartitionForest {
     inner: PartitionForest,
 }
 
 #[pymethods]
 impl PyPartitionForest {
+    /// Serialize the forest state for pickling
+    pub fn __getstate__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        let bytes = bincode::serialize(&self.inner)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Serialization error: {}", e)))?;
+        Ok(PyBytes::new(py, &bytes))
+    }
+
+    /// Deserialize the forest state for unpickling
+    pub fn __setstate__(&mut self, state: &Bound<'_, PyBytes>) -> PyResult<()> {
+        self.inner = bincode::deserialize(state.as_bytes())
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Deserialization error: {}", e)))?;
+        Ok(())
+    }
+
     #[new]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (
-        n_estimators,
-        max_iter,
-        min_samples_split,
-        min_samples_leaf_y,
-        min_samples_leaf_x,
-        min_samples_leaf,
-        min_target_volume,
-        max_depth,
-        min_split_gain,
-        boundaries_expansion_factor,
-        max_features,
-        max_samples,
+        n_estimators = 100,
+        max_iter = 100,
+        min_samples_split = 2,
+        min_samples_leaf_y = 1,
+        min_samples_leaf_x = 1,
+        min_samples_leaf = 1,
+        min_target_volume = 0.0,
+        max_depth = usize::MAX,
+        min_split_gain = 0.0,
+        boundaries_expansion_factor = 0.1,
+        max_features = None,
+        max_samples = None,
         min_density_value = 0.0,
         max_density_value = f64::INFINITY,
         max_measure_value = f64::INFINITY,
         exploration_split_budget = 0,
-        feature_split_fraction = 0.0,
+        feature_split_fraction = None,
         seed = None,
     ))]
     pub fn new(

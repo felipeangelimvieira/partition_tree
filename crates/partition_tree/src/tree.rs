@@ -1,5 +1,7 @@
 use crate::conf::TARGET_PREFIX;
+use crate::serde::dataframe_schema as dataframe_schema_serde;
 
+use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::sync::Arc;
 // use crate::dataframe::PTreeDataFrameExt;
@@ -60,7 +62,7 @@ impl SplitCandidate {
 
 // For future visualization (node relationships)
 #[allow(dead_code)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TreeNode {
     pub parent: Option<usize>,
     pub left_child: Option<usize>,
@@ -69,7 +71,7 @@ pub struct TreeNode {
 }
 
 // Split record to inspect build history
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SplitRecord {
     pub parent_index: usize,
     pub column_name: String,
@@ -78,7 +80,7 @@ pub struct SplitRecord {
     pub right_child_index: usize,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum LeafReason {
     MinSamplesSplit(usize),
     MinSamplesLeaf(usize),
@@ -88,7 +90,7 @@ pub enum LeafReason {
 }
 
 /// Information about a partition dimension in a leaf
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PartitionInfo {
     /// Continuous interval: (low, high, lower_closed, upper_closed)
     Continuous {
@@ -102,7 +104,7 @@ pub enum PartitionInfo {
 }
 
 /// Complete information about a leaf node
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LeafInfo {
     /// Index of this leaf in the tree's node list
     pub leaf_index: usize,
@@ -122,12 +124,13 @@ pub struct LeafInfo {
     pub feature_contributions: HashMap<String, f64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TreeBuilderStatus {
     FAILED(String),
     SUCCESS,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Tree {
     nodes: Vec<Node>,
     leaves: Vec<usize>,
@@ -141,6 +144,7 @@ pub struct Tree {
     seed: Option<usize>,
     split_history: Vec<SplitRecord>,
     leaf_reasons: HashMap<usize, LeafReason>,
+    #[serde(with = "dataframe_schema_serde")]
     schema: Option<DataFrame>,
     build_status: TreeBuilderStatus,
 }
