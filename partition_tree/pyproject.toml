@@ -1,6 +1,6 @@
 [project]
 name = "partition_tree"
-version = "0.0.2"
+version = "0.0.1"
 description = "Partition Trees for Probabilistic Tasks"
 authors = [ {name = "felipeangelimvieira", email = "felipeangelim@gmail.com"} ]
 readme = "README.md"
@@ -14,6 +14,7 @@ dependencies = [
     "maturin>=1.9.3,<2.0.0",
     "polars>=1.33.1,<2.0.0",
     "pyarrow>=21.0.0",
+    "pyo3-partition-tree>=0.0.2",
 ]
 
 [project.optional-dependencies]
@@ -27,6 +28,11 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["partition_tree*"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+]
 
 [tool.setuptools]
 # Console scripts intentionally removed (fastbench CLI removed per request)

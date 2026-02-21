@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from partition_tree_python import PyPartitionTree
+from pyo3_partition_tree import PyPartitionTree
 from partition_tree.estimators.partition_tree import (
     PartitionTreeRegressor,
     PartitionForestRegressor,

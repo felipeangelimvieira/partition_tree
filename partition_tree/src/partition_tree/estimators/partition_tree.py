@@ -3,7 +3,7 @@ from typing import List, Optional, Tuple
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from sklearn.utils.validation import check_is_fitted, validate_data
 
-from partition_tree_python import PyPartitionForest, PyPartitionTree
+from pyo3_partition_tree import PyPartitionForest, PyPartitionTree
 import numpy as np
 import pandas as pd
 import polars as pl
