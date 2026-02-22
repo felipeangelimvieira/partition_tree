@@ -22,7 +22,9 @@
 //! let ens_mean = ens.mean_vector();
 //! ```
 pub mod conditioned_cell;
+pub mod disjoint;
 pub mod piecewise_distribution;
 
 pub use conditioned_cell::ConditionedCell;
+pub use disjoint::{DisjointError, DisjointResolvable};
 pub use piecewise_distribution::{MeanVector, PiecewiseConstantDistribution};
