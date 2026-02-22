@@ -26,9 +26,15 @@
 use std::collections::HashMap;
 use std::fmt;
 
+use polars::prelude::*;
+
+use crate::rules::{BelongsTo, ContinuousInterval, IntegerInterval};
+
 use super::cell::Cell;
-use super::dataset_view::{ColumnView, DatasetView};
-use super::rule::DynValue;
+use super::dataset_view::{ColumnView, DatasetView, LogicalDType};
+use super::predict::conditioned_cell::ConditionedCell;
+use super::predict::piecewise_distribution::{MeanVector, PiecewiseConstantDistribution};
+use super::rule::{DynRule, DynValue};
 use super::split_result::SplitKind;
 
 // ---------------------------------------------------------------------------
@@ -272,6 +278,167 @@ impl Tree {
             }
         }
         true
+    }
+
+    // -----------------------------------------------------------------------
+    // Distribution-based prediction
+    // -----------------------------------------------------------------------
+
+    /// Predict conditional distributions for all rows in a dataset.
+    ///
+    /// 1. Routes each row to its leaf via [`predict_leaves`](Tree::predict_leaves).
+    /// 2. Builds a [`ConditionedCell`] from each unique leaf (deduplication).
+    /// 3. Wraps each in a [`PiecewiseConstantDistribution`].
+    ///
+    /// Returns a `Vec` of length `dataset.n_rows()`.
+    pub fn predict_distributions(
+        &self,
+        dataset: &dyn DatasetView,
+    ) -> Vec<PiecewiseConstantDistribution> {
+        let leaf_indices = self.predict_leaves(dataset);
+
+        // Build ConditionedCell once per unique leaf
+        let mut cache: HashMap<usize, ConditionedCell> = HashMap::new();
+
+        leaf_indices
+            .into_iter()
+            .map(|leaf_idx| {
+                let cell = cache
+                    .entry(leaf_idx)
+                    .or_insert_with(|| ConditionedCell::from_fitted_node(&self.nodes[leaf_idx]))
+                    .clone();
+                PiecewiseConstantDistribution::from_single(cell)
+            })
+            .collect()
+    }
+
+    /// Predict mean vectors for all rows.
+    ///
+    /// Shorthand for [`predict_distributions`](Tree::predict_distributions)
+    /// followed by [`mean_vector`](PiecewiseConstantDistribution::mean_vector)
+    /// on each distribution.
+    pub fn predict_mean_vectors(
+        &self,
+        dataset: &dyn DatasetView,
+    ) -> Vec<MeanVector> {
+        self.predict_distributions(dataset)
+            .into_iter()
+            .map(|d| d.mean_vector())
+            .collect()
+    }
+
+    /// Predict means as a Polars `DataFrame`.
+    ///
+    /// | Target dtype   | Column type | Conversion                              |
+    /// |----------------|-------------|-----------------------------------------|
+    /// | Continuous     | `Float64`   | Direct midpoint                         |
+    /// | Integer        | `Float64`   | Midpoint (as f64)                       |
+    /// | Categorical    | `Utf8`      | Argmax category name                    |
+    ///
+    /// The output has `n_rows` rows and one column per target dimension.
+    pub fn predict_mean(
+        &self,
+        dataset: &dyn DatasetView,
+    ) -> DataFrame {
+        let mean_vectors = self.predict_mean_vectors(dataset);
+
+        // Discover target columns from root cell
+        let root = self.root();
+        let mut target_cols: Vec<(&String, &dyn DynRule)> = root
+            .cell
+            .target_rules()
+            .collect();
+        // Sort for deterministic column order
+        target_cols.sort_by_key(|(k, _)| (*k).clone());
+
+        let mut columns: Vec<Column> = Vec::with_capacity(target_cols.len());
+
+        for (col_name, rule) in &target_cols {
+            // Determine dtype from the root rule
+            if rule.as_any().downcast_ref::<ContinuousInterval>().is_some() {
+                // Continuous target → Float64 column
+                let values: Vec<f64> = mean_vectors
+                    .iter()
+                    .map(|mv| {
+                        mv.get(col_name.as_str())
+                            .and_then(|v| v.first().copied())
+                            .unwrap_or(f64::NAN)
+                    })
+                    .collect();
+                let series = Series::new(PlSmallStr::from_str(col_name), values);
+                columns.push(series.into());
+            } else if rule.as_any().downcast_ref::<IntegerInterval>().is_some() {
+                // Integer target → Float64 column (midpoint as f64)
+                let values: Vec<f64> = mean_vectors
+                    .iter()
+                    .map(|mv| {
+                        mv.get(col_name.as_str())
+                            .and_then(|v| v.first().copied())
+                            .unwrap_or(f64::NAN)
+                    })
+                    .collect();
+                let series = Series::new(PlSmallStr::from_str(col_name), values);
+                columns.push(series.into());
+            } else if let Some(bt) = rule.as_any().downcast_ref::<BelongsTo>() {
+                // Categorical target → Utf8 column (argmax category name)
+                let domain_names = bt.domain_names.as_ref();
+                let values: Vec<String> = mean_vectors
+                    .iter()
+                    .map(|mv| {
+                        let probs = mv.get(col_name.as_str());
+                        match probs {
+                            Some(p) if !p.is_empty() => {
+                                let argmax = p
+                                    .iter()
+                                    .enumerate()
+                                    .max_by(|(_, a), (_, b)| {
+                                        a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+                                    })
+                                    .map(|(i, _)| i)
+                                    .unwrap_or(0);
+                                domain_names
+                                    .get(argmax)
+                                    .cloned()
+                                    .unwrap_or_else(|| format!("unknown_{argmax}"))
+                            }
+                            _ => "unknown".to_string(),
+                        }
+                    })
+                    .collect();
+                let series = Series::new(PlSmallStr::from_str(col_name), values);
+                columns.push(series.into());
+            }
+        }
+
+        if columns.is_empty() {
+            // No target columns — return empty DataFrame with correct height
+            DataFrame::empty()
+        } else {
+            DataFrame::new(columns).expect("predict_mean: DataFrame construction failed")
+        }
+    }
+
+    /// Get target column metadata from the root cell.
+    ///
+    /// Returns a list of `(column_name, logical_dtype)` pairs for each
+    /// `target__`-prefixed rule in the root cell.
+    pub fn target_schema(&self) -> Vec<(String, LogicalDType)> {
+        let root = self.root();
+        let mut schema = Vec::new();
+        for (name, rule) in root.cell.target_rules() {
+            let dtype = if rule.as_any().downcast_ref::<ContinuousInterval>().is_some() {
+                LogicalDType::Continuous
+            } else if rule.as_any().downcast_ref::<IntegerInterval>().is_some() {
+                LogicalDType::Integer
+            } else if rule.as_any().downcast_ref::<BelongsTo>().is_some() {
+                LogicalDType::Categorical
+            } else {
+                LogicalDType::Continuous // fallback
+            };
+            schema.push((name.clone(), dtype));
+        }
+        schema.sort_by_key(|(k, _)| k.clone());
+        schema
     }
 
     /// Get leaf information for display/debugging.

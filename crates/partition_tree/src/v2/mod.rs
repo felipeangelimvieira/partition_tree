@@ -93,6 +93,7 @@
 //! | [`split_searcher`]  | Orchestrator dispatching to column-level searchers           |
 //! | [`tree_builder`]    | Best-first tree construction loop                            |
 //! | [`tree`]            | Fitted tree with prediction and display APIs                 |
+//! | [`predict`]         | Conditional prediction: distributions, means, ensembling     |
 
 pub mod loss;
 pub mod rule;
@@ -105,6 +106,7 @@ pub mod dtype_plugin;
 pub mod split_searcher;
 pub mod tree_builder;
 pub mod tree;
+pub mod predict;
 
 // ── Re-exports for convenience ──────────────────────────────────────────────
 
@@ -140,3 +142,6 @@ pub use tree_builder::{TreeBuilder, TreeBuilderConfig};
 
 /// Fitted tree, nodes, split records, and leaf summaries.
 pub use tree::{Tree, FittedNode, SplitRecord, LeafInfo};
+
+/// Prediction types: conditioned cells, piecewise distributions, and mean vectors.
+pub use predict::{ConditionedCell, PiecewiseConstantDistribution, MeanVector};
