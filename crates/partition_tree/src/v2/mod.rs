@@ -118,7 +118,7 @@ pub use cell::Cell;
 pub use rule::{DynRule, DynValue};
 
 /// Split result types, restrictions, and priority-queue entry.
-pub use split_result::{SplitKind, SplitOp, ContinuousSplitOp, CategoricalSplitOp, SplitPoint, SplitRestrictions, CandidateSplit};
+pub use split_result::{SplitKind, SplitOp, ContinuousSplitOp, CategoricalSplitOp, IntegerSplitOp, SplitPoint, SplitRestrictions, CandidateSplit};
 
 /// Dataset abstraction and Polars-backed implementation.
 pub use dataset_view::{LogicalDType, ColumnView, DatasetView, PolarsColumnView, PolarsDatasetView};
@@ -127,10 +127,10 @@ pub use dataset_view::{LogicalDType, ColumnView, DatasetView, PolarsColumnView, 
 pub use node::Node;
 
 /// Per-column split search trait and built-in implementations.
-pub use column_split::{ColumnSplitSearcher, ContinuousColumnSplitSearcher, CategoricalColumnSplitSearcher};
+pub use column_split::{ColumnSplitSearcher, ContinuousColumnSplitSearcher, CategoricalColumnSplitSearcher, IntegerColumnSplitSearcher};
 
 /// Dtype plugin trait and registry.
-pub use dtype_plugin::{DTypePlugin, DTypeRegistry, ContinuousPlugin, CategoricalPlugin};
+pub use dtype_plugin::{DTypePlugin, DTypeRegistry, ContinuousPlugin, CategoricalPlugin, IntegerPlugin};
 
 /// Multi-column split orchestrator.
 pub use split_searcher::SplitSearcher;

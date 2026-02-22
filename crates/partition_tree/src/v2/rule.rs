@@ -23,7 +23,7 @@ use std::fmt;
 
 // Re-export the v1 rule types unchanged
 pub use crate::rules::{
-    BelongsTo, BelongsToGeneric, ContinuousInterval, Rule, RuleType, RuleValue,
+    BelongsTo, BelongsToGeneric, ContinuousInterval, IntegerInterval, Rule, RuleType, RuleValue,
 };
 
 // ---------------------------------------------------------------------------
@@ -40,6 +40,8 @@ pub enum DynValue {
     Continuous(f64),
     /// Categorical code (usize).
     Categorical(usize),
+    /// Integer (i64) value.
+    Integer(i64),
 }
 
 // ---------------------------------------------------------------------------
@@ -180,6 +182,50 @@ impl DynRule for BelongsTo {
 }
 
 // ---------------------------------------------------------------------------
+// DynRule impl for IntegerInterval
+// ---------------------------------------------------------------------------
+
+impl DynRule for IntegerInterval {
+    fn volume(&self) -> f64 {
+        <IntegerInterval as Rule<i64>>::volume(self)
+    }
+
+    fn relative_volume(&self) -> f64 {
+        <IntegerInterval as Rule<i64>>::relative_volume(self)
+    }
+
+    fn phi_volume(&self) -> f64 {
+        <IntegerInterval as Rule<i64>>::phi_volume(self)
+    }
+
+    fn mean(&self) -> Vec<f64> {
+        <IntegerInterval as Rule<i64>>::mean(self)
+    }
+
+    fn accept_none(&self) -> bool {
+        self.accept_none
+    }
+
+    fn contains(&self, value: Option<&DynValue>) -> bool {
+        match value {
+            None => self.accept_none,
+            Some(DynValue::Integer(v)) => {
+                <IntegerInterval as Rule<i64>>::_evaluate(self, &Some(*v))
+            }
+            Some(_) => false,
+        }
+    }
+
+    fn clone_box(&self) -> Box<dyn DynRule> {
+        Box::new(self.clone())
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Conversion helpers: RuleType ↔ Box<dyn DynRule>
 // ---------------------------------------------------------------------------
 
@@ -188,6 +234,7 @@ impl From<RuleType> for Box<dyn DynRule> {
         match rt {
             RuleType::Continuous(ci) => Box::new(ci),
             RuleType::BelongsTo(bt) => Box::new(bt),
+            RuleType::Integer(ii) => Box::new(ii),
         }
     }
 }
@@ -202,6 +249,7 @@ impl RuleType {
         match self {
             RuleType::Continuous(ci) => ci.accept_none,
             RuleType::BelongsTo(bt) => bt.accept_none,
+            RuleType::Integer(ii) => ii.accept_none,
         }
     }
 
@@ -210,6 +258,7 @@ impl RuleType {
         match self {
             RuleType::Continuous(ci) => <ContinuousInterval as Rule<f64>>::volume(ci),
             RuleType::BelongsTo(bt) => <BelongsTo as Rule<usize>>::volume(bt),
+            RuleType::Integer(ii) => <IntegerInterval as Rule<i64>>::volume(ii),
         }
     }
 
@@ -218,6 +267,7 @@ impl RuleType {
         match self {
             RuleType::Continuous(ci) => <ContinuousInterval as Rule<f64>>::relative_volume(ci),
             RuleType::BelongsTo(bt) => <BelongsTo as Rule<usize>>::relative_volume(bt),
+            RuleType::Integer(ii) => <IntegerInterval as Rule<i64>>::relative_volume(ii),
         }
     }
 
@@ -226,6 +276,7 @@ impl RuleType {
         match self {
             RuleType::Continuous(ci) => <ContinuousInterval as Rule<f64>>::phi_volume(ci),
             RuleType::BelongsTo(bt) => <BelongsTo as Rule<usize>>::phi_volume(bt),
+            RuleType::Integer(ii) => <IntegerInterval as Rule<i64>>::phi_volume(ii),
         }
     }
 
@@ -234,6 +285,7 @@ impl RuleType {
         match self {
             RuleType::Continuous(ci) => <ContinuousInterval as Rule<f64>>::mean(ci),
             RuleType::BelongsTo(bt) => <BelongsTo as Rule<usize>>::mean(bt),
+            RuleType::Integer(ii) => <IntegerInterval as Rule<i64>>::mean(ii),
         }
     }
 
@@ -255,6 +307,28 @@ impl RuleType {
             RuleType::BelongsTo(_) => {
                 panic!("split_continuous called on a categorical RuleType")
             }
+            RuleType::Integer(_) => {
+                panic!("split_continuous called on an integer RuleType")
+            }
+        }
+    }
+
+    /// Split an integer rule at `threshold`.
+    ///
+    /// Returns `(left, right)` where left covers $[\text{lo}, \text{threshold}-1]$
+    /// and right covers $[\text{threshold}, \text{hi}]$.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called on a non-integer variant.
+    pub fn split_integer(&self, threshold: i64, none_to_left: bool) -> (RuleType, RuleType) {
+        match self {
+            RuleType::Integer(ii) => {
+                let (left, right) =
+                    <IntegerInterval as Rule<i64>>::split(ii, threshold, Some(none_to_left));
+                (RuleType::Integer(left), RuleType::Integer(right))
+            }
+            _ => panic!("split_integer called on a non-integer RuleType"),
         }
     }
 
@@ -276,9 +350,21 @@ impl RuleType {
                 let (left, right) = bt.split_subset(subset_left, Some(none_to_left));
                 (RuleType::BelongsTo(left), RuleType::BelongsTo(right))
             }
-            RuleType::Continuous(_) => {
-                panic!("split_categorical called on a continuous RuleType")
+            RuleType::Continuous(_) | RuleType::Integer(_) => {
+                panic!("split_categorical called on a non-categorical RuleType")
             }
+        }
+    }
+
+    /// Evaluate membership for an integer value.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called on a non-integer variant.
+    pub fn evaluate_integer(&self, value: Option<i64>) -> bool {
+        match self {
+            RuleType::Integer(ii) => <IntegerInterval as Rule<i64>>::_evaluate(ii, &value),
+            _ => panic!("evaluate_integer called on a non-integer RuleType"),
         }
     }
 
@@ -293,8 +379,8 @@ impl RuleType {
     pub fn evaluate_continuous(&self, value: Option<f64>) -> bool {
         match self {
             RuleType::Continuous(ci) => <ContinuousInterval as Rule<f64>>::_evaluate(ci, &value),
-            RuleType::BelongsTo(_) => {
-                panic!("evaluate_continuous called on a categorical RuleType")
+            RuleType::BelongsTo(_) | RuleType::Integer(_) => {
+                panic!("evaluate_continuous called on a non-continuous RuleType")
             }
         }
     }
@@ -310,8 +396,8 @@ impl RuleType {
     pub fn evaluate_categorical(&self, value: Option<usize>) -> bool {
         match self {
             RuleType::BelongsTo(bt) => <BelongsTo as Rule<usize>>::_evaluate(bt, &value),
-            RuleType::Continuous(_) => {
-                panic!("evaluate_categorical called on a continuous RuleType")
+            RuleType::Continuous(_) | RuleType::Integer(_) => {
+                panic!("evaluate_categorical called on a non-categorical RuleType")
             }
         }
     }
@@ -321,6 +407,7 @@ impl RuleType {
         match self {
             RuleType::Continuous(ci) => Some(ci.domain()),
             RuleType::BelongsTo(_) => None,
+            RuleType::Integer(_) => None,
         }
     }
 
@@ -329,6 +416,15 @@ impl RuleType {
         match self {
             RuleType::BelongsTo(bt) => Some(bt.values.len()),
             RuleType::Continuous(_) => None,
+            RuleType::Integer(_) => None,
+        }
+    }
+
+    /// Domain bounds for integer rules, None for other types.
+    pub fn integer_domain(&self) -> Option<(i64, i64)> {
+        match self {
+            RuleType::Integer(ii) => Some(ii.domain()),
+            _ => None,
         }
     }
 }

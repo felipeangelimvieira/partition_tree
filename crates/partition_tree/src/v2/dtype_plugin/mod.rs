@@ -24,9 +24,11 @@
 //! 3. Provide a matching [`ColumnSplitSearcher`].
 pub mod categorical;
 pub mod continuous;
+pub mod integer;
 
 pub use categorical::CategoricalPlugin;
 pub use continuous::ContinuousPlugin;
+pub use integer::IntegerPlugin;
 
 use std::collections::HashMap;
 
@@ -107,11 +109,12 @@ impl DTypeRegistry {
 }
 
 impl Default for DTypeRegistry {
-    /// Create a registry with built-in plugins for Continuous and Categorical.
+    /// Create a registry with built-in plugins for Continuous, Categorical, and Integer.
     fn default() -> Self {
         let mut reg = Self::new();
         reg.register(Box::new(ContinuousPlugin::new()));
         reg.register(Box::new(CategoricalPlugin::new()));
+        reg.register(Box::new(IntegerPlugin::new()));
         reg
     }
 }
@@ -125,9 +128,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_registry_has_both_plugins() {
+    fn default_registry_has_all_plugins() {
         let reg = DTypeRegistry::default();
         assert!(reg.get(LogicalDType::Continuous).is_some());
         assert!(reg.get(LogicalDType::Categorical).is_some());
+        assert!(reg.get(LogicalDType::Integer).is_some());
     }
 }

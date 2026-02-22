@@ -442,16 +442,164 @@ impl BelongsToGeneric<usize> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// IntegerInterval
+// ---------------------------------------------------------------------------
+
+/// Represents a discrete integer interval $[\text{low}, \text{high}]$.
+///
+/// Volume is the count of integers in the range: $\text{high} - \text{low} + 1$.
+/// Splits produce sub-intervals at an integer boundary.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct IntegerInterval {
+    /// Inclusive lower bound.
+    pub low: i64,
+    /// Inclusive upper bound.
+    pub high: i64,
+    /// Domain bounds $(d_{\min}, d_{\max})$ used for relative volume.
+    pub domain: (i64, i64),
+    /// Whether to accept `None` (null / missing) values.
+    pub accept_none: bool,
+}
+
+impl IntegerInterval {
+    /// Create a new integer interval.
+    ///
+    /// `domain` defaults to `(low, high)` if `None`.
+    pub fn new(low: i64, high: i64, domain: Option<(i64, i64)>, accept_none: bool) -> Self {
+        let domain = domain.unwrap_or((low, high));
+        Self {
+            low,
+            high,
+            domain,
+            accept_none,
+        }
+    }
+
+    /// Domain bounds.
+    pub fn domain(&self) -> (i64, i64) {
+        self.domain
+    }
+
+    /// Discrete volume: count of integers in `[low, high]`.
+    fn discrete_volume(lo: i64, hi: i64) -> f64 {
+        if hi < lo {
+            0.0
+        } else {
+            // Use f64 arithmetic to avoid i64 overflow for extreme ranges.
+            (hi as f64) - (lo as f64) + 1.0
+        }
+    }
+}
+
+impl Rule<i64> for IntegerInterval {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn _evaluate_some(&self, value: &i64) -> bool {
+        *value >= self.low && *value <= self.high
+    }
+
+    fn _evaluate_none(&self) -> bool {
+        self.accept_none
+    }
+
+    fn volume(&self) -> f64 {
+        Self::discrete_volume(self.low, self.high)
+    }
+
+    fn relative_volume(&self) -> f64 {
+        let interval = Self::discrete_volume(self.low, self.high);
+        let domain = Self::discrete_volume(self.domain.0, self.domain.1);
+        if domain <= 0.0 {
+            0.0
+        } else {
+            interval / domain
+        }
+    }
+
+    fn mean(&self) -> Vec<f64> {
+        vec![(self.low as f64 + self.high as f64) / 2.0]
+    }
+
+    fn split(&self, threshold: i64, none_to_left: Option<bool>) -> (Self, Self) {
+        let accept_none_left = self.accept_none && none_to_left.unwrap_or(true);
+        let accept_none_right = self.accept_none && !none_to_left.unwrap_or(false);
+
+        // Left: [low, threshold - 1],  Right: [threshold, high]
+        let left = IntegerInterval {
+            low: self.low,
+            high: threshold - 1,
+            domain: self.domain,
+            accept_none: accept_none_left,
+        };
+        let right = IntegerInterval {
+            low: threshold,
+            high: self.high,
+            domain: self.domain,
+            accept_none: accept_none_right,
+        };
+        (left, right)
+    }
+
+    fn inverse_one_hot(&self, vec: &Vec<f64>) -> i64 {
+        assert!(
+            vec.len() == 1,
+            "IntegerInterval expects a single-value vector for inverse_one_hot"
+        );
+        vec[0] as i64
+    }
+
+    fn phi_length(u: f64) -> f64 {
+        if u <= 0.0 {
+            0.0
+        } else {
+            u / (1.0 + u)
+        }
+    }
+}
+
+impl BitAnd for IntegerInterval {
+    type Output = IntegerInterval;
+
+    fn bitand(self, other: Self) -> Self::Output {
+        let low = self.low.max(other.low);
+        let high = self.high.min(other.high);
+        IntegerInterval {
+            low,
+            high,
+            domain: self.domain,
+            accept_none: self.accept_none && other.accept_none,
+        }
+    }
+}
+
+impl fmt::Display for IntegerInterval {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "IntegerInterval([{}, {}], domain=[{}, {}])",
+            self.low, self.high, self.domain.0, self.domain.1
+        )
+    }
+}
+
 // Rule types
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum RuleType {
     Continuous(ContinuousInterval),
     BelongsTo(BelongsTo),
+    Integer(IntegerInterval),
 }
 
 impl RuleType {
     pub fn is_categorical(&self) -> bool {
         matches!(self, RuleType::BelongsTo(_))
+    }
+
+    pub fn is_integer(&self) -> bool {
+        matches!(self, RuleType::Integer(_))
     }
 }
 
@@ -460,6 +608,7 @@ impl fmt::Display for RuleType {
         match self {
             RuleType::Continuous(interval) => write!(f, "{}", interval),
             RuleType::BelongsTo(belongs_to) => write!(f, "{}", belongs_to),
+            RuleType::Integer(interval) => write!(f, "{}", interval),
         }
     }
 }

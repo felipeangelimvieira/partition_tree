@@ -198,6 +198,61 @@ impl fmt::Display for CategoricalSplitOp {
     }
 }
 
+// ---------------------------------------------------------------------------
+// IntegerSplitOp
+// ---------------------------------------------------------------------------
+
+/// Split operation for integer columns: `value < threshold` → left.
+///
+/// The threshold is an integer value. Rows with `value < threshold` go to
+/// the left child; rows with `value >= threshold` go to the right.
+#[derive(Debug, Clone)]
+pub struct IntegerSplitOp {
+    /// Split threshold (integer boundary).
+    pub threshold: i64,
+    /// Position in presorted candidate list (debug / optional).
+    pub k_candidate: usize,
+    /// Position in presorted XY list (debug / optional).
+    pub p_xy: usize,
+}
+
+impl SplitOp for IntegerSplitOp {
+    fn go_left(&self, col: &dyn ColumnView, row_idx: usize, none_to_left: bool) -> bool {
+        match col.get_i64(row_idx) {
+            Some(v) => v < self.threshold,
+            None => none_to_left,
+        }
+    }
+
+    fn split_rule(
+        &self,
+        parent_rule: &dyn DynRule,
+        none_to_left: bool,
+    ) -> (Box<dyn DynRule>, Box<dyn DynRule>) {
+        let ii = parent_rule
+            .as_any()
+            .downcast_ref::<crate::rules::IntegerInterval>()
+            .expect("IntegerSplitOp requires an IntegerInterval rule");
+
+        let (left, right) = <crate::rules::IntegerInterval as crate::rules::Rule<i64>>::split(
+            ii,
+            self.threshold,
+            Some(none_to_left),
+        );
+        (Box::new(left), Box::new(right))
+    }
+
+    fn clone_box(&self) -> Box<dyn SplitOp> {
+        Box::new(self.clone())
+    }
+}
+
+impl fmt::Display for IntegerSplitOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Integer(threshold={})", self.threshold)
+    }
+}
+
 /// Full description of a successful split search on a single column.
 ///
 /// Produced by a [`ColumnSplitSearcher`](super::column_split::ColumnSplitSearcher)

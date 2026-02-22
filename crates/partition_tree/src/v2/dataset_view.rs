@@ -29,8 +29,8 @@ use std::sync::Arc;
 
 use polars::prelude::*;
 
-use crate::conf::TARGET_PREFIX;
 use super::rule::DynValue;
+use crate::conf::TARGET_PREFIX;
 
 // ---------------------------------------------------------------------------
 // Logical dtype enum (shared across v2)
@@ -44,6 +44,7 @@ use super::rule::DynValue;
 pub enum LogicalDType {
     Continuous,
     Categorical,
+    Integer,
 }
 
 // ---------------------------------------------------------------------------
@@ -76,6 +77,9 @@ pub trait ColumnView: Send + Sync {
     /// Get a categorical value at row `idx` as a usize code. Returns `None` for nulls.
     fn get_cat(&self, idx: usize) -> Option<usize>;
 
+    /// Get an integer (i64) value at row `idx`. Returns `None` for nulls.
+    fn get_i64(&self, idx: usize) -> Option<i64>;
+
     /// Whether the value at `idx` is null.
     fn is_null(&self, idx: usize) -> bool;
 
@@ -96,6 +100,7 @@ pub trait ColumnView: Send + Sync {
         match self.logical_dtype() {
             LogicalDType::Continuous => self.get_f64(idx).map(DynValue::Continuous),
             LogicalDType::Categorical => self.get_cat(idx).map(DynValue::Categorical),
+            LogicalDType::Integer => self.get_i64(idx).map(DynValue::Integer),
         }
     }
 }
@@ -174,6 +179,8 @@ pub struct PolarsColumnView {
     f64_values: Option<Vec<Option<f64>>>,
     /// For categorical columns: usize codes indexed by row.
     cat_values: Option<Vec<Option<usize>>>,
+    /// For integer columns: i64 values indexed by row.
+    i64_values: Option<Vec<Option<i64>>>,
     len: usize,
 }
 
@@ -187,36 +194,34 @@ impl PolarsColumnView {
         let name = series.name().to_string();
         let len = series.len();
 
-        let (logical_dtype, f64_values, cat_values) = match series.dtype() {
+        let (logical_dtype, f64_values, cat_values, i64_values) = match series.dtype() {
             DataType::Float64 => {
                 let ca = series.f64().expect("f64 series");
                 let vals: Vec<Option<f64>> = ca.into_iter().collect();
-                (LogicalDType::Continuous, Some(vals), None)
+                (LogicalDType::Continuous, Some(vals), None, None)
             }
             DataType::Float32 => {
                 let ca = series.f32().expect("f32 series");
                 let vals: Vec<Option<f64>> = ca.into_iter().map(|v| v.map(|x| x as f64)).collect();
-                (LogicalDType::Continuous, Some(vals), None)
+                (LogicalDType::Continuous, Some(vals), None, None)
             }
             DataType::Int32 => {
                 let ca = series.i32().expect("i32 series");
-                let vals: Vec<Option<f64>> = ca.into_iter().map(|v| v.map(|x| x as f64)).collect();
-                (LogicalDType::Continuous, Some(vals), None)
+                let vals: Vec<Option<i64>> = ca.into_iter().map(|v| v.map(|x| x as i64)).collect();
+                (LogicalDType::Integer, None, None, Some(vals))
             }
             DataType::Int64 => {
                 let ca = series.i64().expect("i64 series");
-                let vals: Vec<Option<f64>> = ca.into_iter().map(|v| v.map(|x| x as f64)).collect();
-                (LogicalDType::Continuous, Some(vals), None)
+                let vals: Vec<Option<i64>> = ca.into_iter().collect();
+                (LogicalDType::Integer, None, None, Some(vals))
             }
             DataType::Enum(_, _) | DataType::Categorical(_, _) => {
                 let phys = series.to_physical_repr();
-                let phys_u32 = phys
-                    .cast(&DataType::UInt32)
-                    .expect("cast to u32");
+                let phys_u32 = phys.cast(&DataType::UInt32).expect("cast to u32");
                 let ca = phys_u32.u32().expect("u32 chunked");
                 let vals: Vec<Option<usize>> =
                     ca.into_iter().map(|v| v.map(|x| x as usize)).collect();
-                (LogicalDType::Categorical, None, Some(vals))
+                (LogicalDType::Categorical, None, Some(vals), None)
             }
             dt => panic!("PolarsColumnView: unsupported dtype {dt:?}"),
         };
@@ -226,6 +231,7 @@ impl PolarsColumnView {
             logical_dtype,
             f64_values,
             cat_values,
+            i64_values,
             len,
         }
     }
@@ -256,6 +262,12 @@ impl ColumnView for PolarsColumnView {
             .and_then(|v| v.get(idx).copied().flatten())
     }
 
+    fn get_i64(&self, idx: usize) -> Option<i64> {
+        self.i64_values
+            .as_ref()
+            .and_then(|v| v.get(idx).copied().flatten())
+    }
+
     fn is_null(&self, idx: usize) -> bool {
         match self.logical_dtype {
             LogicalDType::Continuous => self
@@ -264,6 +276,10 @@ impl ColumnView for PolarsColumnView {
                 .map_or(true, |v| v.get(idx).map_or(true, |x| x.is_none())),
             LogicalDType::Categorical => self
                 .cat_values
+                .as_ref()
+                .map_or(true, |v| v.get(idx).map_or(true, |x| x.is_none())),
+            LogicalDType::Integer => self
+                .i64_values
                 .as_ref()
                 .map_or(true, |v| v.get(idx).map_or(true, |x| x.is_none())),
         }
@@ -364,7 +380,9 @@ impl PolarsDatasetView {
                     let va = col.get_f64(a as usize);
                     let vb = col.get_f64(b as usize);
                     match (va, vb) {
-                        (Some(x), Some(y)) => x.partial_cmp(&y).unwrap_or(std::cmp::Ordering::Equal),
+                        (Some(x), Some(y)) => {
+                            x.partial_cmp(&y).unwrap_or(std::cmp::Ordering::Equal)
+                        }
                         (Some(_), None) => std::cmp::Ordering::Less,
                         (None, Some(_)) => std::cmp::Ordering::Greater,
                         (None, None) => std::cmp::Ordering::Equal,
@@ -375,6 +393,18 @@ impl PolarsDatasetView {
                 indices.sort_by(|&a, &b| {
                     let va = col.get_cat(a as usize);
                     let vb = col.get_cat(b as usize);
+                    match (va, vb) {
+                        (Some(x), Some(y)) => x.cmp(&y),
+                        (Some(_), None) => std::cmp::Ordering::Less,
+                        (None, Some(_)) => std::cmp::Ordering::Greater,
+                        (None, None) => std::cmp::Ordering::Equal,
+                    }
+                });
+            }
+            LogicalDType::Integer => {
+                indices.sort_by(|&a, &b| {
+                    let va = col.get_i64(a as usize);
+                    let vb = col.get_i64(b as usize);
                     match (va, vb) {
                         (Some(x), Some(y)) => x.cmp(&y),
                         (Some(_), None) => std::cmp::Ordering::Less,
