@@ -1,0 +1,312 @@
+//! Split result types for the v2 partition tree.
+//!
+//! This module defines the types that describe the outcome of a split search:
+//!
+//! - [`SplitKind`] — whether the split refines the feature or target space.
+//! - [`SplitDetail`] — dtype-specific split parameters (threshold or subset).
+//! - [`SplitPoint`] — full description of a chosen split (column, gain, child stats).
+//! - [`SplitRestrictions`] — constraints a candidate split must satisfy.
+//! - [`CandidateSplit`] — priority-queue entry pairing a node index with its best split.
+use std::collections::HashSet;
+use std::fmt;
+
+use super::loss::CellStats;
+
+/// Whether a split refines the feature space (X) or the target space (Y).
+///
+/// This classification drives two critical behaviours:
+///
+/// 1. **Index propagation** — [`Node::propagate_children`](super::node::Node::propagate_children)
+///    only partitions `sorted_x` for `XSplit` and `sorted_y` for `YSplit`;
+///    the other family is inherited unchanged.
+/// 2. **Volume computation** — `XSplit` leaves target volume unchanged;
+///    `YSplit` updates it from the split rule.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SplitKind {
+    /// Feature split: refines A_X, A_Y unchanged.
+    XSplit,
+    /// Target split: refines A_Y, A_X unchanged.
+    YSplit,
+}
+
+impl fmt::Display for SplitKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SplitKind::XSplit => write!(f, "XSplit"),
+            SplitKind::YSplit => write!(f, "YSplit"),
+        }
+    }
+}
+
+/// Dtype-specific split parameters.
+///
+/// Carried inside a [`SplitPoint`] and used by
+/// [`Node::propagate_children`](super::node::Node::propagate_children)
+/// to build the `go_left` oracle.
+#[derive(Debug, Clone)]
+pub enum SplitDetail {
+    /// A continuous split: samples with `col[idx] < threshold` go left.
+    ///
+    /// `k_candidate` and `p_xy` record the positions in the presorted
+    /// candidate and XY lists for debugging / accelerated propagation.
+    Continuous {
+        threshold: f64,
+        k_candidate: usize,
+        p_xy: usize,
+    },
+    /// Categorical split by subset.
+    /// `subset_left` contains the category codes routed to the left child.
+    Categorical { subset_left: HashSet<usize> },
+}
+
+impl fmt::Display for SplitDetail {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SplitDetail::Continuous { threshold, .. } => {
+                write!(f, "Continuous(threshold={threshold:.6})")
+            }
+            SplitDetail::Categorical { subset_left } => {
+                write!(f, "Categorical(|subset|={})", subset_left.len())
+            }
+        }
+    }
+}
+
+/// Full description of a successful split search on a single column.
+///
+/// Produced by a [`ColumnSplitSearcher`](super::column_split::ColumnSplitSearcher)
+/// and consumed by the [`TreeBuilder`](super::tree_builder::TreeBuilder) to
+/// create child nodes and record split history.
+#[derive(Debug, Clone)]
+pub struct SplitPoint {
+    /// Column that was split.
+    pub col_name: String,
+    /// Whether this is a feature (X) or target (Y) split.
+    pub split_kind: SplitKind,
+    /// Whether null values are routed to the left child.
+    pub none_to_left: bool,
+    /// Information gain of this split.
+    pub gain: f64,
+    /// Statistics of the left child cell.
+    pub left_stats: CellStats,
+    /// Statistics of the right child cell.
+    pub right_stats: CellStats,
+    /// Dtype-specific split information.
+    pub detail: SplitDetail,
+}
+
+impl fmt::Display for SplitPoint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "SplitPoint({}, {}, gain={:.6}, none_left={}, {})",
+            self.col_name, self.split_kind, self.gain, self.none_to_left, self.detail
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Split Restrictions
+// ---------------------------------------------------------------------------
+
+/// Constraints that a candidate split must satisfy to be accepted.
+///
+/// These are checked both before searching (via [`can_split`](SplitRestrictions::can_split))
+/// and after evaluating each candidate (via
+/// [`is_valid_children`](SplitRestrictions::is_valid_children)).
+///
+/// # Defaults
+///
+/// The `Default` implementation uses permissive values:
+///
+/// | Field               | Default         |
+/// |---------------------|-----------------|
+/// | `min_samples_xy`    | 1.0             |
+/// | `min_samples_x`     | 1.0             |
+/// | `min_samples_y`     | 1.0             |
+/// | `min_gain`          | 0.0             |
+/// | `min_volume`        | 0.0             |
+/// | `max_depth`         | `usize::MAX`    |
+/// | `min_samples_split` | 2.0             |
+#[derive(Debug, Clone)]
+pub struct SplitRestrictions {
+    /// Minimum w_xy in each child.
+    pub min_samples_xy: f64,
+    /// Minimum w_x in each child.
+    pub min_samples_x: f64,
+    /// Minimum w_y in each child.
+    pub min_samples_y: f64,
+    /// Minimum information gain.
+    pub min_gain: f64,
+    /// Minimum target volume in each child.
+    pub min_volume: f64,
+    /// Maximum tree depth (inclusive).
+    pub max_depth: usize,
+    /// Minimum total samples (w_xy) in the parent to attempt a split.
+    pub min_samples_split: f64,
+}
+
+impl Default for SplitRestrictions {
+    fn default() -> Self {
+        Self {
+            min_samples_xy: 1.0,
+            min_samples_x: 1.0,
+            min_samples_y: 1.0,
+            min_gain: 0.0,
+            min_volume: 0.0,
+            max_depth: usize::MAX,
+            min_samples_split: 2.0,
+        }
+    }
+}
+
+impl SplitRestrictions {
+    /// Check whether a node is eligible for splitting (before searching).
+    pub fn can_split(&self, w_xy: f64, depth: usize) -> bool {
+        w_xy >= self.min_samples_split && depth < self.max_depth
+    }
+
+    /// Validate that both children satisfy all restrictions.
+    pub fn is_valid_children(&self, left: &CellStats, right: &CellStats, depth: usize) -> bool {
+        if depth >= self.max_depth {
+            return false;
+        }
+
+        // Sample count constraints
+        if left.w_xy < self.min_samples_xy || right.w_xy < self.min_samples_xy {
+            return false;
+        }
+        if left.w_x < self.min_samples_x || right.w_x < self.min_samples_x {
+            return false;
+        }
+        if left.w_y < self.min_samples_y || right.w_y < self.min_samples_y {
+            return false;
+        }
+
+        // Volume constraints
+        if left.volume < self.min_volume || right.volume < self.min_volume {
+            return false;
+        }
+
+        true
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Candidate Split (for the priority queue in TreeBuilder)
+// ---------------------------------------------------------------------------
+
+/// A candidate split stored in the best-first priority queue.
+///
+/// Wraps a [`SplitPoint`] together with the index of the node to split.
+/// Ordered by gain (highest gain = highest priority) for use in a
+/// [`BinaryHeap`](std::collections::BinaryHeap).
+#[derive(Debug, Clone)]
+pub struct CandidateSplit {
+    /// Index into the node arena.
+    pub node_index: usize,
+    /// The best split found for this node.
+    pub split: SplitPoint,
+}
+
+impl CandidateSplit {
+    pub fn gain(&self) -> f64 {
+        self.split.gain
+    }
+}
+
+impl PartialEq for CandidateSplit {
+    fn eq(&self, other: &Self) -> bool {
+        self.gain() == other.gain()
+    }
+}
+
+impl Eq for CandidateSplit {}
+
+impl PartialOrd for CandidateSplit {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for CandidateSplit {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.gain()
+            .partial_cmp(&other.gain())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_restrictions_allow_basic_split() {
+        let r = SplitRestrictions::default();
+        assert!(r.can_split(10.0, 0));
+        assert!(!r.can_split(1.0, 0)); // below min_samples_split
+    }
+
+    #[test]
+    fn restrictions_respect_max_depth() {
+        let r = SplitRestrictions {
+            max_depth: 3,
+            ..Default::default()
+        };
+        assert!(r.can_split(10.0, 2));
+        assert!(!r.can_split(10.0, 3));
+    }
+
+    #[test]
+    fn is_valid_children_checks_all_constraints() {
+        let r = SplitRestrictions {
+            min_samples_xy: 5.0,
+            min_samples_x: 3.0,
+            min_samples_y: 3.0,
+            min_volume: 0.1,
+            max_depth: 10,
+            ..Default::default()
+        };
+
+        let left = CellStats::new(10.0, 20.0, 15.0, 1.0);
+        let right = CellStats::new(10.0, 20.0, 15.0, 1.0);
+        assert!(r.is_valid_children(&left, &right, 0));
+
+        // Fail on min_samples_xy
+        let bad = CellStats::new(2.0, 20.0, 15.0, 1.0);
+        assert!(!r.is_valid_children(&left, &bad, 0));
+
+        // Fail on min_volume
+        let low_vol = CellStats::new(10.0, 20.0, 15.0, 0.01);
+        assert!(!r.is_valid_children(&left, &low_vol, 0));
+    }
+
+    #[test]
+    fn candidate_split_ordering() {
+        let make = |gain: f64| CandidateSplit {
+            node_index: 0,
+            split: SplitPoint {
+                col_name: "x".into(),
+                split_kind: SplitKind::XSplit,
+                none_to_left: true,
+                gain,
+                left_stats: CellStats::new(0.0, 0.0, 0.0, 0.0),
+                right_stats: CellStats::new(0.0, 0.0, 0.0, 0.0),
+                detail: SplitDetail::Continuous {
+                    threshold: 0.0,
+                    k_candidate: 0,
+                    p_xy: 0,
+                },
+            },
+        };
+
+        let a = make(1.0);
+        let b = make(2.0);
+        assert!(b > a);
+    }
+}
