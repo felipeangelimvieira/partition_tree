@@ -1,7 +1,7 @@
 //! Integration tests for `PartitionForestV2`.
 
 use estimators::api::Estimator;
-use partition_tree::v2::forest::PartitionForestV2;
+use partition_tree::forest::PartitionForestV2;
 use polars::prelude::*;
 
 // ---------------------------------------------------------------------------

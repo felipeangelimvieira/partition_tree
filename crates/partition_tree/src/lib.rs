@@ -1,43 +1,131 @@
 //! # Partition Tree
 //!
-//! A Rust library for working with rules and decision trees.
+//! A trait-driven, extensible partition tree implementation that models
+//! conditional density estimation via recursive space partitioning.
 //!
-//! ## Key Features
+//! ## Overview
 //!
-//! - **Generic BelongsTo Rule**: Optimized categorical rule with O(1) membership tests
-//! - **Memory Efficient**: Shared ordered domain storage via `Arc<Vec<T>>`
-//! - **Type Safe**: Generic rules work with any hashable type
+//! The library is built around four key extension points:
 //!
-//! ## Example
+//! | Trait                    | Purpose                                          |
+//! |--------------------------|--------------------------------------------------|
+//! | [`LossFunc`]             | Defines split gain (conditional, balanced, custom)|
+//! | [`ColumnSplitSearcher`]  | Per-dtype split algorithm                        |
+//! | [`DTypePlugin`]          | Dtype-specific rules and searchers               |
+//! | [`DatasetView`]          | Backend-agnostic tabular data access             |
+//!
+//! ## Architecture
+//!
+//! ```text
+//!   DatasetView (Polars impl)
+//!        │
+//!        ▼
+//!   TreeBuilder ──► SplitSearcher ──► DTypeRegistry
+//!        │               │                  │
+//!        │               ▼                  ▼
+//!        │          ColumnSplitSearcher   DTypePlugin
+//!        │          (Continuous / Cat.)   (rules, searchers)
+//!        │
+//!        ▼
+//!   Tree (FittedNode arena + leaves + split history)
+//! ```
+//!
+//! ## Quick Start
 //!
 //! ```rust,ignore
 //! use std::sync::Arc;
-//! use partition_tree::{rules::BelongsTo, rules::Rule};
+//! use partition_tree::{
+//!     TreeBuilder, TreeBuilderConfig, SplitRestrictions,
+//!     ConditionalLogLoss, DTypeRegistry, PolarsDatasetView,
+//! };
 //!
-//! // Create a shared ordered domain for memory efficiency (using usize indices for categorical data)
-//! let domain = Arc::new((0..4).collect::<Vec<usize>>());
-//! let domain_names = Arc::new(["a", "b", "c", "d"].iter().map(|s| s.to_string()).collect::<Vec<_>>());
-//! // Active categories supplied in insertion order
-//! let rule = BelongsTo::new([0usize, 2usize].into_iter(), Arc::clone(&domain), Arc::clone(&domain_names), false);
+//! // 1. Wrap your Polars DataFrame
+//! let dataset = PolarsDatasetView::new(&df);
 //!
-//! // Fast O(1) membership testing on categorical indices (preserves order)
-//! let data = vec![Some(0), Some(1), Some(2), Some(3)];
-//! let results = rule.evaluate(&data); // [true, false, true, false]
+//! // 2. Configure and build
+//! let config = TreeBuilderConfig {
+//!     max_leaves: 8,
+//!     boundaries_expansion_factor: 0.0,
+//!     restrictions: SplitRestrictions { max_depth: 5, ..Default::default() },
+//! };
+//! let loss = Box::new(ConditionalLogLoss::new(dataset.n_rows() as f64));
+//! let registry = Arc::new(DTypeRegistry::default());
+//! let tree = TreeBuilder::new(config, loss, registry).build(&dataset);
+//!
+//! // 3. Inspect results
+//! println!("{tree}");
 //! ```
 
-// Module declarations
+// ── Core modules ────────────────────────────────────────────────────────────
+
 pub mod cell;
+pub mod column_split;
 pub mod conf;
-pub mod dataframe;
-pub mod density;
-pub mod dtype_adapter;
+pub mod dataset_view;
+pub mod dtype_plugin;
 pub mod estimator;
-pub mod estimator_forest;
+pub mod forest;
+pub mod loss;
 pub mod node;
-pub mod onedimpartition;
 pub mod predict;
+pub mod rule;
 pub mod rules;
 pub mod serde;
-pub mod split;
+pub mod split_result;
+pub mod split_searcher;
 pub mod tree;
-pub mod v2;
+pub mod tree_builder;
+
+// ── Re-exports for convenience ──────────────────────────────────────────────
+
+/// Loss function trait and built-in implementations.
+pub use loss::{BalancedLogLoss, CellStats, ConditionalLogLoss, LossFunc};
+
+/// Multi-dimensional partition constraint.
+pub use cell::Cell;
+
+/// Rule types and dtype-erased rule trait.
+pub use rule::{DynRule, DynValue};
+
+/// Split result types, restrictions, and priority-queue entry.
+pub use split_result::{
+    CandidateSplit, CategoricalSplitOp, ContinuousSplitOp, IntegerSplitOp, SplitKind, SplitOp,
+    SplitPoint, SplitRestrictions,
+};
+
+/// Dataset abstraction and Polars-backed implementation.
+pub use dataset_view::{
+    ColumnView, DatasetView, LogicalDType, PolarsColumnView, PolarsDatasetView,
+};
+
+/// Construction-time tree node.
+pub use node::Node;
+
+/// Per-column split search trait and built-in implementations.
+pub use column_split::{
+    CategoricalColumnSplitSearcher, ColumnSplitSearcher, ContinuousColumnSplitSearcher,
+    IntegerColumnSplitSearcher,
+};
+
+/// Dtype plugin trait and registry.
+pub use dtype_plugin::{
+    CategoricalPlugin, ContinuousPlugin, DTypePlugin, DTypeRegistry, IntegerPlugin,
+};
+
+/// Multi-column split orchestrator.
+pub use split_searcher::SplitSearcher;
+
+/// Tree builder configuration and best-first construction.
+pub use tree_builder::{TreeBuilder, TreeBuilderConfig};
+
+/// Fitted tree, nodes, split records, and leaf summaries.
+pub use tree::{FittedNode, LeafInfo, SplitRecord, Tree};
+
+/// Prediction types: conditioned cells, piecewise distributions, and mean vectors.
+pub use predict::{ConditionedCell, MeanVector, PiecewiseConstantDistribution};
+
+/// Estimator wrapper (implements `estimators::api::Estimator`).
+pub use estimator::PartitionTreeV2;
+
+/// Forest estimator (implements `estimators::api::Estimator`).
+pub use forest::PartitionForestV2;
