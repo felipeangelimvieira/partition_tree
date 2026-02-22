@@ -51,7 +51,7 @@ use crate::tree_builder::{TreeBuilder, TreeBuilderConfig};
 /// Stores the builder configuration as public fields (mirroring v1's
 /// `PartitionTree` API) plus a fitted `Tree` after calling `fit`.
 #[derive(Serialize, Deserialize)]
-pub struct PartitionTreeV2 {
+pub struct PartitionTree {
     // ── Builder configuration ──────────────────────────────────────────
     /// Maximum number of leaves (`max_iter + 1` equivalent).
     pub max_leaves: usize,
@@ -80,7 +80,7 @@ pub struct PartitionTreeV2 {
     pub schema: Option<Schema>,
 }
 
-impl PartitionTreeV2 {
+impl PartitionTree {
     /// Create a new estimator with full control over all parameters.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -237,7 +237,7 @@ impl PartitionTreeV2 {
 // Estimator trait implementation
 // ---------------------------------------------------------------------------
 
-impl Estimator for PartitionTreeV2 {
+impl Estimator for PartitionTree {
     fn _fit_impl(
         &mut self,
         x: &DataFrame,
@@ -283,7 +283,7 @@ impl Estimator for PartitionTreeV2 {
         self.tree = Some(tree);
         self.schema = Some(schema.clone());
 
-        Ok(PartitionTreeV2 {
+        Ok(PartitionTree {
             max_leaves: self.max_leaves,
             boundaries_expansion_factor: self.boundaries_expansion_factor,
             min_samples_xy: self.min_samples_xy,
@@ -359,7 +359,7 @@ mod tests {
     #[test]
     fn fit_and_predict_roundtrip() {
         let (x, y) = make_xy();
-        let mut model = PartitionTreeV2::new(13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0);
+        let mut model = PartitionTree::new(13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0);
         let fitted = model.fit(&x, &y, None).expect("fit should succeed");
         let preds = fitted.predict(&x).expect("predict should succeed");
 
@@ -373,7 +373,7 @@ mod tests {
     #[test]
     fn predict_proba_returns_distributions() {
         let (x, y) = make_xy();
-        let mut model = PartitionTreeV2::new(13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0);
+        let mut model = PartitionTree::new(13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0);
         let fitted = model.fit(&x, &y, None).unwrap();
         let dists = fitted
             .predict_proba(&x)
@@ -391,7 +391,7 @@ mod tests {
     #[test]
     fn feature_importances_are_nonempty() {
         let (x, y) = make_xy();
-        let mut model = PartitionTreeV2::new(13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0);
+        let mut model = PartitionTree::new(13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0);
         let fitted = model.fit(&x, &y, None).unwrap();
         let imp = fitted.feature_importances(true).unwrap();
 
@@ -407,7 +407,7 @@ mod tests {
     #[test]
     fn apply_returns_leaf_indices() {
         let (x, y) = make_xy();
-        let mut model = PartitionTreeV2::new(13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0);
+        let mut model = PartitionTree::new(13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0);
         let fitted = model.fit(&x, &y, None).unwrap();
         let leaf_indices = fitted.apply(&x).unwrap();
 
@@ -424,7 +424,7 @@ mod tests {
     #[test]
     fn leaves_info_matches_tree() {
         let (x, y) = make_xy();
-        let mut model = PartitionTreeV2::new(13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0);
+        let mut model = PartitionTree::new(13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0);
         let fitted = model.fit(&x, &y, None).unwrap();
         let infos = fitted.leaves_info().unwrap();
 
@@ -434,7 +434,7 @@ mod tests {
 
     #[test]
     fn not_fitted_returns_error() {
-        let model = PartitionTreeV2::with_defaults();
+        let model = PartitionTree::with_defaults();
         let x = DataFrame::new(vec![Column::new(
             PlSmallStr::from_static("x1"),
             vec![1.0f64],
@@ -457,7 +457,7 @@ mod tests {
     fn predictions_match_actual_values() {
         // y = 2*x1, so for x1=1 → y=2, x1=2 → y=4
         let (x, y) = make_xy();
-        let mut model = PartitionTreeV2::new(13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0);
+        let mut model = PartitionTree::new(13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0);
         let fitted = model.fit(&x, &y, None).unwrap();
         let preds = fitted.predict(&x).unwrap();
 
@@ -478,7 +478,7 @@ mod tests {
     #[test]
     fn serde_roundtrip_bincode() {
         let (x, y) = make_xy();
-        let mut model = PartitionTreeV2::new(13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0);
+        let mut model = PartitionTree::new(13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0);
         let fitted = model.fit(&x, &y, None).unwrap();
 
         // ── Serialize ──
@@ -486,7 +486,7 @@ mod tests {
         assert!(!bytes.is_empty());
 
         // ── Deserialize ──
-        let restored: PartitionTreeV2 =
+        let restored: PartitionTree =
             bincode::deserialize(&bytes).expect("deserialize should succeed");
 
         // ── Config fields should match ──

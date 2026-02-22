@@ -63,8 +63,7 @@ pub mod column_split;
 pub mod conf;
 pub mod dataset_view;
 pub mod dtype_plugin;
-pub mod estimator;
-pub mod forest;
+pub mod estimators;
 pub mod loss;
 pub mod node;
 pub mod predict;
@@ -125,7 +124,7 @@ pub use tree::{FittedNode, LeafInfo, SplitRecord, Tree};
 pub use predict::{ConditionedCell, MeanVector, PiecewiseConstantDistribution};
 
 /// Estimator wrapper (implements `estimators::api::Estimator`).
-pub use estimator::PartitionTreeV2;
+pub use estimators::PartitionTree;
 
 /// Forest estimator (implements `estimators::api::Estimator`).
-pub use forest::PartitionForestV2;
+pub use estimators::PartitionForest;

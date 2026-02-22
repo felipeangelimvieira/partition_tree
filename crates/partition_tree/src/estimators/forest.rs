@@ -54,7 +54,7 @@ use crate::tree_builder::{TreeBuilder, TreeBuilderConfig};
 /// | `predict_mean_vectors`| `Vec<MeanVector>`                              |
 /// | `feature_importances` | `HashMap<String, f64>`                         |
 #[derive(Serialize, Deserialize)]
-pub struct PartitionForestV2 {
+pub struct PartitionForest {
     // ── Forest-level parameters ───────────────────────────────────────
     /// Number of trees in the ensemble.
     pub n_estimators: usize,
@@ -89,7 +89,7 @@ pub struct PartitionForestV2 {
     pub schema: Option<Schema>,
 }
 
-impl PartitionForestV2 {
+impl PartitionForest {
     /// Create a new forest estimator with full control over parameters.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -293,7 +293,7 @@ impl PartitionForestV2 {
 // Default trait
 // ---------------------------------------------------------------------------
 
-impl Default for PartitionForestV2 {
+impl Default for PartitionForest {
     fn default() -> Self {
         Self::with_defaults()
     }
@@ -303,7 +303,7 @@ impl Default for PartitionForestV2 {
 // Estimator trait implementation
 // ---------------------------------------------------------------------------
 
-impl Estimator for PartitionForestV2 {
+impl Estimator for PartitionForest {
     fn _fit_impl(
         &mut self,
         x: &DataFrame,
@@ -362,7 +362,7 @@ impl Estimator for PartitionForestV2 {
         self.trees = Some(fitted_trees);
         self.schema = Some(schema.clone());
 
-        Ok(PartitionForestV2 {
+        Ok(PartitionForest {
             n_estimators: self.n_estimators,
             seed: self.seed,
             max_leaves: self.max_leaves,
@@ -417,7 +417,7 @@ impl Estimator for PartitionForestV2 {
     }
 }
 
-impl PartitionForestV2 {
+impl PartitionForest {
     /// Convert mean vectors to a DataFrame using target schema from a tree.
     fn mean_vectors_to_dataframe(mean_vectors: &[MeanVector], tree: &Tree) -> DataFrame {
         use crate::rule::DynRule;

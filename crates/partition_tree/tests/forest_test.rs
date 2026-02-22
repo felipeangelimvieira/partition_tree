@@ -1,7 +1,7 @@
-//! Integration tests for `PartitionForestV2`.
+//! Integration tests for `PartitionForest`.
 
 use estimators::api::Estimator;
-use partition_tree::forest::PartitionForestV2;
+use partition_tree::PartitionForest;
 use polars::prelude::*;
 
 // ---------------------------------------------------------------------------
@@ -32,9 +32,9 @@ fn make_xy() -> (DataFrame, DataFrame) {
 }
 
 /// Build a small forest with sensible test parameters.
-fn fit_forest(n_estimators: usize) -> (PartitionForestV2, DataFrame) {
+fn fit_forest(n_estimators: usize) -> (PartitionForest, DataFrame) {
     let (x, y) = make_xy();
-    let mut model = PartitionForestV2::new(
+    let mut model = PartitionForest::new(
         n_estimators,
         /* max_leaves */ 13,
         /* boundaries_expansion_factor */ 0.0,
@@ -136,7 +136,7 @@ fn n_trees_matches_n_estimators() {
 fn not_fitted_returns_error() {
     use estimators::api::PredictError;
 
-    let model = PartitionForestV2::with_defaults();
+    let model = PartitionForest::with_defaults();
     let x = DataFrame::new(vec![Column::new(
         PlSmallStr::from_static("x1"),
         vec![1.0f64],
@@ -175,7 +175,7 @@ fn predictions_match_actual_values() {
 
 #[test]
 fn default_creates_valid_config() {
-    let model = PartitionForestV2::default();
+    let model = PartitionForest::default();
     assert_eq!(model.n_estimators, 100);
     assert_eq!(model.n_trees(), 0);
     assert!(model.trees.is_none());
@@ -207,7 +207,7 @@ fn serde_roundtrip_bincode() {
     assert!(!bytes.is_empty());
 
     // ── Deserialize ──
-    let restored: PartitionForestV2 =
+    let restored: PartitionForest =
         bincode::deserialize(&bytes).expect("deserialize should succeed");
 
     // ── Config should match ──
