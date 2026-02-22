@@ -114,8 +114,11 @@ pub use loss::{CellStats, LossFunc, ConditionalLogLoss, BalancedLogLoss};
 /// Multi-dimensional partition constraint.
 pub use cell::Cell;
 
+/// Rule types and dtype-erased rule trait.
+pub use rule::{DynRule, DynValue};
+
 /// Split result types, restrictions, and priority-queue entry.
-pub use split_result::{SplitKind, SplitDetail, SplitPoint, SplitRestrictions, CandidateSplit};
+pub use split_result::{SplitKind, SplitOp, ContinuousSplitOp, CategoricalSplitOp, SplitPoint, SplitRestrictions, CandidateSplit};
 
 /// Dataset abstraction and Polars-backed implementation.
 pub use dataset_view::{LogicalDType, ColumnView, DatasetView, PolarsColumnView, PolarsDatasetView};

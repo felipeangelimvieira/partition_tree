@@ -28,8 +28,8 @@
 use std::collections::HashMap;
 
 use super::cell::Cell;
-use super::dataset_view::{ColumnView, DatasetView, LogicalDType};
-use super::split_result::{SplitDetail, SplitKind, SplitPoint};
+use super::dataset_view::{DatasetView};
+use super::split_result::{SplitKind, SplitPoint};
 
 // ---------------------------------------------------------------------------
 // Sorted Indices
@@ -174,7 +174,7 @@ impl Node {
     /// Propagate presorted indices from this (parent) node to left and right
     /// children after a split has been chosen.
     ///
-    /// A `go_left` oracle is built from the [`SplitDetail`]: for each sample
+    /// A `go_left` oracle is built from the [`SplitOp`](super::split_result::SplitOp): for each sample
     /// index it returns `true` when that sample belongs to the left child.
     ///
     /// # Split-kind semantics
@@ -208,26 +208,10 @@ impl Node {
 
         let none_to_left = split.none_to_left;
 
-        // Build the go_left oracle based on split detail
-        let go_left: Box<dyn Fn(u32) -> bool + Send + Sync> = match &split.detail {
-            SplitDetail::Continuous { threshold, .. } => {
-                let t = *threshold;
-                Box::new(move |idx: u32| {
-                    match col_view.get_f64(idx as usize) {
-                        Some(v) => v < t,
-                        None => none_to_left,
-                    }
-                })
-            }
-            SplitDetail::Categorical { subset_left } => {
-                let subset = subset_left.clone();
-                Box::new(move |idx: u32| {
-                    match col_view.get_cat(idx as usize) {
-                        Some(v) => subset.contains(&v),
-                        None => none_to_left,
-                    }
-                })
-            }
+        // Build the go_left oracle from the split's SplitOp
+        let go_left: Box<dyn Fn(u32) -> bool + Send + Sync> = {
+            let op = split.op.clone();
+            Box::new(move |idx: u32| op.go_left(col_view, idx as usize, none_to_left))
         };
 
         let weights_xy = dataset.weights_xy();
@@ -401,13 +385,12 @@ fn stable_partition(list: &[u32], predicate: &dyn Fn(u32) -> bool) -> (Vec<u32>,
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rules::{BelongsTo, ContinuousInterval};
+    use crate::rules::{ContinuousInterval};
     use crate::v2::dataset_view::PolarsDatasetView;
     use crate::v2::loss::CellStats;
-    use crate::v2::rule::RuleType;
-    use crate::v2::split_result::{SplitDetail, SplitKind, SplitPoint};
+    use crate::v2::rule::DynRule;
+    use crate::v2::split_result::{ContinuousSplitOp, SplitKind, SplitPoint};
     use polars::prelude::*;
-    use std::sync::Arc;
 
     fn make_simple_dataset() -> (DataFrame, PolarsDatasetView) {
         let df = DataFrame::new(vec![
@@ -423,25 +406,25 @@ mod tests {
         Cell::new()
             .with_rule(
                 "x1",
-                RuleType::Continuous(ContinuousInterval::new(
+                Box::new(ContinuousInterval::new(
                     f64::NEG_INFINITY,
                     f64::INFINITY,
                     true,
                     true,
                     Some((f64::NEG_INFINITY, f64::INFINITY)),
                     true,
-                )),
+                )) as Box<dyn DynRule>,
             )
             .with_rule(
                 "target__y1",
-                RuleType::Continuous(ContinuousInterval::new(
+                Box::new(ContinuousInterval::new(
                     0.0,
                     60.0,
                     true,
                     true,
                     Some((0.0, 60.0)),
                     true,
-                )),
+                )) as Box<dyn DynRule>,
             )
     }
 
@@ -466,6 +449,7 @@ mod tests {
         let root = Node::root(&view, cell);
 
         // Split x1 at 2.5: left gets indices where x1 < 2.5 (rows 0, 2)
+        let op = ContinuousSplitOp { threshold: 2.5, k_candidate: 1, p_xy: 2 };
         let split = SplitPoint {
             col_name: "x1".to_string(),
             split_kind: SplitKind::XSplit,
@@ -473,14 +457,10 @@ mod tests {
             gain: 1.0,
             left_stats: CellStats::new(2.0, 2.0, 5.0, 60.0),
             right_stats: CellStats::new(3.0, 3.0, 5.0, 60.0),
-            detail: SplitDetail::Continuous {
-                threshold: 2.5,
-                k_candidate: 1,
-                p_xy: 2,
-            },
+            op: Box::new(op.clone()),
         };
 
-        let (left_cell, right_cell) = root.cell.split_continuous("x1", 2.5, true);
+        let (left_cell, right_cell) = root.cell.apply_split("x1", &op, true);
         let (left, right) = root.propagate_children(&split, &view, left_cell, right_cell);
 
         // Left should have 2 XY samples (x1 values 1.0 and 2.0)
@@ -516,6 +496,7 @@ mod tests {
 
         // YSplit on target__y1 at 25.0: left gets rows with target__y1 < 25
         // (rows 0, 2 with values 10.0, 20.0)
+        let op = ContinuousSplitOp { threshold: 25.0, k_candidate: 1, p_xy: 2 };
         let split = SplitPoint {
             col_name: "target__y1".to_string(),
             split_kind: SplitKind::YSplit,
@@ -523,14 +504,10 @@ mod tests {
             gain: 1.0,
             left_stats: CellStats::new(2.0, 5.0, 2.0, 25.0),
             right_stats: CellStats::new(3.0, 5.0, 3.0, 35.0),
-            detail: SplitDetail::Continuous {
-                threshold: 25.0,
-                k_candidate: 1,
-                p_xy: 2,
-            },
+            op: Box::new(op.clone()),
         };
 
-        let (left_cell, right_cell) = root.cell.split_continuous("target__y1", 25.0, true);
+        let (left_cell, right_cell) = root.cell.apply_split("target__y1", &op, true);
         let (left, right) = root.propagate_children(&split, &view, left_cell, right_cell);
 
         // sorted_xy IS partitioned

@@ -6,7 +6,7 @@
 //!
 //! 1. Classifies every column as `XSplit` (feature) or `YSplit` (target).
 //! 2. Looks up the appropriate [`DTypePlugin`](super::dtype_plugin::DTypePlugin) in
-//!    the [`DTypeRegistry`](super::dtype_plugin::DTypeRegistry).
+//!    the [`DTypeRegistry`].
 //! 3. Dispatches column-level searches **in parallel** via `rayon`.
 //! 4. Returns the split with the highest gain across all columns.
 use std::sync::Arc;
@@ -68,19 +68,24 @@ impl SplitSearcher {
                 let plugin = self.registry.get(dtype)?;
                 let searcher = plugin.split_searcher();
 
-                searcher.search(node, &node.cell, *col, *split_kind, dataset, loss, restrictions)
+                searcher.search(
+                    node,
+                    &node.cell,
+                    *col,
+                    *split_kind,
+                    dataset,
+                    loss,
+                    restrictions,
+                )
             })
             .collect();
 
         // Return the split with the highest gain
-        results
-            .into_iter()
-            .flatten()
-            .max_by(|a, b| {
-                a.gain
-                    .partial_cmp(&b.gain)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
+        results.into_iter().flatten().max_by(|a, b| {
+            a.gain
+                .partial_cmp(&b.gain)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
     }
 }
 
@@ -95,7 +100,7 @@ mod tests {
     use crate::v2::cell::Cell;
     use crate::v2::dataset_view::PolarsDatasetView;
     use crate::v2::loss::ConditionalLogLoss;
-    use crate::v2::rule::RuleType;
+    use crate::v2::rule::DynRule;
     use polars::prelude::*;
 
     fn make_test_setup() -> (PolarsDatasetView, Node, SplitSearcher) {
@@ -109,25 +114,25 @@ mod tests {
         let cell = Cell::new()
             .with_rule(
                 "x1",
-                RuleType::Continuous(ContinuousInterval::new(
+                Box::new(ContinuousInterval::new(
                     f64::NEG_INFINITY,
                     f64::INFINITY,
                     true,
                     true,
                     Some((f64::NEG_INFINITY, f64::INFINITY)),
                     true,
-                )),
+                )) as Box<dyn DynRule>,
             )
             .with_rule(
                 "target__y1",
-                RuleType::Continuous(ContinuousInterval::new(
+                Box::new(ContinuousInterval::new(
                     0.0,
                     60.0,
                     true,
                     true,
                     Some((0.0, 60.0)),
                     true,
-                )),
+                )) as Box<dyn DynRule>,
             );
 
         let node = Node::root(&dataset, cell);

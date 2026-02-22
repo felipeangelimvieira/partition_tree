@@ -25,7 +25,7 @@ use super::dtype_plugin::DTypeRegistry;
 use super::loss::LossFunc;
 use super::node::Node;
 use super::split_result::{
-    CandidateSplit, SplitDetail, SplitKind, SplitPoint, SplitRestrictions,
+    CandidateSplit, SplitKind, SplitPoint, SplitRestrictions,
 };
 use super::split_searcher::SplitSearcher;
 use super::tree::{FittedNode, SplitRecord, Tree};
@@ -163,15 +163,10 @@ impl TreeBuilder {
 
             let split = &candidate.split;
 
-            // Create child cells
-            let (left_cell, right_cell) = match &split.detail {
-                SplitDetail::Continuous { threshold, .. } => parent_build_node
-                    .cell
-                    .split_continuous(&split.col_name, *threshold, split.none_to_left),
-                SplitDetail::Categorical { subset_left } => parent_build_node
-                    .cell
-                    .split_categorical(&split.col_name, subset_left.clone(), split.none_to_left),
-            };
+            // Create child cells via the dtype-erased SplitOp
+            let (left_cell, right_cell) = parent_build_node
+                .cell
+                .apply_split(&split.col_name, split.op.as_ref(), split.none_to_left);
 
             // Propagate sorted indices
             let (left_build, right_build) =

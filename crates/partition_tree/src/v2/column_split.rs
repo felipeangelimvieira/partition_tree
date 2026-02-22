@@ -18,7 +18,7 @@ use super::cell::Cell;
 use super::dataset_view::{ColumnView, DatasetView, LogicalDType};
 use super::loss::{CellStats, LossFunc};
 use super::node::Node;
-use super::split_result::{SplitDetail, SplitKind, SplitPoint, SplitRestrictions};
+use super::split_result::{ContinuousSplitOp, CategoricalSplitOp, SplitKind, SplitPoint, SplitRestrictions};
 
 // ---------------------------------------------------------------------------
 // ColumnSplitSearcher trait
@@ -200,8 +200,9 @@ impl ColumnSplitSearcher for ContinuousColumnSplitSearcher {
                 let w_xy_right = w_xy_parent - w_xy_left;
 
                 // Child volumes
+                let cont_op = ContinuousSplitOp { threshold: t, k_candidate: k, p_xy };
                 let (vol_left, vol_right) =
-                    cell.split_continuous_target_volumes(col_name, t, none_to_left);
+                    cell.child_target_volumes(col_name, &cont_op, none_to_left);
 
                 let left_stats = CellStats::new(w_xy_left, w_x_left, w_y_left, vol_left);
                 let right_stats = CellStats::new(w_xy_right, w_x_right, w_y_right, vol_right);
@@ -226,11 +227,7 @@ impl ColumnSplitSearcher for ContinuousColumnSplitSearcher {
                         gain,
                         left_stats,
                         right_stats,
-                        detail: SplitDetail::Continuous {
-                            threshold: t,
-                            k_candidate: k,
-                            p_xy,
-                        },
+                        op: Box::new(cont_op),
                     });
                 }
             }
@@ -356,12 +353,14 @@ impl ColumnSplitSearcher for CategoricalColumnSplitSearcher {
                 let subset_left: HashSet<usize> =
                     cats[0..=t].iter().map(|c| c.0).collect();
 
+                let cat_op = CategoricalSplitOp { subset_left: subset_left.clone() };
+
                 let (w_xy_left, w_xy_right, w_x_left, w_x_right, w_y_left, w_y_right, vol_left, vol_right) =
                     match split_kind {
                         SplitKind::XSplit => {
-                            let (vl, vr) = cell.split_categorical_target_volumes(
+                            let (vl, vr) = cell.child_target_volumes(
                                 col_name,
-                                &subset_left,
+                                &cat_op,
                                 none_to_left,
                             );
                             (a_left, a_right, b_left, b_right, node.w_y, node.w_y, vl, vr)
@@ -369,9 +368,9 @@ impl ColumnSplitSearcher for CategoricalColumnSplitSearcher {
                         SplitKind::YSplit => {
                             // For Y-split on categorical target: w_x unchanged,
                             // volumes come from the rule split (category counts).
-                            let (vl, vr) = cell.split_categorical_target_volumes(
+                            let (vl, vr) = cell.child_target_volumes(
                                 col_name,
-                                &subset_left,
+                                &cat_op,
                                 none_to_left,
                             );
                             (a_left, a_right, node.w_x, node.w_x, b_left, b_right, vl, vr)
@@ -399,9 +398,7 @@ impl ColumnSplitSearcher for CategoricalColumnSplitSearcher {
                         gain,
                         left_stats,
                         right_stats,
-                        detail: SplitDetail::Categorical {
-                            subset_left: subset_left.clone(),
-                        },
+                        op: Box::new(cat_op),
                     });
                 }
             }
@@ -454,7 +451,7 @@ mod tests {
     use crate::rules::ContinuousInterval;
     use crate::v2::dataset_view::PolarsDatasetView;
     use crate::v2::loss::ConditionalLogLoss;
-    use crate::v2::rule::RuleType;
+    use crate::v2::rule::DynRule;
     use polars::prelude::*;
 
     fn make_test_dataset() -> PolarsDatasetView {
@@ -477,25 +474,25 @@ mod tests {
         let cell = Cell::new()
             .with_rule(
                 "x1",
-                RuleType::Continuous(ContinuousInterval::new(
+                Box::new(ContinuousInterval::new(
                     f64::NEG_INFINITY,
                     f64::INFINITY,
                     true,
                     true,
                     Some((f64::NEG_INFINITY, f64::INFINITY)),
                     true,
-                )),
+                )) as Box<dyn DynRule>,
             )
             .with_rule(
                 "target__y1",
-                RuleType::Continuous(ContinuousInterval::new(
+                Box::new(ContinuousInterval::new(
                     0.0,
                     60.0,
                     true,
                     true,
                     Some((0.0, 60.0)),
                     true,
-                )),
+                )) as Box<dyn DynRule>,
             );
         Node::root(dataset, cell)
     }

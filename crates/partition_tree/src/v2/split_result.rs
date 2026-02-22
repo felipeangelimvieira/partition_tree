@@ -3,14 +3,32 @@
 //! This module defines the types that describe the outcome of a split search:
 //!
 //! - [`SplitKind`] — whether the split refines the feature or target space.
-//! - [`SplitDetail`] — dtype-specific split parameters (threshold or subset).
+//! - [`SplitOp`] — dtype-erased split operation trait (replaces the old enum).
 //! - [`SplitPoint`] — full description of a chosen split (column, gain, child stats).
 //! - [`SplitRestrictions`] — constraints a candidate split must satisfy.
 //! - [`CandidateSplit`] — priority-queue entry pairing a node index with its best split.
+//!
+//! ## `SplitOp` — dtype-erased split operation
+//!
+//! [`SplitOp`] encapsulates all dtype-specific logic for a single split:
+//!
+//! | Method          | Purpose                                                |
+//! |-----------------|--------------------------------------------------------|
+//! | [`go_left`]     | Decide whether a row goes to the left child            |
+//! | [`split_rule`]  | Produce `(left, right)` child rules from a parent rule |
+//! | [`child_volumes`] | Compute child target volumes without allocating cells |
+//!
+//! Concrete implementations: [`ContinuousSplitOp`], [`CategoricalSplitOp`].
+//!
+//! [`go_left`]: SplitOp::go_left
+//! [`split_rule`]: SplitOp::split_rule
+//! [`child_volumes`]: SplitOp::child_volumes
 use std::collections::HashSet;
 use std::fmt;
 
+use super::dataset_view::ColumnView;
 use super::loss::CellStats;
+use super::rule::DynRule;
 
 /// Whether a split refines the feature space (X) or the target space (Y).
 ///
@@ -38,37 +56,145 @@ impl fmt::Display for SplitKind {
     }
 }
 
-/// Dtype-specific split parameters.
+// ---------------------------------------------------------------------------
+// SplitOp trait — dtype-erased split operation
+// ---------------------------------------------------------------------------
+
+/// Dtype-erased split operation.
 ///
-/// Carried inside a [`SplitPoint`] and used by
-/// [`Node::propagate_children`](super::node::Node::propagate_children)
-/// to build the `go_left` oracle.
-#[derive(Debug, Clone)]
-pub enum SplitDetail {
-    /// A continuous split: samples with `col[idx] < threshold` go left.
+/// Encapsulates all logic that depends on the split's dtype: routing rows,
+/// splitting rules, and computing child volumes.
+///
+/// Adding a new dtype only requires implementing this trait — no match arms
+/// to update anywhere else.
+///
+/// # Thread Safety
+///
+/// Must be `Send + Sync` for parallel split search.
+pub trait SplitOp: Send + Sync + fmt::Debug + fmt::Display {
+    /// Does sample at `row_idx` go to the left child?
     ///
-    /// `k_candidate` and `p_xy` record the positions in the presorted
-    /// candidate and XY lists for debugging / accelerated propagation.
-    Continuous {
-        threshold: f64,
-        k_candidate: usize,
-        p_xy: usize,
-    },
-    /// Categorical split by subset.
-    /// `subset_left` contains the category codes routed to the left child.
-    Categorical { subset_left: HashSet<usize> },
+    /// `col` is the column being split; `none_to_left` controls null routing.
+    fn go_left(&self, col: &dyn ColumnView, row_idx: usize, none_to_left: bool) -> bool;
+
+    /// Split a parent rule into `(left_rule, right_rule)`.
+    fn split_rule(
+        &self,
+        parent_rule: &dyn DynRule,
+        none_to_left: bool,
+    ) -> (Box<dyn DynRule>, Box<dyn DynRule>);
+
+    /// Compute child volumes from a parent rule without allocating child rules.
+    ///
+    /// Returns `(left_volume, right_volume)`.
+    fn child_volumes(&self, parent_rule: &dyn DynRule, none_to_left: bool) -> (f64, f64) {
+        let (left, right) = self.split_rule(parent_rule, none_to_left);
+        (left.volume(), right.volume())
+    }
+
+    /// Clone into a new `Box`.
+    fn clone_box(&self) -> Box<dyn SplitOp>;
 }
 
-impl fmt::Display for SplitDetail {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            SplitDetail::Continuous { threshold, .. } => {
-                write!(f, "Continuous(threshold={threshold:.6})")
-            }
-            SplitDetail::Categorical { subset_left } => {
-                write!(f, "Categorical(|subset|={})", subset_left.len())
-            }
+impl Clone for Box<dyn SplitOp> {
+    fn clone(&self) -> Self {
+        self.clone_box()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ContinuousSplitOp
+// ---------------------------------------------------------------------------
+
+/// Split operation for continuous columns: `value < threshold` → left.
+#[derive(Debug, Clone)]
+pub struct ContinuousSplitOp {
+    /// Split threshold.
+    pub threshold: f64,
+    /// Position in presorted candidate list (debug / optional).
+    pub k_candidate: usize,
+    /// Position in presorted XY list (debug / optional).
+    pub p_xy: usize,
+}
+
+impl SplitOp for ContinuousSplitOp {
+    fn go_left(&self, col: &dyn ColumnView, row_idx: usize, none_to_left: bool) -> bool {
+        match col.get_f64(row_idx) {
+            Some(v) => v < self.threshold,
+            None => none_to_left,
         }
+    }
+
+    fn split_rule(
+        &self,
+        parent_rule: &dyn DynRule,
+        none_to_left: bool,
+    ) -> (Box<dyn DynRule>, Box<dyn DynRule>) {
+        let ci = parent_rule
+            .as_any()
+            .downcast_ref::<crate::rules::ContinuousInterval>()
+            .expect("ContinuousSplitOp requires a ContinuousInterval rule");
+
+        let (left, right) = <crate::rules::ContinuousInterval as crate::rules::Rule<f64>>::split(
+            ci,
+            self.threshold,
+            Some(none_to_left),
+        );
+        (Box::new(left), Box::new(right))
+    }
+
+    fn clone_box(&self) -> Box<dyn SplitOp> {
+        Box::new(self.clone())
+    }
+}
+
+impl fmt::Display for ContinuousSplitOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Continuous(threshold={:.6})", self.threshold)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CategoricalSplitOp
+// ---------------------------------------------------------------------------
+
+/// Split operation for categorical columns: `code ∈ subset` → left.
+#[derive(Debug, Clone)]
+pub struct CategoricalSplitOp {
+    /// Category codes routed to the left child.
+    pub subset_left: HashSet<usize>,
+}
+
+impl SplitOp for CategoricalSplitOp {
+    fn go_left(&self, col: &dyn ColumnView, row_idx: usize, none_to_left: bool) -> bool {
+        match col.get_cat(row_idx) {
+            Some(v) => self.subset_left.contains(&v),
+            None => none_to_left,
+        }
+    }
+
+    fn split_rule(
+        &self,
+        parent_rule: &dyn DynRule,
+        none_to_left: bool,
+    ) -> (Box<dyn DynRule>, Box<dyn DynRule>) {
+        let bt = parent_rule
+            .as_any()
+            .downcast_ref::<crate::rules::BelongsTo>()
+            .expect("CategoricalSplitOp requires a BelongsTo rule");
+
+        let (left, right) = bt.split_subset(self.subset_left.clone(), Some(none_to_left));
+        (Box::new(left), Box::new(right))
+    }
+
+    fn clone_box(&self) -> Box<dyn SplitOp> {
+        Box::new(self.clone())
+    }
+}
+
+impl fmt::Display for CategoricalSplitOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Categorical(|subset|={})", self.subset_left.len())
     }
 }
 
@@ -91,8 +217,8 @@ pub struct SplitPoint {
     pub left_stats: CellStats,
     /// Statistics of the right child cell.
     pub right_stats: CellStats,
-    /// Dtype-specific split information.
-    pub detail: SplitDetail,
+    /// Dtype-specific split operation.
+    pub op: Box<dyn SplitOp>,
 }
 
 impl fmt::Display for SplitPoint {
@@ -100,7 +226,7 @@ impl fmt::Display for SplitPoint {
         write!(
             f,
             "SplitPoint({}, {}, gain={:.6}, none_left={}, {})",
-            self.col_name, self.split_kind, self.gain, self.none_to_left, self.detail
+            self.col_name, self.split_kind, self.gain, self.none_to_left, self.op
         )
     }
 }
@@ -297,11 +423,11 @@ mod tests {
                 gain,
                 left_stats: CellStats::new(0.0, 0.0, 0.0, 0.0),
                 right_stats: CellStats::new(0.0, 0.0, 0.0, 0.0),
-                detail: SplitDetail::Continuous {
+                op: Box::new(ContinuousSplitOp {
                     threshold: 0.0,
                     k_candidate: 0,
                     p_xy: 0,
-                },
+                }),
             },
         };
 

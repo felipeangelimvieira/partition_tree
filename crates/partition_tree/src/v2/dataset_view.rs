@@ -30,6 +30,7 @@ use std::sync::Arc;
 use polars::prelude::*;
 
 use crate::conf::TARGET_PREFIX;
+use super::rule::DynValue;
 
 // ---------------------------------------------------------------------------
 // Logical dtype enum (shared across v2)
@@ -85,6 +86,17 @@ pub trait ColumnView: Send + Sync {
 
     fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// Get the value at `idx` as a dtype-erased [`DynValue`].
+    ///
+    /// The default implementation dispatches on [`logical_dtype`](ColumnView::logical_dtype).
+    /// Custom backends can override this for efficiency.
+    fn get_dyn_value(&self, idx: usize) -> Option<DynValue> {
+        match self.logical_dtype() {
+            LogicalDType::Continuous => self.get_f64(idx).map(DynValue::Continuous),
+            LogicalDType::Categorical => self.get_cat(idx).map(DynValue::Categorical),
+        }
     }
 }
 

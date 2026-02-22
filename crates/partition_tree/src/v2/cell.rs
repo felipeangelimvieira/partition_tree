@@ -13,20 +13,23 @@
 //!
 //! ## Splitting
 //!
-//! [`Cell::split_continuous`] and [`Cell::split_categorical`] produce
-//! `(left_cell, right_cell)` pairs by replacing a single column's rule.
-//! The companion `split_*_target_volumes` methods compute child volumes
+//! [`Cell::apply_split`] produces `(left_cell, right_cell)` pairs by
+//! delegating to a [`SplitOp`](super::split_result::SplitOp) — the dtype-
+//! specific logic is fully encapsulated in the split operation, so adding a
+//! new dtype requires no changes here.
+//!
+//! The companion [`Cell::child_target_volumes`] computes child volumes
 //! *without* constructing the full child cells, which is used during the
 //! split search inner loop.
 use std::collections::HashMap;
-use std::collections::HashSet;
 use std::fmt;
 
 use crate::conf::TARGET_PREFIX;
 
-use super::rule::RuleType;
+use super::rule::DynRule;
+use super::split_result::SplitOp;
 
-/// Multi-dimensional partition constraint: one [`RuleType`] per column.
+/// Multi-dimensional partition constraint: one [`DynRule`] per column.
 ///
 /// The cell is the fundamental building block of the partition tree. Each
 /// tree node owns a `Cell` that describes the region of space it represents.
@@ -35,15 +38,15 @@ use super::rule::RuleType;
 ///
 /// ```rust,ignore
 /// let cell = Cell::new()
-///     .with_rule("x1", continuous_rule(0.0, 10.0))
-///     .with_rule("target__y", continuous_rule(0.0, 5.0));
+///     .with_rule("x1", Box::new(continuous_rule(0.0, 10.0)))
+///     .with_rule("target__y", Box::new(continuous_rule(0.0, 5.0)));
 ///
 /// assert!((cell.volume() - 50.0).abs() < 1e-10);
 /// assert!((cell.target_volume() - 5.0).abs() < 1e-10);
 /// ```
 #[derive(Clone, Debug)]
 pub struct Cell {
-    pub rules: HashMap<String, RuleType>,
+    pub rules: HashMap<String, Box<dyn DynRule>>,
 }
 
 impl Cell {
@@ -55,24 +58,24 @@ impl Cell {
     }
 
     /// Create a cell from a pre-built map of rules.
-    pub fn from_rules(rules: HashMap<String, RuleType>) -> Self {
+    pub fn from_rules(rules: HashMap<String, Box<dyn DynRule>>) -> Self {
         Self { rules }
     }
 
     /// Builder: add a rule for `col` and return self.
-    pub fn with_rule(mut self, col: impl Into<String>, rule: RuleType) -> Self {
+    pub fn with_rule(mut self, col: impl Into<String>, rule: Box<dyn DynRule>) -> Self {
         self.rules.insert(col.into(), rule);
         self
     }
 
     /// Insert or replace a rule for `col`.
-    pub fn set_rule(&mut self, col: impl Into<String>, rule: RuleType) {
+    pub fn set_rule(&mut self, col: impl Into<String>, rule: Box<dyn DynRule>) {
         self.rules.insert(col.into(), rule);
     }
 
     /// Get the rule for a column, if present.
-    pub fn get_rule(&self, col: &str) -> Option<&RuleType> {
-        self.rules.get(col)
+    pub fn get_rule(&self, col: &str) -> Option<&dyn DynRule> {
+        self.rules.get(col).map(|r| r.as_ref())
     }
 
     /// Product of per-rule volumes (multiplicative independence assumption).
@@ -110,17 +113,19 @@ impl Cell {
     }
 
     /// Iterate over rules on target columns (prefixed with `target__`).
-    pub fn target_rules(&self) -> impl Iterator<Item = (&String, &RuleType)> {
+    pub fn target_rules(&self) -> impl Iterator<Item = (&String, &dyn DynRule)> {
         self.rules
             .iter()
             .filter(|(k, _)| k.starts_with(TARGET_PREFIX))
+            .map(|(k, r)| (k, r.as_ref()))
     }
 
     /// Iterate over rules on feature columns (not prefixed with `target__`).
-    pub fn feature_rules(&self) -> impl Iterator<Item = (&String, &RuleType)> {
+    pub fn feature_rules(&self) -> impl Iterator<Item = (&String, &dyn DynRule)> {
         self.rules
             .iter()
             .filter(|(k, _)| !k.starts_with(TARGET_PREFIX))
+            .map(|(k, r)| (k, r.as_ref()))
     }
 
     /// Number of constrained dimensions.
@@ -128,22 +133,22 @@ impl Cell {
         self.rules.len()
     }
 
-    /// Split this cell on a continuous column at `threshold`.
+    /// Split this cell on `col` using the given [`SplitOp`].
     ///
-    /// Returns `(left_cell, right_cell)` where the left child's rule for
-    /// `col` covers $[\text{lo}, \text{threshold})$ and the right covers
-    /// $[\text{threshold}, \text{hi})$. All other rules are cloned unchanged.
+    /// Returns `(left_cell, right_cell)` where the split column's rule
+    /// is replaced by the left/right rules produced by the `SplitOp`,
+    /// and all other rules are cloned unchanged.
     ///
     /// # Panics
     ///
     /// Panics if `col` is not present in the cell's rules.
-    pub fn split_continuous(&self, col: &str, threshold: f64, none_to_left: bool) -> (Cell, Cell) {
-        let rule = self
+    pub fn apply_split(&self, col: &str, op: &dyn SplitOp, none_to_left: bool) -> (Cell, Cell) {
+        let parent_rule = self
             .rules
             .get(col)
-            .unwrap_or_else(|| panic!("Cell::split_continuous: column '{col}' not found"));
+            .unwrap_or_else(|| panic!("Cell::apply_split: column '{col}' not found"));
 
-        let (left_rule, right_rule) = rule.split_continuous(threshold, none_to_left);
+        let (left_rule, right_rule) = op.split_rule(parent_rule.as_ref(), none_to_left);
 
         let mut left_rules = self.rules.clone();
         left_rules.insert(col.to_string(), left_rule);
@@ -154,37 +159,7 @@ impl Cell {
         (Cell::from_rules(left_rules), Cell::from_rules(right_rules))
     }
 
-    /// Split this cell on a categorical column by subset.
-    ///
-    /// `subset_left` contains the category codes routed to the left child;
-    /// remaining active codes go to the right.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `col` is not present in the cell's rules.
-    pub fn split_categorical(
-        &self,
-        col: &str,
-        subset_left: HashSet<usize>,
-        none_to_left: bool,
-    ) -> (Cell, Cell) {
-        let rule = self
-            .rules
-            .get(col)
-            .unwrap_or_else(|| panic!("Cell::split_categorical: column '{col}' not found"));
-
-        let (left_rule, right_rule) = rule.split_categorical(subset_left, none_to_left);
-
-        let mut left_rules = self.rules.clone();
-        left_rules.insert(col.to_string(), left_rule);
-
-        let mut right_rules = self.rules.clone();
-        right_rules.insert(col.to_string(), right_rule);
-
-        (Cell::from_rules(left_rules), Cell::from_rules(right_rules))
-    }
-
-    /// Compute child **target volumes** for a hypothetical continuous split
+    /// Compute child **target volumes** for a hypothetical split
     /// without constructing the child cells.
     ///
     /// If `col` is a feature column (not `target__`-prefixed), both children
@@ -193,10 +168,10 @@ impl Cell {
     ///
     /// This is used in the split search inner loop to avoid allocating
     /// child cells at every candidate threshold.
-    pub fn split_continuous_target_volumes(
+    pub fn child_target_volumes(
         &self,
         col: &str,
-        threshold: f64,
+        op: &dyn SplitOp,
         none_to_left: bool,
     ) -> (f64, f64) {
         // Only target columns affect volume; feature splits leave volume unchanged.
@@ -205,15 +180,15 @@ impl Cell {
             return (v, v);
         }
 
-        let rule = self.rules.get(col).expect("column not found");
-        let (left_rule, right_rule) = rule.split_continuous(threshold, none_to_left);
+        let parent_rule = self.rules.get(col).expect("column not found");
+        let (left_vol, right_vol) = op.child_volumes(parent_rule.as_ref(), none_to_left);
 
-        // Recompute target volume replacing only the split column's rule
-        let compute_vol = |replacement: &RuleType| -> f64 {
+        // Recompute target volume replacing only the split column's volume
+        let compute_vol = |replacement_vol: f64| -> f64 {
             self.target_rules()
                 .map(|(k, r)| {
                     if k.as_str() == col {
-                        replacement.volume()
+                        replacement_vol
                     } else {
                         r.volume()
                     }
@@ -222,42 +197,7 @@ impl Cell {
                 .max(f64::MIN_POSITIVE)
         };
 
-        (compute_vol(&left_rule), compute_vol(&right_rule))
-    }
-
-    /// Compute child **target volumes** for a hypothetical categorical split
-    /// without constructing the child cells.
-    ///
-    /// Analogous to [`Cell::split_continuous_target_volumes`] for categorical
-    /// columns.
-    pub fn split_categorical_target_volumes(
-        &self,
-        col: &str,
-        subset_left: &HashSet<usize>,
-        none_to_left: bool,
-    ) -> (f64, f64) {
-        if !col.starts_with(TARGET_PREFIX) {
-            let v = self.target_volume();
-            return (v, v);
-        }
-
-        let rule = self.rules.get(col).expect("column not found");
-        let (left_rule, right_rule) = rule.split_categorical(subset_left.clone(), none_to_left);
-
-        let compute_vol = |replacement: &RuleType| -> f64 {
-            self.target_rules()
-                .map(|(k, r)| {
-                    if k.as_str() == col {
-                        replacement.volume()
-                    } else {
-                        r.volume()
-                    }
-                })
-                .product::<f64>()
-                .max(f64::MIN_POSITIVE)
-        };
-
-        (compute_vol(&left_rule), compute_vol(&right_rule))
+        (compute_vol(left_vol), compute_vol(right_vol))
     }
 
     /// Per-column mean vector, concatenated. Used for prediction decoding.
@@ -294,10 +234,12 @@ impl fmt::Display for Cell {
 mod tests {
     use super::*;
     use crate::rules::{BelongsTo, ContinuousInterval};
+    use crate::v2::split_result::{CategoricalSplitOp, ContinuousSplitOp};
+    use std::collections::HashSet;
     use std::sync::Arc;
 
-    fn continuous_rule(low: f64, high: f64) -> RuleType {
-        RuleType::Continuous(ContinuousInterval::new(
+    fn continuous_rule(low: f64, high: f64) -> Box<dyn DynRule> {
+        Box::new(ContinuousInterval::new(
             low,
             high,
             true,
@@ -307,10 +249,10 @@ mod tests {
         ))
     }
 
-    fn categorical_rule(values: Vec<usize>, domain_size: usize) -> RuleType {
+    fn categorical_rule(values: Vec<usize>, domain_size: usize) -> Box<dyn DynRule> {
         let domain: Vec<usize> = (0..domain_size).collect();
         let names: Vec<String> = domain.iter().map(|i| format!("cat_{i}")).collect();
-        RuleType::BelongsTo(BelongsTo::new(
+        Box::new(BelongsTo::new(
             values.into_iter().collect(),
             Arc::new(domain),
             Arc::new(names),
@@ -320,7 +262,6 @@ mod tests {
 
     #[test]
     fn empty_cell_volume_is_one() {
-        // Product of an empty iterator is 1.0
         let cell = Cell::new();
         assert!((cell.volume() - 1.0).abs() < 1e-10);
     }
@@ -334,12 +275,17 @@ mod tests {
     }
 
     #[test]
-    fn split_continuous_produces_valid_children() {
+    fn apply_split_continuous_produces_valid_children() {
         let cell = Cell::new()
             .with_rule("x1", continuous_rule(0.0, 10.0))
             .with_rule("x2", continuous_rule(0.0, 5.0));
 
-        let (left, right) = cell.split_continuous("x1", 3.0, true);
+        let op = ContinuousSplitOp {
+            threshold: 3.0,
+            k_candidate: 0,
+            p_xy: 0,
+        };
+        let (left, right) = cell.apply_split("x1", &op, true);
 
         // x1 split at 3.0: left [0,3), right [3,10]
         assert!((left.get_rule("x1").unwrap().volume() - 3.0).abs() < 1e-10);
@@ -351,11 +297,14 @@ mod tests {
     }
 
     #[test]
-    fn split_categorical_produces_valid_children() {
+    fn apply_split_categorical_produces_valid_children() {
         let cell = Cell::new().with_rule("color", categorical_rule(vec![0, 1, 2, 3], 5));
 
         let subset: HashSet<usize> = [0, 1].into_iter().collect();
-        let (left, right) = cell.split_categorical("color", subset, true);
+        let op = CategoricalSplitOp {
+            subset_left: subset,
+        };
+        let (left, right) = cell.apply_split("color", &op, true);
 
         assert!((left.get_rule("color").unwrap().volume() - 2.0).abs() < 1e-10);
         assert!((right.get_rule("color").unwrap().volume() - 2.0).abs() < 1e-10);
@@ -377,7 +326,12 @@ mod tests {
             .with_rule("x1", continuous_rule(0.0, 10.0))
             .with_rule("target__y1", continuous_rule(0.0, 4.0));
 
-        let (vol_l, vol_r) = cell.split_continuous_target_volumes("x1", 3.0, true);
+        let op = ContinuousSplitOp {
+            threshold: 3.0,
+            k_candidate: 0,
+            p_xy: 0,
+        };
+        let (vol_l, vol_r) = cell.child_target_volumes("x1", &op, true);
         assert!((vol_l - 4.0).abs() < 1e-10);
         assert!((vol_r - 4.0).abs() < 1e-10);
     }
@@ -388,7 +342,12 @@ mod tests {
             .with_rule("x1", continuous_rule(0.0, 10.0))
             .with_rule("target__y1", continuous_rule(0.0, 4.0));
 
-        let (vol_l, vol_r) = cell.split_continuous_target_volumes("target__y1", 1.0, true);
+        let op = ContinuousSplitOp {
+            threshold: 1.0,
+            k_candidate: 0,
+            p_xy: 0,
+        };
+        let (vol_l, vol_r) = cell.child_target_volumes("target__y1", &op, true);
         assert!((vol_l - 1.0).abs() < 1e-10);
         assert!((vol_r - 3.0).abs() < 1e-10);
     }

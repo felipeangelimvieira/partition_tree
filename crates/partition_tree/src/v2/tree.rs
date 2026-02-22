@@ -15,7 +15,7 @@
 //! - [`Tree::predict_leaf_from_map`] — single-sample prediction from
 //!   `HashMap` inputs (useful for testing / debugging).
 //! - [`Tree::predict_leaves`] — batch prediction over a full
-//!   [`DatasetView`](super::dataset_view::DatasetView).
+//!   [`DatasetView`].
 //!
 //! Both walk the tree from root, evaluating left-child rules at each
 //! internal node.
@@ -27,7 +27,8 @@ use std::collections::HashMap;
 use std::fmt;
 
 use super::cell::Cell;
-use super::dataset_view::{ColumnView, DatasetView, LogicalDType};
+use super::dataset_view::{ColumnView, DatasetView};
+use super::rule::DynValue;
 use super::split_result::SplitKind;
 
 // ---------------------------------------------------------------------------
@@ -176,8 +177,7 @@ impl Tree {
     /// left; otherwise right.
     pub fn predict_leaf_from_map(
         &self,
-        row: &HashMap<String, Option<f64>>,
-        cat_row: &HashMap<String, Option<usize>>,
+        row: &HashMap<String, Option<DynValue>>,
     ) -> usize {
         let mut idx = 0;
         loop {
@@ -186,12 +186,10 @@ impl Tree {
                 return idx;
             }
 
-            // Find the split column by checking which rule differs between children
             let left_idx = node.left_child.unwrap();
             let left_node = &self.nodes[left_idx];
 
-            // Evaluate against the left child's cell rules
-            let goes_left = self.evaluate_node_membership(left_node, row, cat_row);
+            let goes_left = self.evaluate_node_membership(left_node, row);
 
             if goes_left {
                 idx = left_idx;
@@ -205,21 +203,11 @@ impl Tree {
     fn evaluate_node_membership(
         &self,
         node: &FittedNode,
-        row: &HashMap<String, Option<f64>>,
-        cat_row: &HashMap<String, Option<usize>>,
+        row: &HashMap<String, Option<DynValue>>,
     ) -> bool {
         for (col, rule) in &node.cell.rules {
-            let belongs = match rule {
-                crate::rules::RuleType::Continuous(_) => {
-                    let value = row.get(col.as_str()).copied().flatten();
-                    rule.evaluate_continuous(value)
-                }
-                crate::rules::RuleType::BelongsTo(_) => {
-                    let value = cat_row.get(col.as_str()).copied().flatten();
-                    rule.evaluate_categorical(value)
-                }
-            };
-            if !belongs {
+            let value = row.get(col.as_str()).and_then(|v| v.as_ref());
+            if !rule.contains(value) {
                 return false;
             }
         }
@@ -273,24 +261,13 @@ impl Tree {
         columns: &[&dyn ColumnView],
     ) -> bool {
         for (col_name, rule) in &node.cell.rules {
-            // Find the matching column
             let col = match columns.iter().find(|c| c.name() == col_name) {
                 Some(c) => c,
-                None => continue, // unconstrained
+                None => continue,
             };
 
-            let belongs = match col.logical_dtype() {
-                LogicalDType::Continuous => {
-                    let value = col.get_f64(row_idx);
-                    rule.evaluate_continuous(value)
-                }
-                LogicalDType::Categorical => {
-                    let value = col.get_cat(row_idx);
-                    rule.evaluate_categorical(value)
-                }
-            };
-
-            if !belongs {
+            let value = col.get_dyn_value(row_idx);
+            if !rule.contains(value.as_ref()) {
                 return false;
             }
         }
@@ -372,29 +349,29 @@ mod tests {
     use super::*;
     use crate::v2::cell::Cell;
     use crate::rules::ContinuousInterval;
-    use crate::v2::rule::RuleType;
+    use crate::v2::rule::{DynRule, DynValue};
 
     fn make_simple_tree() -> Tree {
         // Root → Left (leaf), Right (leaf)
         let root_cell = Cell::new().with_rule(
             "x",
-            RuleType::Continuous(ContinuousInterval::new(
+            Box::new(ContinuousInterval::new(
                 0.0, 10.0, true, true, Some((0.0, 10.0)), true,
-            )),
+            )) as Box<dyn DynRule>,
         );
 
         let left_cell = Cell::new().with_rule(
             "x",
-            RuleType::Continuous(ContinuousInterval::new(
+            Box::new(ContinuousInterval::new(
                 0.0, 5.0, true, false, Some((0.0, 10.0)), true,
-            )),
+            )) as Box<dyn DynRule>,
         );
 
         let right_cell = Cell::new().with_rule(
             "x",
-            RuleType::Continuous(ContinuousInterval::new(
+            Box::new(ContinuousInterval::new(
                 5.0, 10.0, true, true, Some((0.0, 10.0)), false,
-            )),
+            )) as Box<dyn DynRule>,
         );
 
         let root = FittedNode {
@@ -454,13 +431,12 @@ mod tests {
 
         // x=3.0 should go to left (x < 5)
         let mut row = HashMap::new();
-        row.insert("x".to_string(), Some(3.0));
-        let cat_row = HashMap::new();
-        assert_eq!(tree.predict_leaf_from_map(&row, &cat_row), 1);
+        row.insert("x".to_string(), Some(DynValue::Continuous(3.0)));
+        assert_eq!(tree.predict_leaf_from_map(&row), 1);
 
         // x=7.0 should go to right (x >= 5)
-        row.insert("x".to_string(), Some(7.0));
-        assert_eq!(tree.predict_leaf_from_map(&row, &cat_row), 2);
+        row.insert("x".to_string(), Some(DynValue::Continuous(7.0)));
+        assert_eq!(tree.predict_leaf_from_map(&row), 2);
     }
 
     #[test]
@@ -470,8 +446,7 @@ mod tests {
         // None should go to left (accept_none=true on left, false on right)
         let mut row = HashMap::new();
         row.insert("x".to_string(), None);
-        let cat_row = HashMap::new();
-        assert_eq!(tree.predict_leaf_from_map(&row, &cat_row), 1);
+        assert_eq!(tree.predict_leaf_from_map(&row), 1);
     }
 
     #[test]

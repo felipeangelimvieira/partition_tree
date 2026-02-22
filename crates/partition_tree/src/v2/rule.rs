@@ -1,18 +1,23 @@
 //! Rule types for v2 partition tree.
 //!
-//! This module re-exports the core rule types from v1 ([`ContinuousInterval`],
-//! [`BelongsToGeneric`]) and adds convenience methods on [`RuleType`] so that
-//! the v2 tree builder can work with rules polymorphically without downcasting.
+//! ## `DynRule` — dtype-erased rule trait
 //!
-//! ## Rule Kinds
+//! [`DynRule`] is the trait-object interface that replaces the two-variant
+//! `RuleType` enum. Every rule stored in a [`Cell`](super::cell::Cell) is a
+//! `Box<dyn DynRule>`, so adding a new dtype never requires touching
+//! downstream match arms.
 //!
-//! | Variant                 | Represents                           | Volume                |
-//! |-------------------------|--------------------------------------|-----------------------|
-//! | [`RuleType::Continuous`]| Half-open interval $[\text{lo}, \text{hi})$ | $\text{hi} - \text{lo}$ |
-//! | [`RuleType::BelongsTo`] | Set of categorical codes             | \|active set\|           |
+//! Concrete implementations:
 //!
-//! Both variants carry a *domain* (the parent's full range / code set) used to
-//! compute relative and phi-transformed volumes.
+//! | Type                    | Represents                                   | Volume                     |
+//! |-------------------------|----------------------------------------------|----------------------------|
+//! | [`ContinuousInterval`]  | Half-open interval $[\text{lo}, \text{hi})$  | $\text{hi} - \text{lo}$    |
+//! | [`BelongsTo`]           | Set of categorical codes                     | \|active set\|             |
+//!
+//! ## `DynValue` — dtype-erased sample value
+//!
+//! [`DynValue`] carries a single sample value for rule evaluation and
+//! map-based prediction without requiring separate per-dtype maps.
 use std::collections::HashSet;
 use std::fmt;
 
@@ -20,6 +25,172 @@ use std::fmt;
 pub use crate::rules::{
     BelongsTo, BelongsToGeneric, ContinuousInterval, Rule, RuleType, RuleValue,
 };
+
+// ---------------------------------------------------------------------------
+// DynValue — dtype-erased sample value
+// ---------------------------------------------------------------------------
+
+/// A single sample value, dtype-erased.
+///
+/// Used in [`DynRule::contains`] and in map-based prediction
+/// ([`Tree::predict_leaf_from_map`](super::tree::Tree::predict_leaf_from_map)).
+#[derive(Debug, Clone)]
+pub enum DynValue {
+    /// Continuous (f64) value.
+    Continuous(f64),
+    /// Categorical code (usize).
+    Categorical(usize),
+}
+
+// ---------------------------------------------------------------------------
+// DynRule trait
+// ---------------------------------------------------------------------------
+
+/// Dtype-erased rule trait stored in [`Cell`](super::cell::Cell).
+///
+/// Implementors must provide membership testing, volume computation,
+/// and cloneability so that cells can be cheaply duplicated during
+/// tree construction.
+///
+/// # Thread Safety
+///
+/// Must be `Send + Sync` for parallel split search.
+pub trait DynRule: Send + Sync + fmt::Debug + fmt::Display {
+    /// Raw volume of the rule (interval length, set cardinality, etc.).
+    fn volume(&self) -> f64;
+
+    /// Relative volume normalized by domain.
+    fn relative_volume(&self) -> f64;
+
+    /// Phi-transformed volume.
+    fn phi_volume(&self) -> f64;
+
+    /// Mean vector representation (used for downstream decoding).
+    fn mean(&self) -> Vec<f64>;
+
+    /// Whether this rule accepts null / missing values.
+    fn accept_none(&self) -> bool;
+
+    /// Evaluate membership for a (possibly null) sample value.
+    ///
+    /// Returns `true` if the value belongs to this rule's region,
+    /// or if the value is `None` and [`accept_none`](DynRule::accept_none) is set.
+    fn contains(&self, value: Option<&DynValue>) -> bool;
+
+    /// Clone this rule into a new `Box`.
+    fn clone_box(&self) -> Box<dyn DynRule>;
+
+    /// Downcast helper — returns `self` as `&dyn Any` for rare cases
+    /// where concrete access is needed (e.g., display of split thresholds).
+    fn as_any(&self) -> &dyn std::any::Any;
+}
+
+impl Clone for Box<dyn DynRule> {
+    fn clone(&self) -> Self {
+        self.clone_box()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DynRule impl for ContinuousInterval
+// ---------------------------------------------------------------------------
+
+impl DynRule for ContinuousInterval {
+    fn volume(&self) -> f64 {
+        <ContinuousInterval as Rule<f64>>::volume(self)
+    }
+
+    fn relative_volume(&self) -> f64 {
+        <ContinuousInterval as Rule<f64>>::relative_volume(self)
+    }
+
+    fn phi_volume(&self) -> f64 {
+        <ContinuousInterval as Rule<f64>>::phi_volume(self)
+    }
+
+    fn mean(&self) -> Vec<f64> {
+        <ContinuousInterval as Rule<f64>>::mean(self)
+    }
+
+    fn accept_none(&self) -> bool {
+        self.accept_none
+    }
+
+    fn contains(&self, value: Option<&DynValue>) -> bool {
+        match value {
+            None => self.accept_none,
+            Some(DynValue::Continuous(v)) => {
+                <ContinuousInterval as Rule<f64>>::_evaluate(self, &Some(*v))
+            }
+            Some(_) => false,
+        }
+    }
+
+    fn clone_box(&self) -> Box<dyn DynRule> {
+        Box::new(self.clone())
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DynRule impl for BelongsTo
+// ---------------------------------------------------------------------------
+
+impl DynRule for BelongsTo {
+    fn volume(&self) -> f64 {
+        <BelongsTo as Rule<usize>>::volume(self)
+    }
+
+    fn relative_volume(&self) -> f64 {
+        <BelongsTo as Rule<usize>>::relative_volume(self)
+    }
+
+    fn phi_volume(&self) -> f64 {
+        <BelongsTo as Rule<usize>>::phi_volume(self)
+    }
+
+    fn mean(&self) -> Vec<f64> {
+        <BelongsTo as Rule<usize>>::mean(self)
+    }
+
+    fn accept_none(&self) -> bool {
+        self.accept_none
+    }
+
+    fn contains(&self, value: Option<&DynValue>) -> bool {
+        match value {
+            None => self.accept_none,
+            Some(DynValue::Categorical(v)) => {
+                <BelongsTo as Rule<usize>>::_evaluate(self, &Some(*v))
+            }
+            Some(_) => false,
+        }
+    }
+
+    fn clone_box(&self) -> Box<dyn DynRule> {
+        Box::new(self.clone())
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Conversion helpers: RuleType ↔ Box<dyn DynRule>
+// ---------------------------------------------------------------------------
+
+impl From<RuleType> for Box<dyn DynRule> {
+    fn from(rt: RuleType) -> Self {
+        match rt {
+            RuleType::Continuous(ci) => Box::new(ci),
+            RuleType::BelongsTo(bt) => Box::new(bt),
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Convenience methods on RuleType for v2 consumers
