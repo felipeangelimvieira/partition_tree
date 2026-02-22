@@ -26,6 +26,8 @@
 use std::collections::HashSet;
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
+
 use super::dataset_view::ColumnView;
 use super::loss::CellStats;
 use super::rule::DynRule;
@@ -39,7 +41,7 @@ use super::rule::DynRule;
 ///    the other family is inherited unchanged.
 /// 2. **Volume computation** — `XSplit` leaves target volume unchanged;
 ///    `YSplit` updates it from the split rule.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SplitKind {
     /// Feature split: refines A_X, A_Y unchanged.
     XSplit,

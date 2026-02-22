@@ -24,9 +24,12 @@
 use std::collections::HashMap;
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
+
 use crate::conf::TARGET_PREFIX;
 
 use super::rule::DynRule;
+use super::serde_support::rules as rules_serde;
 use super::split_result::SplitOp;
 
 /// Multi-dimensional partition constraint: one [`DynRule`] per column.
@@ -44,8 +47,9 @@ use super::split_result::SplitOp;
 /// assert!((cell.volume() - 50.0).abs() < 1e-10);
 /// assert!((cell.target_volume() - 5.0).abs() < 1e-10);
 /// ```
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Cell {
+    #[serde(with = "rules_serde")]
     pub rules: HashMap<String, Box<dyn DynRule>>,
 }
 

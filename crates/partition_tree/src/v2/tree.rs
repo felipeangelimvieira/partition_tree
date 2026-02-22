@@ -27,6 +27,7 @@ use std::collections::HashMap;
 use std::fmt;
 
 use polars::prelude::*;
+use serde::{Deserialize, Serialize};
 
 use crate::rules::{BelongsTo, ContinuousInterval, IntegerInterval};
 
@@ -46,7 +47,7 @@ use super::split_result::SplitKind;
 /// Contains the partition constraint ([`Cell`]), aggregated weights, tree
 /// structure (parent/child indices), and a leaf flag. No training indices
 /// or sorted lists are retained.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FittedNode {
     /// The multi-dimensional partition constraint.
     pub cell: Cell,
@@ -102,7 +103,7 @@ impl FittedNode {
 ///
 /// Stored in [`Tree::split_history`] in the order splits were executed
 /// (i.e., best-first / highest-gain first).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SplitRecord {
     /// Index of the parent node that was split.
     pub parent_index: usize,
@@ -133,6 +134,7 @@ pub struct SplitRecord {
 /// - `nodes[0]` is always the root.
 /// - Every non-leaf node has both `left_child` and `right_child` set.
 /// - `leaves` contains exactly the indices where `is_leaf == true`.
+#[derive(Serialize, Deserialize)]
 pub struct Tree {
     /// Arena of fitted nodes.
     pub nodes: Vec<FittedNode>,
@@ -181,10 +183,7 @@ impl Tree {
     /// Traverses from root, evaluating the left child’s cell rules at each
     /// internal node. If the sample satisfies all left-child rules it goes
     /// left; otherwise right.
-    pub fn predict_leaf_from_map(
-        &self,
-        row: &HashMap<String, Option<DynValue>>,
-    ) -> usize {
+    pub fn predict_leaf_from_map(&self, row: &HashMap<String, Option<DynValue>>) -> usize {
         let mut idx = 0;
         loop {
             let node = &self.nodes[idx];
@@ -317,10 +316,7 @@ impl Tree {
     /// Shorthand for [`predict_distributions`](Tree::predict_distributions)
     /// followed by [`mean_vector`](PiecewiseConstantDistribution::mean_vector)
     /// on each distribution.
-    pub fn predict_mean_vectors(
-        &self,
-        dataset: &dyn DatasetView,
-    ) -> Vec<MeanVector> {
+    pub fn predict_mean_vectors(&self, dataset: &dyn DatasetView) -> Vec<MeanVector> {
         self.predict_distributions(dataset)
             .into_iter()
             .map(|d| d.mean_vector())
@@ -336,18 +332,12 @@ impl Tree {
     /// | Categorical    | `Utf8`      | Argmax category name                    |
     ///
     /// The output has `n_rows` rows and one column per target dimension.
-    pub fn predict_mean(
-        &self,
-        dataset: &dyn DatasetView,
-    ) -> DataFrame {
+    pub fn predict_mean(&self, dataset: &dyn DatasetView) -> DataFrame {
         let mean_vectors = self.predict_mean_vectors(dataset);
 
         // Discover target columns from root cell
         let root = self.root();
-        let mut target_cols: Vec<(&String, &dyn DynRule)> = root
-            .cell
-            .target_rules()
-            .collect();
+        let mut target_cols: Vec<(&String, &dyn DynRule)> = root.cell.target_rules().collect();
         // Sort for deterministic column order
         target_cols.sort_by_key(|(k, _)| (*k).clone());
 
@@ -418,6 +408,47 @@ impl Tree {
         }
     }
 
+    // -----------------------------------------------------------------------
+    // Feature importances
+    // -----------------------------------------------------------------------
+
+    /// Compute feature importances based on cumulative gain from all splits.
+    ///
+    /// Each split is counted exactly once (no double-counting across leaves).
+    /// If `normalize` is true, the importances are normalized to sum to 1.0.
+    pub fn feature_importances(&self, normalize: bool) -> HashMap<String, f64> {
+        let mut importances: HashMap<String, f64> = HashMap::new();
+
+        for rec in &self.split_history {
+            if rec.gain.is_finite() && rec.gain > 0.0 {
+                *importances.entry(rec.col_name.clone()).or_insert(0.0) += rec.gain;
+            }
+        }
+
+        if normalize && !importances.is_empty() {
+            let total: f64 = importances.values().sum();
+            if total > 0.0 {
+                for value in importances.values_mut() {
+                    *value /= total;
+                }
+            }
+        }
+
+        importances
+    }
+
+    // -----------------------------------------------------------------------
+    // Apply (leaf assignment)
+    // -----------------------------------------------------------------------
+
+    /// Apply the tree to a dataset, returning the leaf index for each row.
+    ///
+    /// Returns a `Vec<usize>` of length `dataset.n_rows()`, where each
+    /// element is the index of the leaf node the row was routed to.
+    /// These are node indices (not positions in the `leaves` array).
+    pub fn apply(&self, dataset: &dyn DatasetView) -> Vec<usize> {
+        self.predict_leaves(dataset)
+    }
     /// Get target column metadata from the root cell.
     ///
     /// Returns a list of `(column_name, logical_dtype)` pairs for each
@@ -514,8 +545,8 @@ impl fmt::Display for Tree {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::v2::cell::Cell;
     use crate::rules::ContinuousInterval;
+    use crate::v2::cell::Cell;
     use crate::v2::rule::{DynRule, DynValue};
 
     fn make_simple_tree() -> Tree {
@@ -523,21 +554,36 @@ mod tests {
         let root_cell = Cell::new().with_rule(
             "x",
             Box::new(ContinuousInterval::new(
-                0.0, 10.0, true, true, Some((0.0, 10.0)), true,
+                0.0,
+                10.0,
+                true,
+                true,
+                Some((0.0, 10.0)),
+                true,
             )) as Box<dyn DynRule>,
         );
 
         let left_cell = Cell::new().with_rule(
             "x",
             Box::new(ContinuousInterval::new(
-                0.0, 5.0, true, false, Some((0.0, 10.0)), true,
+                0.0,
+                5.0,
+                true,
+                false,
+                Some((0.0, 10.0)),
+                true,
             )) as Box<dyn DynRule>,
         );
 
         let right_cell = Cell::new().with_rule(
             "x",
             Box::new(ContinuousInterval::new(
-                5.0, 10.0, true, true, Some((0.0, 10.0)), false,
+                5.0,
+                10.0,
+                true,
+                true,
+                Some((0.0, 10.0)),
+                false,
             )) as Box<dyn DynRule>,
         );
 
