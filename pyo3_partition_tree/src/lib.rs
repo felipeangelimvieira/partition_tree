@@ -1,9 +1,8 @@
 use bincode;
 use estimators::api::*;
-use partition_tree::estimator::*;
-use partition_tree::estimator_forest::PartitionForest;
-use partition_tree::predict::probability::*;
-use partition_tree::tree::{LeafInfo, PartitionInfo};
+use partition_tree::estimators::{PartitionForest, PartitionTree};
+use partition_tree::predict::PiecewiseConstantDistribution;
+use partition_tree::rules::{BelongsTo, ContinuousInterval, IntegerInterval};
 use polars::prelude::DataFrame as PolarsDataFrame;
 use polars::prelude::*;
 use std::collections::HashMap;
@@ -12,13 +11,6 @@ use pyo3::prelude::*;
 use pyo3::types::*;
 use pyo3_polars::{PolarsAllocator, PyDataFrame};
 
-#[derive(Debug, Clone)]
-pub enum PyValue {
-    Float(f64),
-    Int(i64),
-    String(String),
-    Bool(bool),
-}
 #[global_allocator]
 static ALLOC: PolarsAllocator = PolarsAllocator::new();
 
@@ -31,70 +23,54 @@ pub struct PyPartitionTree {
 impl PyPartitionTree {
     /// Serialize the tree state for pickling
     pub fn __getstate__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
-        let bytes = bincode::serialize(&self.inner)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Serialization error: {}", e)))?;
+        let bytes = bincode::serialize(&self.inner).map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!("Serialization error: {}", e))
+        })?;
         Ok(PyBytes::new(py, &bytes))
     }
 
     /// Deserialize the tree state for unpickling
     pub fn __setstate__(&mut self, state: &Bound<'_, PyBytes>) -> PyResult<()> {
-        self.inner = bincode::deserialize(state.as_bytes())
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Deserialization error: {}", e)))?;
+        self.inner = bincode::deserialize(state.as_bytes()).map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!("Deserialization error: {}", e))
+        })?;
         Ok(())
     }
 
     #[new]
     #[pyo3(signature = (
-        max_iter = 100,
-        min_samples_split = 2,
-        min_samples_leaf_y = 1,
-        min_samples_leaf_x = 1,
-        min_samples_leaf = 1,
-        min_target_volume = 0.0,
-        max_depth = usize::MAX,
-        min_split_gain = 0.0,
+        max_leaves = 101,
         boundaries_expansion_factor = 0.1,
-        min_density_value = 0.0,
-        max_density_value = f64::INFINITY,
-        max_measure_value = f64::INFINITY,
-        exploration_split_budget = 0,
-        feature_split_fraction = None,
-        seed = None,
+        min_samples_xy = 1.0,
+        min_samples_x = 1.0,
+        min_samples_y = 1.0,
+        min_gain = 0.0,
+        min_volume = 0.0,
+        max_depth = usize::MAX,
+        min_samples_split = 2.0,
     ))]
     pub fn new(
-        max_iter: usize,
-        min_samples_split: usize,
-        min_samples_leaf_y: usize,
-        min_samples_leaf_x: usize,
-        min_samples_leaf: usize,
-        min_target_volume: f64,
-        max_depth: usize,
-        min_split_gain: f64,
+        max_leaves: usize,
         boundaries_expansion_factor: f64,
-        min_density_value: f64,
-        max_density_value: f64,
-        max_measure_value: f64,
-        exploration_split_budget: usize,
-        feature_split_fraction: Option<f64>,
-        seed: Option<usize>,
+        min_samples_xy: f64,
+        min_samples_x: f64,
+        min_samples_y: f64,
+        min_gain: f64,
+        min_volume: f64,
+        max_depth: usize,
+        min_samples_split: f64,
     ) -> Self {
         Self {
             inner: PartitionTree::new(
-                max_iter,
-                min_samples_split,
-                min_samples_leaf_y,
-                min_samples_leaf_x,
-                min_samples_leaf,
-                min_target_volume,
-                max_depth,
-                min_split_gain,
-                min_density_value,
-                max_density_value,
-                max_measure_value,
+                max_leaves,
                 boundaries_expansion_factor,
-                exploration_split_budget,
-                feature_split_fraction,
-                seed,
+                min_samples_xy,
+                min_samples_x,
+                min_samples_y,
+                min_gain,
+                min_volume,
+                max_depth,
+                min_samples_split,
             ),
         }
     }
@@ -105,18 +81,15 @@ impl PyPartitionTree {
         y: PyDataFrame,
         sample_weights: Option<PyDataFrame>,
     ) -> PyResult<()> {
-        // Convert PyDataFrame to owned DataFrame, then pass references as required by the trait.
-
         let x_df: PolarsDataFrame = x.into();
         let y_df: PolarsDataFrame = y.into();
 
-        // Assert same length
         if x_df.height() != y_df.height() {
             return Err(pyo3::exceptions::PyValueError::new_err(
                 "X and y must have the same number of rows",
             ));
         }
-        // Convert sample_weights to Float64Chunked if present, else weights of 1
+
         let w: Float64Chunked = match sample_weights {
             Some(sw) => {
                 let sw_df: PolarsDataFrame = sw.into();
@@ -134,18 +107,12 @@ impl PyPartitionTree {
             ),
         };
 
-        // IMPORTANT: Estimator::fit returns a new PartitionTree with the trained state (tree moved).
-        // We must assign it back to self.inner, otherwise self.inner.tree remains None and predict() fails.
         let fitted = self
             .inner
             .fit(&x_df, &y_df, Some(&w))
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         self.inner = fitted;
         Ok(())
-    }
-
-    pub fn tree_build_status(&self) -> PyResult<String> {
-        PyResult::Ok(self.inner.tree_build_status())
     }
 
     pub fn predict(&self, x: PyDataFrame) -> PyResult<PyDataFrame> {
@@ -157,103 +124,91 @@ impl PyPartitionTree {
         Ok(PyDataFrame(preds))
     }
 
-    pub fn predict_proba(&self, x: PyDataFrame) -> PyResult<Vec<PyProbabilityDistributionSingle>> {
+    pub fn predict_proba(&self, x: PyDataFrame) -> PyResult<Vec<PyPiecewiseDistribution>> {
         let x_df: PolarsDataFrame = x.into();
         let proba = self
             .inner
             .predict_proba(&x_df)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?
-            .iter()
-            .map(|dist| PyProbabilityDistributionSingle {
-                inner: dist.clone(),
-            })
+            .into_iter()
+            .map(|dist| PyPiecewiseDistribution { inner: dist })
             .collect();
         Ok(proba)
     }
 
-    pub fn predict_categorical_masses(
-        &self,
-        x: PyDataFrame,
-    ) -> PyResult<Vec<Vec<(f64, HashMap<String, Vec<String>>)>>> {
+    /// Apply the tree to the input data, returning the leaf node index for each sample.
+    pub fn apply(&self, x: PyDataFrame) -> PyResult<Vec<usize>> {
         let x_df: PolarsDataFrame = x.into();
-        let categorical_masses = self
-            .inner
-            .predict_categorical_masses(&x_df)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-
-        Ok(categorical_masses)
-    }
-
-    pub fn tree_info(&self) -> PyResult<String> {
-        PyResult::Ok(self.inner.tree_info())
-    }
-
-    /// Apply the tree to the input data, returning the leaf index for each sample.
-    /// Returns a list where each element is a list of leaf indices (positions in the leaves array)
-    /// that the sample belongs to. Use get_leaves_info() to get details about each leaf by position.
-    pub fn apply(&self, x: PyDataFrame) -> PyResult<Vec<Vec<usize>>> {
-        let x_df: PolarsDataFrame = x.into();
-        Ok(self.inner.apply(&x_df))
+        self.inner
+            .apply(&x_df)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
     }
 
     /// Get detailed information about all leaves in the tree.
     /// Returns a list of dictionaries, one per leaf, containing:
     /// - leaf_index: index of the leaf node
     /// - depth: depth of the leaf in the tree
-    /// - n_samples: number of training samples in this leaf
+    /// - w_xy: joint weight
+    /// - w_x: feature weight
+    /// - w_y: target weight
+    /// - conditional_density: estimated density
+    /// - target_volume: target-space volume
     /// - partitions: dict mapping column names to their partition info
-    ///   - For continuous: {"type": "continuous", "low": float, "high": float, "lower_closed": bool, "upper_closed": bool}
-    ///   - For categorical: {"type": "categorical", "categories": [str, ...]}
-    /// - indices_xy: list of sample indices matching both X and Y constraints
-    /// - indices_x: list of sample indices matching X constraints only
-    /// - indices_y: list of sample indices matching Y constraints only
     pub fn get_leaves_info(&self, py: Python<'_>) -> PyResult<PyObject> {
-        let leaves_info = self.inner.get_leaves_info();
+        let leaves_info = self
+            .inner
+            .leaves_info()
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+        let tree = self
+            .inner
+            .tree
+            .as_ref()
+            .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("Model is not fitted"))?;
 
         let py_leaves: Vec<PyObject> = leaves_info
             .into_iter()
             .map(|leaf| {
                 let leaf_dict = PyDict::new(py);
-                leaf_dict.set_item("leaf_index", leaf.leaf_index).unwrap();
+                leaf_dict.set_item("leaf_index", leaf.index).unwrap();
                 leaf_dict.set_item("depth", leaf.depth).unwrap();
-                leaf_dict.set_item("n_samples", leaf.n_samples).unwrap();
-                leaf_dict.set_item("indices_xy", leaf.indices_xy).unwrap();
-                leaf_dict.set_item("indices_x", leaf.indices_x).unwrap();
-                leaf_dict.set_item("indices_y", leaf.indices_y).unwrap();
+                leaf_dict.set_item("w_xy", leaf.w_xy).unwrap();
+                leaf_dict.set_item("w_x", leaf.w_x).unwrap();
+                leaf_dict.set_item("w_y", leaf.w_y).unwrap();
+                leaf_dict
+                    .set_item("conditional_density", leaf.conditional_density)
+                    .unwrap();
+                leaf_dict
+                    .set_item("target_volume", leaf.target_volume)
+                    .unwrap();
 
+                // Extract partition info from the node's cell rules
+                let node = &tree.nodes[leaf.index];
                 let partitions_dict = PyDict::new(py);
-                for (name, info) in leaf.partitions {
+                for (name, rule) in &node.cell.rules {
                     let info_dict = PyDict::new(py);
-                    match info {
-                        PartitionInfo::Continuous {
-                            low,
-                            high,
-                            lower_closed,
-                            upper_closed,
-                        } => {
-                            info_dict.set_item("type", "continuous").unwrap();
-                            info_dict.set_item("low", low).unwrap();
-                            info_dict.set_item("high", high).unwrap();
-                            info_dict.set_item("lower_closed", lower_closed).unwrap();
-                            info_dict.set_item("upper_closed", upper_closed).unwrap();
-                        }
-                        PartitionInfo::Categorical { categories } => {
-                            info_dict.set_item("type", "categorical").unwrap();
-                            info_dict.set_item("categories", categories).unwrap();
-                        }
+                    if let Some(ci) = rule.as_any().downcast_ref::<ContinuousInterval>() {
+                        info_dict.set_item("type", "continuous").unwrap();
+                        info_dict.set_item("low", ci.low).unwrap();
+                        info_dict.set_item("high", ci.high).unwrap();
+                        info_dict.set_item("lower_closed", ci.lower_closed).unwrap();
+                        info_dict.set_item("upper_closed", ci.upper_closed).unwrap();
+                    } else if let Some(ii) = rule.as_any().downcast_ref::<IntegerInterval>() {
+                        info_dict.set_item("type", "integer").unwrap();
+                        info_dict.set_item("low", ii.low).unwrap();
+                        info_dict.set_item("high", ii.high).unwrap();
+                    } else if let Some(bt) = rule.as_any().downcast_ref::<BelongsTo>() {
+                        info_dict.set_item("type", "categorical").unwrap();
+                        let cats: Vec<String> = bt
+                            .values
+                            .iter()
+                            .filter_map(|&idx| bt.domain_names.get(idx).cloned())
+                            .collect();
+                        info_dict.set_item("categories", cats).unwrap();
                     }
                     partitions_dict.set_item(name, info_dict).unwrap();
                 }
                 leaf_dict.set_item("partitions", partitions_dict).unwrap();
-
-                // Add feature_contributions
-                let contributions_dict = PyDict::new(py);
-                for (feature_name, gain) in leaf.feature_contributions {
-                    contributions_dict.set_item(feature_name, gain).unwrap();
-                }
-                leaf_dict
-                    .set_item("feature_contributions", contributions_dict)
-                    .unwrap();
 
                 leaf_dict.into()
             })
@@ -263,7 +218,6 @@ impl PyPartitionTree {
     }
 
     /// Compute feature importances based on cumulative gain from all splits.
-    /// Each split is counted exactly once (no double-counting across leaves).
     ///
     /// Parameters
     /// ----------
@@ -276,7 +230,9 @@ impl PyPartitionTree {
     ///     Dictionary mapping feature names to their importance scores.
     #[pyo3(signature = (normalize = true))]
     pub fn get_feature_importances(&self, normalize: bool) -> PyResult<HashMap<String, f64>> {
-        Ok(self.inner.get_feature_importances(normalize))
+        self.inner
+            .feature_importances(normalize)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
     }
 }
 
@@ -289,15 +245,17 @@ pub struct PyPartitionForest {
 impl PyPartitionForest {
     /// Serialize the forest state for pickling
     pub fn __getstate__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
-        let bytes = bincode::serialize(&self.inner)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Serialization error: {}", e)))?;
+        let bytes = bincode::serialize(&self.inner).map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!("Serialization error: {}", e))
+        })?;
         Ok(PyBytes::new(py, &bytes))
     }
 
     /// Deserialize the forest state for unpickling
     pub fn __setstate__(&mut self, state: &Bound<'_, PyBytes>) -> PyResult<()> {
-        self.inner = bincode::deserialize(state.as_bytes())
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Deserialization error: {}", e)))?;
+        self.inner = bincode::deserialize(state.as_bytes()).map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!("Deserialization error: {}", e))
+        })?;
         Ok(())
     }
 
@@ -305,63 +263,42 @@ impl PyPartitionForest {
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (
         n_estimators = 100,
-        max_iter = 100,
-        min_samples_split = 2,
-        min_samples_leaf_y = 1,
-        min_samples_leaf_x = 1,
-        min_samples_leaf = 1,
-        min_target_volume = 0.0,
-        max_depth = usize::MAX,
-        min_split_gain = 0.0,
+        max_leaves = 101,
         boundaries_expansion_factor = 0.1,
-        max_features = None,
-        max_samples = None,
-        min_density_value = 0.0,
-        max_density_value = f64::INFINITY,
-        max_measure_value = f64::INFINITY,
-        exploration_split_budget = 0,
-        feature_split_fraction = None,
+        min_samples_xy = 1.0,
+        min_samples_x = 1.0,
+        min_samples_y = 1.0,
+        min_gain = 0.0,
+        min_volume = 0.0,
+        max_depth = usize::MAX,
+        min_samples_split = 2.0,
         seed = None,
     ))]
     pub fn new(
         n_estimators: usize,
-        max_iter: usize,
-        min_samples_split: usize,
-        min_samples_leaf_y: usize,
-        min_samples_leaf_x: usize,
-        min_samples_leaf: usize,
-        min_target_volume: f64,
-        max_depth: usize,
-        min_split_gain: f64,
+        max_leaves: usize,
         boundaries_expansion_factor: f64,
-        max_features: Option<f64>,
-        max_samples: Option<f64>,
-        min_density_value: f64,
-        max_density_value: f64,
-        max_measure_value: f64,
-        exploration_split_budget: usize,
-        feature_split_fraction: Option<f64>,
+        min_samples_xy: f64,
+        min_samples_x: f64,
+        min_samples_y: f64,
+        min_gain: f64,
+        min_volume: f64,
+        max_depth: usize,
+        min_samples_split: f64,
         seed: Option<usize>,
     ) -> Self {
         Self {
             inner: PartitionForest::new(
                 n_estimators,
-                max_iter,
-                min_samples_split,
-                min_samples_leaf_y,
-                min_samples_leaf_x,
-                min_samples_leaf,
-                min_target_volume,
-                max_depth,
-                min_split_gain,
-                min_density_value,
-                max_density_value,
-                max_measure_value,
+                max_leaves,
                 boundaries_expansion_factor,
-                max_features,
-                max_samples,
-                exploration_split_budget,
-                feature_split_fraction,
+                min_samples_xy,
+                min_samples_x,
+                min_samples_y,
+                min_gain,
+                min_volume,
+                max_depth,
+                min_samples_split,
                 seed,
             ),
         }
@@ -375,6 +312,12 @@ impl PyPartitionForest {
     ) -> PyResult<()> {
         let x_df: PolarsDataFrame = x.into();
         let y_df: PolarsDataFrame = y.into();
+
+        if x_df.height() != y_df.height() {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "X and y must have the same number of rows",
+            ));
+        }
 
         let w: Float64Chunked = match sample_weights {
             Some(sw) => {
@@ -410,14 +353,14 @@ impl PyPartitionForest {
         Ok(PyDataFrame(preds))
     }
 
-    pub fn predict_proba(&self, x: PyDataFrame) -> PyResult<Vec<PyProbabilityDistributionSingle>> {
+    pub fn predict_proba(&self, x: PyDataFrame) -> PyResult<Vec<PyPiecewiseDistribution>> {
         let x_df: PolarsDataFrame = x.into();
         let proba = self
             .inner
             .predict_proba(&x_df)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?
             .into_iter()
-            .map(|dist| PyProbabilityDistributionSingle { inner: dist })
+            .map(|dist| PyPiecewiseDistribution { inner: dist })
             .collect();
         Ok(proba)
     }
@@ -425,7 +368,7 @@ impl PyPartitionForest {
     pub fn predict_trees_proba(
         &self,
         x: PyDataFrame,
-    ) -> PyResult<Vec<Vec<PyProbabilityDistributionSingle>>> {
+    ) -> PyResult<Vec<Vec<PyPiecewiseDistribution>>> {
         let x_df: PolarsDataFrame = x.into();
         let proba_per_tree = self
             .inner
@@ -435,99 +378,65 @@ impl PyPartitionForest {
             .map(|tree_dists| {
                 tree_dists
                     .into_iter()
-                    .map(|dist| PyProbabilityDistributionSingle { inner: dist })
+                    .map(|dist| PyPiecewiseDistribution { inner: dist })
                     .collect()
             })
             .collect();
         Ok(proba_per_tree)
     }
+
+    /// Compute feature importances aggregated across all trees.
+    #[pyo3(signature = (normalize = true))]
+    pub fn get_feature_importances(&self, normalize: bool) -> PyResult<HashMap<String, f64>> {
+        self.inner
+            .feature_importances(normalize)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+    }
 }
 
 #[pyclass]
-pub struct PyProbabilityDistributionSingle {
+pub struct PyPiecewiseDistribution {
     inner: PiecewiseConstantDistribution,
 }
 
 #[pymethods]
-impl PyProbabilityDistributionSingle {
-    pub fn pdf_single(&self, row: &Bound<'_, PyDict>) -> PyResult<f64> {
-        // Convert PyDict to HashMap<String, PyValue>
-        let mut map: HashMap<String, PyValue> = HashMap::new();
-
-        for (key, value) in row.iter() {
-            let key_str = key.extract::<String>()?;
-
-            // Try to extract different types in order of preference
-            let py_value = if let Ok(f) = value.extract::<f64>() {
-                PyValue::Float(f)
-            } else if let Ok(i) = value.extract::<i64>() {
-                PyValue::Int(i)
-            } else if let Ok(s) = value.extract::<String>() {
-                PyValue::String(s)
-            } else if let Ok(b) = value.extract::<bool>() {
-                PyValue::Bool(b)
-            } else {
-                return Err(pyo3::exceptions::PyTypeError::new_err(format!(
-                    "Unsupported type for key '{}'",
-                    key_str
-                )));
-            };
-
-            map.insert(key_str, py_value);
-        }
-
-        // You'll need to adapt this part based on what your pdf_single method expects
-        // For now, converting back to the original format
-        let mut any_map: HashMap<String, Box<dyn std::any::Any>> = HashMap::new();
-        for (k, v) in map {
-            match v {
-                PyValue::Float(f) => {
-                    any_map.insert(k, Box::new(f));
-                }
-                PyValue::Int(i) => {
-                    any_map.insert(k, Box::new(i as i32));
-                } // Convert to f64 if needed
-                PyValue::String(s) => {
-                    any_map.insert(k, Box::new(s));
-                }
-                PyValue::Bool(b) => {
-                    any_map.insert(k, Box::new(b));
-                }
-            }
-        }
-
-        let result = self.inner.pdf_single(&any_map);
-        Ok(result)
-    }
-    //pub fn predict_proba(&self, )
-
+impl PyPiecewiseDistribution {
+    /// Weighted mean vector across all cells.
+    /// Returns a dict mapping target column names to mean values.
     pub fn mean(&self) -> PyResult<HashMap<String, Vec<f64>>> {
-        let result = self.inner.mean();
-        Ok(result)
+        Ok(self.inner.mean_vector())
     }
 
-    pub fn masses(&self) -> Vec<f64> {
-        self.inner.masses().clone()
+    /// Total mass of the distribution.
+    pub fn total_mass(&self) -> f64 {
+        self.inner.total_mass()
     }
 
-    pub fn masses_with_categories(&self) -> Vec<(f64, HashMap<String, Vec<String>>)> {
-        self.inner.masses_with_categories()
+    /// Number of cells in this distribution.
+    pub fn n_cells(&self) -> usize {
+        self.inner.n_cells()
     }
 
-    pub fn intervals(&self) -> Vec<(f64, f64)> {
-        self.inner.target_intervals()
+    /// For continuous targets: extract (density, low, high) segments.
+    pub fn pdf_segments(&self) -> Vec<(f64, f64, f64)> {
+        self.inner.pdf_segments()
     }
 
-    pub fn pdf_with_intervals(&self) -> Vec<(f64, (f64, f64, bool, bool))> {
-        self.inner.pdf_with_intervals()
+    /// For categorical targets: per-column probability vectors.
+    pub fn category_probabilities(&self) -> HashMap<String, Vec<f64>> {
+        self.inner.category_probabilities()
+    }
+
+    /// Get domain names for a categorical target column.
+    pub fn categorical_domain_names(&self, col_name: &str) -> Option<Vec<String>> {
+        self.inner.categorical_domain_names(col_name)
     }
 }
-
-// Partition Forest
 
 #[pymodule]
 fn pyo3_partition_tree(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyPartitionTree>()?;
     m.add_class::<PyPartitionForest>()?;
+    m.add_class::<PyPiecewiseDistribution>()?;
     Ok(())
 }
