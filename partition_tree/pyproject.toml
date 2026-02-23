@@ -14,10 +14,17 @@ dependencies = [
     "maturin>=1.9.3,<2.0.0",
     "polars>=1.33.1,<2.0.0",
     "pyarrow>=21.0.0",
+    "pyo3-partition-tree",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.3.5,<9.0.0"]
+dev = [
+    "pytest>=8.3.5,<9.0.0",
+    "ipykernel>=6.29.0",
+    "matplotlib>=3.9.0",
+    "jupyterlab>=4.0.0",
+    "nbformat>=5.10.0",
+]
 
 
 [build-system]
@@ -27,6 +34,9 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["partition_tree*"]
+
+[tool.uv.sources]
+pyo3-partition-tree = { path = "../pyo3_partition_tree", editable = true }
 
 [tool.setuptools]
 # Console scripts intentionally removed (fastbench CLI removed per request)

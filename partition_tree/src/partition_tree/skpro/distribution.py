@@ -61,13 +61,48 @@ class IntervalDistribution(BaseDistribution):
     """
 
     _tags = {
-        "authors": ["YourGitHubID"],
+        "authors": ["felipeangelimvieira"],
         "capabilities:approx": [],
-        "capabilities:exact": ["mean", "var", "energy", "pdf", "log_pdf", "cdf"],
+        "capabilities:exact": [
+            "mean",
+            "var",
+            "energy",
+            "pdf",
+            "log_pdf",
+            "cdf",
+            "ppf",
+        ],
         "distr:measuretype": "continuous",
         "distr:paramtype": "nonparametric",
         "broadcast_init": "off",
     }
+
+    @classmethod
+    def get_test_params(cls, parameter_set="default"):
+        """Return testing parameter settings for the estimator."""
+        params1 = {
+            "intervals": [
+                [(0.0, 1.0), (1.0, 2.0), (2.0, 3.0)],
+                [(0.0, 1.5), (1.5, 3.0)],
+            ],
+            "pdf_values": [
+                [0.2, 0.5, 0.3],
+                [0.6, 0.4],
+            ],
+            "index": pd.RangeIndex(2),
+            "columns": pd.Index([0]),
+        }
+        params2 = {
+            "intervals": [
+                [(0.0, 2.0), (2.0, 5.0)],
+            ],
+            "pdf_values": [
+                [0.4, 0.2],
+            ],
+            "index": pd.RangeIndex(1),
+            "columns": pd.Index([0]),
+        }
+        return [params1, params2]
 
     def __init__(self, intervals, pdf_values=None, index=None, columns=None):
         self.intervals = intervals
@@ -209,6 +244,7 @@ class IntervalDistribution(BaseDistribution):
         for i in range(n_instances):
             intervals = self._intervals[i]
             densities = self.pdf_values[i]
+            norm = self._normalization_factor[i]
             val = x[i]
 
             cdf_val = 0.0
@@ -220,9 +256,45 @@ class IntervalDistribution(BaseDistribution):
                     break
                 else:
                     cdf_val += densities[k] * interval.measure()
-            cdf_vals[i] = cdf_val
+            cdf_vals[i] = cdf_val / norm if norm > 0 else 0.0
 
         return pd.DataFrame(cdf_vals, index=self.index, columns=self.columns)
+
+    def _ppf(self, p):
+        """Percent point function (inverse of CDF) for piecewise uniform distribution."""
+        p = np.asarray(p, dtype=float)
+        n_instances = len(self.index)
+        if p.ndim == 0:
+            p = np.full((n_instances,), p)
+        elif p.ndim == 2:
+            p = p.ravel()[:n_instances]
+
+        ppf_vals = np.zeros((n_instances,), dtype=float)
+        for i in range(n_instances):
+            intervals = self._intervals[i]
+            densities = self.pdf_values[i]
+            norm = self._normalization_factor[i]
+            q = float(p[i])
+
+            cumulative = 0.0
+            found = False
+            for k, interval in enumerate(intervals):
+                mass_k = densities[k] * interval.measure() / norm
+                if cumulative + mass_k >= q - 1e-12:
+                    remaining = q - cumulative
+                    if densities[k] > 0:
+                        offset = remaining * norm / densities[k]
+                    else:
+                        offset = 0.0
+                    ppf_vals[i] = interval.low + offset
+                    found = True
+                    break
+                cumulative += mass_k
+
+            if not found:
+                ppf_vals[i] = intervals[-1].high if intervals else np.nan
+
+        return pd.DataFrame(ppf_vals, index=self.index, columns=self.columns)
 
     def _mean(self):
         n_instances = len(self.index)

@@ -1,11 +1,6 @@
-from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
-
 from partition_tree import TARGET_COLUMN
 import numpy as np
 import pandas as pd
-import polars as pl
-from sklearn.utils.validation import validate_data, check_is_fitted
-
 
 def _preprocess_X(X):
     """Preprocess feature matrix X.
