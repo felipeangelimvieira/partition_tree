@@ -294,21 +294,82 @@ impl Tree {
         &self,
         dataset: &dyn DatasetView,
     ) -> Vec<PiecewiseConstantDistribution> {
-        let leaf_indices = self.predict_leaves(dataset);
+        let feature_columns = dataset.feature_columns();
+        let all_columns = dataset.columns();
 
-        // Build ConditionedCell once per unique leaf
+        // Build `ConditionedCell` once per unique leaf
         let mut cache: HashMap<usize, ConditionedCell> = HashMap::new();
 
-        leaf_indices
-            .into_iter()
-            .map(|leaf_idx| {
-                let cell = cache
-                    .entry(leaf_idx)
-                    .or_insert_with(|| ConditionedCell::from_fitted_node(&self.nodes[leaf_idx]))
-                    .clone();
-                PiecewiseConstantDistribution::from_single(cell)
+        (0..dataset.n_rows())
+            .map(|row_idx| {
+                // Conditional prediction P(Y|X=x): match *all* leaves whose
+                // feature-space constraints contain x (ignoring target rules).
+                let mut matched = self.match_leaves_given_features(row_idx, &feature_columns);
+
+                // Defensive fallback: if no leaf matched by features, fall back
+                // to deterministic traversal over all columns.
+                if matched.is_empty() {
+                    matched.push(self.predict_leaf_row(row_idx, &all_columns));
+                }
+
+                let cells = matched
+                    .into_iter()
+                    .map(|leaf_idx| {
+                        cache
+                            .entry(leaf_idx)
+                            .or_insert_with(|| {
+                                ConditionedCell::from_fitted_node(&self.nodes[leaf_idx])
+                            })
+                            .clone()
+                    })
+                    .collect();
+
+                PiecewiseConstantDistribution::from_cells(cells)
             })
             .collect()
+    }
+
+    /// Match all leaf node indices whose feature constraints contain row `row_idx`.
+    fn match_leaves_given_features(
+        &self,
+        row_idx: usize,
+        feature_columns: &[&dyn ColumnView],
+    ) -> Vec<usize> {
+        self.leaves
+            .iter()
+            .copied()
+            .filter(|&leaf_idx| {
+                self.evaluate_feature_row_membership(
+                    &self.nodes[leaf_idx],
+                    row_idx,
+                    feature_columns,
+                )
+            })
+            .collect()
+    }
+
+    /// Check if `row_idx` satisfies only the feature rules of `node.cell`.
+    fn evaluate_feature_row_membership(
+        &self,
+        node: &FittedNode,
+        row_idx: usize,
+        feature_columns: &[&dyn ColumnView],
+    ) -> bool {
+        for (col_name, rule) in node.cell.feature_rules() {
+            let col = match feature_columns
+                .iter()
+                .find(|c| c.name() == col_name.as_str())
+            {
+                Some(c) => c,
+                None => continue,
+            };
+
+            let value = col.get_dyn_value(row_idx);
+            if !rule.contains(value.as_ref()) {
+                return false;
+            }
+        }
+        true
     }
 
     /// Predict mean vectors for all rows.
@@ -545,9 +606,10 @@ impl fmt::Display for Tree {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rules::ContinuousInterval;
     use crate::cell::Cell;
+    use crate::dataset_view::PolarsDatasetView;
     use crate::rule::{DynRule, DynValue};
+    use crate::rules::ContinuousInterval;
 
     fn make_simple_tree() -> Tree {
         // Root → Left (leaf), Right (leaf)
@@ -675,5 +737,196 @@ mod tests {
 
         // Right: w_xy=40, w_x=40, vol=1.0 → density = 40/(40*1) = 1.0
         assert!((infos[1].conditional_density - 1.0).abs() < 1e-10);
+    }
+
+    fn make_tree_with_target_split_then_feature_split() -> Tree {
+        let full_x = || {
+            Box::new(ContinuousInterval::new(
+                0.0,
+                10.0,
+                true,
+                true,
+                Some((0.0, 10.0)),
+                false,
+            )) as Box<dyn DynRule>
+        };
+        let x_left = || {
+            Box::new(ContinuousInterval::new(
+                0.0,
+                5.0,
+                true,
+                false,
+                Some((0.0, 10.0)),
+                false,
+            )) as Box<dyn DynRule>
+        };
+        let x_right = || {
+            Box::new(ContinuousInterval::new(
+                5.0,
+                10.0,
+                true,
+                true,
+                Some((0.0, 10.0)),
+                false,
+            )) as Box<dyn DynRule>
+        };
+        let y_low = || {
+            Box::new(ContinuousInterval::new(
+                0.0,
+                5.0,
+                true,
+                false,
+                Some((0.0, 10.0)),
+                false,
+            )) as Box<dyn DynRule>
+        };
+        let y_high = || {
+            Box::new(ContinuousInterval::new(
+                5.0,
+                10.0,
+                true,
+                true,
+                Some((0.0, 10.0)),
+                false,
+            )) as Box<dyn DynRule>
+        };
+
+        let root = FittedNode {
+            cell: Cell::new().with_rule("x", full_x()).with_rule(
+                "target_y",
+                Box::new(ContinuousInterval::new(
+                    0.0,
+                    10.0,
+                    true,
+                    true,
+                    Some((0.0, 10.0)),
+                    false,
+                )),
+            ),
+            w_xy: 100.0,
+            w_x: 100.0,
+            w_y: 100.0,
+            depth: 0,
+            parent: None,
+            left_child: Some(1),
+            right_child: Some(2),
+            is_leaf: false,
+        };
+
+        // Internal nodes after target split
+        let target_left = FittedNode {
+            cell: Cell::new()
+                .with_rule("x", full_x())
+                .with_rule("target_y", y_low()),
+            w_xy: 50.0,
+            w_x: 50.0,
+            w_y: 100.0,
+            depth: 1,
+            parent: Some(0),
+            left_child: Some(3),
+            right_child: Some(4),
+            is_leaf: false,
+        };
+        let target_right = FittedNode {
+            cell: Cell::new()
+                .with_rule("x", full_x())
+                .with_rule("target_y", y_high()),
+            w_xy: 50.0,
+            w_x: 50.0,
+            w_y: 100.0,
+            depth: 1,
+            parent: Some(0),
+            left_child: Some(5),
+            right_child: Some(6),
+            is_leaf: false,
+        };
+
+        // Leaves
+        let ll = FittedNode {
+            cell: Cell::new()
+                .with_rule("x", x_left())
+                .with_rule("target_y", y_low()),
+            w_xy: 20.0,
+            w_x: 25.0,
+            w_y: 50.0,
+            depth: 2,
+            parent: Some(1),
+            left_child: None,
+            right_child: None,
+            is_leaf: true,
+        };
+        let lr = FittedNode {
+            cell: Cell::new()
+                .with_rule("x", x_right())
+                .with_rule("target_y", y_low()),
+            w_xy: 10.0,
+            w_x: 25.0,
+            w_y: 50.0,
+            depth: 2,
+            parent: Some(1),
+            left_child: None,
+            right_child: None,
+            is_leaf: true,
+        };
+        let rl = FittedNode {
+            cell: Cell::new()
+                .with_rule("x", x_left())
+                .with_rule("target_y", y_high()),
+            w_xy: 5.0,
+            w_x: 25.0,
+            w_y: 50.0,
+            depth: 2,
+            parent: Some(2),
+            left_child: None,
+            right_child: None,
+            is_leaf: true,
+        };
+        let rr = FittedNode {
+            cell: Cell::new()
+                .with_rule("x", x_right())
+                .with_rule("target_y", y_high()),
+            w_xy: 25.0,
+            w_x: 25.0,
+            w_y: 50.0,
+            depth: 2,
+            parent: Some(2),
+            left_child: None,
+            right_child: None,
+            is_leaf: true,
+        };
+
+        Tree {
+            nodes: vec![root, target_left, target_right, ll, lr, rl, rr],
+            leaves: vec![3, 4, 5, 6],
+            split_history: vec![],
+        }
+    }
+
+    #[test]
+    fn predict_distributions_matches_all_leaves_given_x() {
+        let tree = make_tree_with_target_split_then_feature_split();
+
+        let x = DataFrame::new(vec![Column::new(
+            PlSmallStr::from_static("x"),
+            vec![Some(2.0_f64), Some(8.0_f64)],
+        )])
+        .unwrap();
+        let dataset = PolarsDatasetView::new(&x);
+
+        let dists = tree.predict_distributions(&dataset);
+        assert_eq!(dists.len(), 2);
+
+        // For each x, both target partitions should be present.
+        assert_eq!(dists[0].n_cells(), 2, "x=2 should match two target leaves");
+        assert_eq!(dists[1].n_cells(), 2, "x=8 should match two target leaves");
+
+        let m0 = dists[0].mean_vector();
+        let m1 = dists[1].mean_vector();
+        let y0 = m0["target_y"][0];
+        let y1 = m1["target_y"][0];
+        assert!(
+            (y0 - y1).abs() > 1e-12,
+            "means should differ between x=2 and x=8 ({y0} vs {y1})"
+        );
     }
 }

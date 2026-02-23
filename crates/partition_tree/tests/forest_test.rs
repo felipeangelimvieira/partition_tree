@@ -101,13 +101,13 @@ fn ensemble_distribution_has_multiple_cells() {
     let (fitted, x) = fit_forest(3);
     let dists = fitted.predict_proba(&x).unwrap();
 
-    // With 3 trees, each single-tree distribution has 1 cell.
-    // After ensembling, each distribution should have 3 cells.
+    // Each tree contributes at least one conditioned cell for a given x.
+    // If trees split on target columns, a tree may contribute >1 cells.
+    // So the ensemble must have at least one cell per tree.
     for d in &dists {
-        assert_eq!(
-            d.n_cells(),
-            3,
-            "ensembled distribution should have one cell per tree"
+        assert!(
+            d.n_cells() >= 3,
+            "ensembled distribution should have at least one cell per tree"
         );
     }
 }
