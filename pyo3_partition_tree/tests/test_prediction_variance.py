@@ -40,7 +40,7 @@ def _fit_tree(x_df: pl.DataFrame, y_df: pl.DataFrame, **kwargs) -> PyPartitionTr
         min_samples_y=0.0,
         min_samples_x=0.0,
         min_samples_xy=1.0,
-        min_volume=0.0,
+        min_volume_fraction=0.0,
         max_depth=20,
         min_gain=0.0,
     )
@@ -59,7 +59,7 @@ def _fit_forest(x_df: pl.DataFrame, y_df: pl.DataFrame, **kwargs) -> PyPartition
         min_samples_y=0.0,
         min_samples_x=0.0,
         min_samples_xy=1.0,
-        min_volume=0.0,
+        min_volume_fraction=0.0,
         max_depth=20,
         min_gain=0.0,
         seed=42,

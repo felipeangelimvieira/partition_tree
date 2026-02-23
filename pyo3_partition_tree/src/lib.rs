@@ -45,9 +45,12 @@ impl PyPartitionTree {
         min_samples_x = 1.0,
         min_samples_y = 1.0,
         min_gain = 0.0,
-        min_volume = 0.0,
+        min_volume_fraction = 0.0,
         max_depth = usize::MAX,
         min_samples_split = 2.0,
+        max_samples = None,
+        max_features = None,
+        seed = 0,
     ))]
     pub fn new(
         max_leaves: usize,
@@ -56,9 +59,12 @@ impl PyPartitionTree {
         min_samples_x: f64,
         min_samples_y: f64,
         min_gain: f64,
-        min_volume: f64,
+        min_volume_fraction: f64,
         max_depth: usize,
         min_samples_split: f64,
+        max_samples: Option<f64>,
+        max_features: Option<f64>,
+        seed: Option<u64>,
     ) -> Self {
         Self {
             inner: PartitionTree::new(
@@ -68,9 +74,12 @@ impl PyPartitionTree {
                 min_samples_x,
                 min_samples_y,
                 min_gain,
-                min_volume,
+                min_volume_fraction,
                 max_depth,
                 min_samples_split,
+                max_samples,
+                max_features,
+                seed,
             ),
         }
     }
@@ -269,9 +278,11 @@ impl PyPartitionForest {
         min_samples_x = 1.0,
         min_samples_y = 1.0,
         min_gain = 0.0,
-        min_volume = 0.0,
+        min_volume_fraction = 0.0,
         max_depth = usize::MAX,
         min_samples_split = 2.0,
+        max_samples = None,
+        max_features = None,
         seed = None,
     ))]
     pub fn new(
@@ -282,9 +293,11 @@ impl PyPartitionForest {
         min_samples_x: f64,
         min_samples_y: f64,
         min_gain: f64,
-        min_volume: f64,
+        min_volume_fraction: f64,
         max_depth: usize,
         min_samples_split: f64,
+        max_samples: Option<f64>,
+        max_features: Option<f64>,
         seed: Option<usize>,
     ) -> Self {
         Self {
@@ -296,9 +309,11 @@ impl PyPartitionForest {
                 min_samples_x,
                 min_samples_y,
                 min_gain,
-                min_volume,
+                min_volume_fraction,
                 max_depth,
                 min_samples_split,
+                max_samples,
+                max_features,
                 seed,
             ),
         }
