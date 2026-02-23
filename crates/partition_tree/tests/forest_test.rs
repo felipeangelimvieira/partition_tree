@@ -45,9 +45,9 @@ fn fit_forest(n_estimators: usize) -> (PartitionForest, DataFrame) {
         /* min_volume */ 0.0,
         /* max_depth */ 6,
         /* min_samples_split */ 2.0,
-        /* seed */ Some(42),
         /* max_samples */ None,
         /* max_features */ None,
+        /* seed */ Some(42),
     );
     let fitted = model.fit(&x, &y, None).expect("fit should succeed");
     (fitted, x)
@@ -300,9 +300,9 @@ fn fit_forest_subsampled(
         /* min_volume */ 0.0,
         /* max_depth */ 6,
         /* min_samples_split */ 2.0,
-        /* seed */ seed,
         /* max_samples */ max_samples,
         /* max_features */ max_features,
+        /* seed */ seed,
     );
     let fitted = model.fit(&x, &y, None).expect("fit should succeed");
     (fitted, x)

@@ -290,9 +290,9 @@ mod forest_tests {
             /* min_volume */ 0.0,
             /* max_depth */ usize::MAX,
             /* min_samples_split */ 2.0,
-            /* seed */ Some(42),
             /* max_samples */ None,
             /* max_features */ None,
+            /* seed */ Some(42),
         )
     }
 
