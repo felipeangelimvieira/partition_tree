@@ -26,14 +26,14 @@ def make_simple_data(n: int = 8):
 
 def test_predict_before_fit_raises():
     model = PyPartitionTree(
-        max_iter=10,
+        max_leaves=10,
         min_samples_split=2,
-        min_samples_leaf_y=1,
-        min_samples_leaf_x=1,
-        min_samples_leaf=1,
-        min_target_volume=0.0,
+        min_samples_y=1,
+        min_samples_x=1,
+        min_samples_xy=1,
+        min_volume=0.0,
         max_depth=5,
-        min_split_gain=0.0,
+        min_gain=0.0,
         boundaries_expansion_factor=0,
     )
     X, _ = make_simple_data()
@@ -44,14 +44,14 @@ def test_predict_before_fit_raises():
 def test_fit_and_predict_returns_dataframe_with_expected_shape_and_columns():
     X, y = make_simple_data(12)
     model = PyPartitionTree(
-        max_iter=50,
+        max_leaves=50,
         min_samples_split=2,
-        min_samples_leaf_y=1,
-        min_samples_leaf_x=1,
-        min_samples_leaf=1,
-        min_target_volume=0.0,
+        min_samples_y=1,
+        min_samples_x=1,
+        min_samples_xy=1,
+        min_volume=0.0,
         max_depth=10,
-        min_split_gain=0.0,
+        min_gain=0.0,
         boundaries_expansion_factor=0,
     )
     model.fit(X, y, None)
@@ -67,14 +67,14 @@ def test_fit_with_mismatched_row_counts_raises():
     # Drop a row from y to mismatch
     y_bad = y.head(5)
     model = PyPartitionTree(
-        max_iter=10,
+        max_leaves=10,
         min_samples_split=2,
-        min_samples_leaf_y=1,
-        min_samples_leaf_x=1,
-        min_samples_leaf=1,
-        min_target_volume=0.0,
+        min_samples_y=1,
+        min_samples_x=1,
+        min_samples_xy=1,
+        min_volume=0.0,
         max_depth=5,
-        min_split_gain=0.0,
+        min_gain=0.0,
         boundaries_expansion_factor=0,
     )
     with pytest.raises(ValueError):
@@ -84,14 +84,14 @@ def test_fit_with_mismatched_row_counts_raises():
 def test_pickle_unfitted_model():
     """Test that an unfitted PyPartitionTree can be pickled and unpickled."""
     model = PyPartitionTree(
-        max_iter=10,
+        max_leaves=10,
         min_samples_split=2,
-        min_samples_leaf_y=1,
-        min_samples_leaf_x=1,
-        min_samples_leaf=1,
-        min_target_volume=0.0,
+        min_samples_y=1,
+        min_samples_x=1,
+        min_samples_xy=1,
+        min_volume=0.0,
         max_depth=5,
-        min_split_gain=0.0,
+        min_gain=0.0,
         boundaries_expansion_factor=0,
     )
     # Pickle and unpickle
@@ -106,14 +106,14 @@ def test_pickle_fitted_model():
     """Test that a fitted PyPartitionTree can be pickled and unpickled, and predictions match."""
     X, y = make_simple_data(12)
     model = PyPartitionTree(
-        max_iter=50,
+        max_leaves=50,
         min_samples_split=2,
-        min_samples_leaf_y=1,
-        min_samples_leaf_x=1,
-        min_samples_leaf=1,
-        min_target_volume=0.0,
+        min_samples_y=1,
+        min_samples_x=1,
+        min_samples_xy=1,
+        min_volume=0.0,
         max_depth=10,
-        min_split_gain=0.0,
+        min_gain=0.0,
         boundaries_expansion_factor=0,
     )
     model.fit(X, y, None)
