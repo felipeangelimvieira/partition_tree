@@ -108,6 +108,19 @@ impl Cell {
             .max(1.0) // at least 1.0 when no target rules exist
     }
 
+    /// Domain volume of the target space: product of `domain_volume()` for
+    /// each `target__`-prefixed rule.
+    ///
+    /// This reflects the full target domain (as encoded in each rule's domain
+    /// bounds), regardless of how much of it the cell currently covers.
+    /// Returns 1.0 when no target rules exist.
+    pub fn target_domain_volume(&self) -> f64 {
+        self.target_rules()
+            .map(|(_, r)| r.domain_volume())
+            .product::<f64>()
+            .max(1.0)
+    }
+
     /// Target-only phi-volume.
     pub fn target_phi_volume(&self) -> f64 {
         self.target_rules()

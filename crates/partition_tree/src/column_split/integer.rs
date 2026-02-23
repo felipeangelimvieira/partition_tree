@@ -159,7 +159,7 @@ impl ColumnSplitSearcher for IntegerColumnSplitSearcher {
                 let right_stats = CellStats::new(w_xy_right, w_x_right, w_y_right, vol_right);
 
                 // Validate restrictions
-                if !restrictions.is_valid_children(&left_stats, &right_stats, node.depth) {
+                if !restrictions.is_valid_children(&left_stats, &right_stats, node.depth, cell.target_domain_volume()) {
                     continue;
                 }
 

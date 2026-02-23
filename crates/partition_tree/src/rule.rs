@@ -61,6 +61,13 @@ pub trait DynRule: Send + Sync + fmt::Debug + fmt::Display {
     /// Raw volume of the rule (interval length, set cardinality, etc.).
     fn volume(&self) -> f64;
 
+    /// Volume of the full domain this rule was derived from.
+    ///
+    /// For continuous rules this is `domain.1 - domain.0`.
+    /// For categorical rules this is the total number of categories.
+    /// For integer rules this is `domain.1 - domain.0 + 1`.
+    fn domain_volume(&self) -> f64;
+
     /// Relative volume normalized by domain.
     fn relative_volume(&self) -> f64;
 
@@ -100,6 +107,10 @@ impl Clone for Box<dyn DynRule> {
 impl DynRule for ContinuousInterval {
     fn volume(&self) -> f64 {
         <ContinuousInterval as Rule<f64>>::volume(self)
+    }
+
+    fn domain_volume(&self) -> f64 {
+        (self.domain.1 - self.domain.0).abs()
     }
 
     fn relative_volume(&self) -> f64 {
@@ -146,6 +157,10 @@ impl DynRule for BelongsTo {
         <BelongsTo as Rule<usize>>::volume(self)
     }
 
+    fn domain_volume(&self) -> f64 {
+        self.domain.len() as f64
+    }
+
     fn relative_volume(&self) -> f64 {
         <BelongsTo as Rule<usize>>::relative_volume(self)
     }
@@ -188,6 +203,11 @@ impl DynRule for BelongsTo {
 impl DynRule for IntegerInterval {
     fn volume(&self) -> f64 {
         <IntegerInterval as Rule<i64>>::volume(self)
+    }
+
+    fn domain_volume(&self) -> f64 {
+        let (lo, hi) = self.domain;
+        if hi < lo { 0.0 } else { (hi as f64) - (lo as f64) + 1.0 }
     }
 
     fn relative_volume(&self) -> f64 {

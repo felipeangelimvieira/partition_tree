@@ -307,10 +307,10 @@ impl fmt::Display for SplitPoint {
 /// | `min_samples_xy`    | 1.0             |
 /// | `min_samples_x`     | 1.0             |
 /// | `min_samples_y`     | 1.0             |
-/// | `min_gain`          | 0.0             |
-/// | `min_volume`        | 0.0             |
-/// | `max_depth`         | `usize::MAX`    |
-/// | `min_samples_split` | 2.0             |
+/// | `min_gain`              | 0.0             |
+/// | `min_volume_fraction`   | 0.0             |
+/// | `max_depth`             | `usize::MAX`    |
+/// | `min_samples_split`     | 2.0             |
 #[derive(Debug, Clone)]
 pub struct SplitRestrictions {
     /// Minimum w_xy in each child.
@@ -321,8 +321,11 @@ pub struct SplitRestrictions {
     pub min_samples_y: f64,
     /// Minimum information gain.
     pub min_gain: f64,
-    /// Minimum target volume in each child.
-    pub min_volume: f64,
+    /// Minimum target volume in each child, expressed as a fraction `[0.0, 1.0]`
+    /// of the **total target domain volume** (`cell.target_domain_volume()`). A
+    /// split is rejected when either child's target volume is less than
+    /// `min_volume_fraction * target_domain_volume`.
+    pub min_volume_fraction: f64,
     /// Maximum tree depth (inclusive).
     pub max_depth: usize,
     /// Minimum total samples (w_xy) in the parent to attempt a split.
@@ -336,7 +339,7 @@ impl Default for SplitRestrictions {
             min_samples_x: 1.0,
             min_samples_y: 1.0,
             min_gain: 0.0,
-            min_volume: 0.0,
+            min_volume_fraction: 0.0,
             max_depth: usize::MAX,
             min_samples_split: 2.0,
         }
@@ -350,7 +353,18 @@ impl SplitRestrictions {
     }
 
     /// Validate that both children satisfy all restrictions.
-    pub fn is_valid_children(&self, left: &CellStats, right: &CellStats, depth: usize) -> bool {
+    ///
+    /// `target_domain_volume` is the full domain volume of the target space
+    /// (obtained from [`Cell::target_domain_volume`](super::cell::Cell::target_domain_volume)).
+    /// It is used to convert [`min_volume_fraction`](Self::min_volume_fraction) into
+    /// an absolute threshold: `min_vol = min_volume_fraction * target_domain_volume`.
+    pub fn is_valid_children(
+        &self,
+        left: &CellStats,
+        right: &CellStats,
+        depth: usize,
+        target_domain_volume: f64,
+    ) -> bool {
         if depth >= self.max_depth {
             return false;
         }
@@ -366,8 +380,10 @@ impl SplitRestrictions {
             return false;
         }
 
-        // Volume constraints
-        if left.volume < self.min_volume || right.volume < self.min_volume {
+        // Volume constraint: each child must hold at least `min_volume_fraction`
+        // of the total target domain volume.
+        let min_vol = self.min_volume_fraction * target_domain_volume;
+        if left.volume < min_vol || right.volume < min_vol {
             return false;
         }
 
@@ -447,26 +463,29 @@ mod tests {
 
     #[test]
     fn is_valid_children_checks_all_constraints() {
+        // target_domain_volume = 10.0; each child must hold >= 10% of 10.0 = 1.0.
         let r = SplitRestrictions {
             min_samples_xy: 5.0,
             min_samples_x: 3.0,
             min_samples_y: 3.0,
-            min_volume: 0.1,
+            min_volume_fraction: 0.1,
             max_depth: 10,
             ..Default::default()
         };
+        let target_domain_volume = 10.0_f64;
 
-        let left = CellStats::new(10.0, 20.0, 15.0, 1.0);
-        let right = CellStats::new(10.0, 20.0, 15.0, 1.0);
-        assert!(r.is_valid_children(&left, &right, 0));
+        // child volumes of 2.0 each satisfy min_vol = 0.1 * 10.0 = 1.0.
+        let left = CellStats::new(10.0, 20.0, 15.0, 2.0);
+        let right = CellStats::new(10.0, 20.0, 15.0, 2.0);
+        assert!(r.is_valid_children(&left, &right, 0, target_domain_volume));
 
         // Fail on min_samples_xy
-        let bad = CellStats::new(2.0, 20.0, 15.0, 1.0);
-        assert!(!r.is_valid_children(&left, &bad, 0));
+        let bad = CellStats::new(2.0, 20.0, 15.0, 2.0);
+        assert!(!r.is_valid_children(&left, &bad, 0, target_domain_volume));
 
-        // Fail on min_volume
-        let low_vol = CellStats::new(10.0, 20.0, 15.0, 0.01);
-        assert!(!r.is_valid_children(&left, &low_vol, 0));
+        // Fail on min_volume_fraction: 0.05 < 0.1 * 10.0 = 1.0
+        let low_vol = CellStats::new(10.0, 20.0, 15.0, 0.05);
+        assert!(!r.is_valid_children(&left, &low_vol, 0, target_domain_volume));
     }
 
     #[test]

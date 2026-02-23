@@ -101,10 +101,11 @@ fn main() {
             min_samples_x: 0.0,
             min_samples_y: 0.0,
             min_gain: 0.001,
-            min_volume: 0.0,
+            min_volume_fraction: 0.0,
             max_depth: 5,
             min_samples_split: 2.0,
         },
+        ..Default::default()
     };
 
     let dataset = PolarsDatasetView::new(&df);

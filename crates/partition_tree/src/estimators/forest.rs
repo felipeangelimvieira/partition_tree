@@ -74,12 +74,21 @@ pub struct PartitionForest {
     pub min_samples_y: f64,
     /// Minimum information gain for a split.
     pub min_gain: f64,
-    /// Minimum target volume in each child.
-    pub min_volume: f64,
+    /// Minimum target volume fraction `[0.0, 1.0]` each child must hold
+    /// relative to its parent's target volume.
+    pub min_volume_fraction: f64,
     /// Maximum tree depth.
     pub max_depth: usize,
     /// Minimum total samples in a parent to attempt a split.
     pub min_samples_split: f64,
+
+    // ── Stochastic tree parameters ────────────────────────────────────
+    /// Fraction of rows to bootstrap-sample (with replacement) per tree.
+    /// `None` means use all rows.
+    pub max_samples: Option<f64>,
+    /// Fraction of feature columns to consider at each split.
+    /// `None` means use all features.
+    pub max_features: Option<f64>,
 
     // ── Fitted state ──────────────────────────────────────────────────
     /// Fitted trees (populated after `fit`).
@@ -100,10 +109,12 @@ impl PartitionForest {
         min_samples_x: f64,
         min_samples_y: f64,
         min_gain: f64,
-        min_volume: f64,
+        min_volume_fraction: f64,
         max_depth: usize,
         min_samples_split: f64,
         seed: Option<usize>,
+        max_samples: Option<f64>,
+        max_features: Option<f64>,
     ) -> Self {
         Self {
             n_estimators,
@@ -114,9 +125,11 @@ impl PartitionForest {
             min_samples_x,
             min_samples_y,
             min_gain,
-            min_volume,
+            min_volume_fraction,
             max_depth,
             min_samples_split,
+            max_samples,
+            max_features,
             trees: None,
             schema: None,
         }
@@ -133,9 +146,11 @@ impl PartitionForest {
             min_samples_x: 1.0,
             min_samples_y: 1.0,
             min_gain: 0.0,
-            min_volume: 0.0,
+            min_volume_fraction: 0.0,
             max_depth: usize::MAX,
             min_samples_split: 2.0,
+            max_samples: None,
+            max_features: None,
             trees: None,
             schema: None,
         }
@@ -261,10 +276,13 @@ impl PartitionForest {
                 min_samples_x: self.min_samples_x,
                 min_samples_y: self.min_samples_y,
                 min_gain: self.min_gain,
-                min_volume: self.min_volume,
+                min_volume_fraction: self.min_volume_fraction,
                 max_depth: self.max_depth,
                 min_samples_split: self.min_samples_split,
             },
+            max_samples: self.max_samples,
+            max_features: self.max_features,
+            seed: None, // seed is set per-tree in _fit_impl
         }
     }
 
@@ -350,10 +368,12 @@ impl Estimator for PartitionForest {
                     max_leaves: config_template.max_leaves,
                     boundaries_expansion_factor: config_template.boundaries_expansion_factor,
                     restrictions: config_template.restrictions.clone(),
+                    max_samples: config_template.max_samples,
+                    max_features: config_template.max_features,
+                    seed: Some((base_seed + idx) as u64),
                 };
                 let loss: Box<dyn LossFunc> = Box::new(ConditionalLogLoss::new(n));
                 let builder = TreeBuilder::new(config, loss, Arc::clone(&registry));
-                let _ = base_seed + idx; // seed reserved for future stochastic splits
                 builder.build(&dataset)
             })
             .collect();
@@ -371,9 +391,11 @@ impl Estimator for PartitionForest {
             min_samples_x: self.min_samples_x,
             min_samples_y: self.min_samples_y,
             min_gain: self.min_gain,
-            min_volume: self.min_volume,
+            min_volume_fraction: self.min_volume_fraction,
             max_depth: self.max_depth,
             min_samples_split: self.min_samples_split,
+            max_samples: self.max_samples,
+            max_features: self.max_features,
             trees: self.trees.take(),
             schema: Some(schema),
         })

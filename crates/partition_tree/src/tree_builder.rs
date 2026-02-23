@@ -19,14 +19,15 @@
 use std::collections::BinaryHeap;
 use std::sync::Arc;
 
+use rand::SeedableRng;
+use rand::rngs::StdRng;
+
 use crate::cell::Cell;
 use crate::dataset_view::DatasetView;
 use crate::dtype_plugin::DTypeRegistry;
 use crate::loss::LossFunc;
 use crate::node::Node;
-use crate::split_result::{
-    CandidateSplit, SplitKind, SplitPoint, SplitRestrictions,
-};
+use crate::split_result::{CandidateSplit, SplitKind, SplitPoint, SplitRestrictions};
 use crate::split_searcher::SplitSearcher;
 use crate::tree::{FittedNode, SplitRecord, Tree};
 
@@ -46,6 +47,15 @@ pub struct TreeBuilderConfig {
     pub boundaries_expansion_factor: f64,
     /// Split restrictions (min samples, max depth, etc.).
     pub restrictions: SplitRestrictions,
+    /// Fraction of rows to bootstrap-sample (with replacement) for the root
+    /// node. `None` means use all rows (default).
+    pub max_samples: Option<f64>,
+    /// Fraction of *feature* columns to consider at each split. `None` means
+    /// use all features (default). Target columns are always included.
+    pub max_features: Option<f64>,
+    /// RNG seed for reproducible bootstrap / feature subsampling.
+    /// `None` uses OS entropy.
+    pub seed: Option<u64>,
 }
 
 impl Default for TreeBuilderConfig {
@@ -54,6 +64,9 @@ impl Default for TreeBuilderConfig {
             max_leaves: usize::MAX,
             boundaries_expansion_factor: 0.1,
             restrictions: SplitRestrictions::default(),
+            max_samples: None,
+            max_features: None,
+            seed: None,
         }
     }
 }
@@ -95,11 +108,28 @@ impl TreeBuilder {
     pub fn build(&self, dataset: &dyn DatasetView) -> Tree {
         let split_searcher = SplitSearcher::new(Arc::clone(&self.registry));
 
+        // Create RNG from seed (or OS entropy)
+        let mut rng = match self.config.seed {
+            Some(s) => StdRng::seed_from_u64(s),
+            None => StdRng::from_os_rng(),
+        };
+
         // 1. Create root cell from DTypeRegistry defaults
         let root_cell = self.create_root_cell(dataset);
 
-        // 2. Create root node
-        let root_node = Node::root(dataset, root_cell);
+        // 2. Create root node (with optional bootstrap sampling)
+        let root_node = if let Some(max_samples) = self.config.max_samples {
+            Node::root_bootstrap(dataset, root_cell, max_samples, &mut rng)
+        } else {
+            Node::root(dataset, root_cell)
+        };
+
+        // Resolve max_features fraction to an absolute column count
+        let n_features = dataset.columns().iter().filter(|c| !c.is_target()).count();
+        let max_features_count = self
+            .config
+            .max_features
+            .map(|frac| (frac * n_features as f64).ceil().max(1.0) as usize);
 
         // Arena of nodes (index-based)
         let mut nodes: Vec<FittedNode> = Vec::new();
@@ -125,15 +155,18 @@ impl TreeBuilder {
         let mut heap: BinaryHeap<CandidateSplit> = BinaryHeap::new();
 
         // Try to find a split for root
-        if self.config.restrictions.can_split(
-            nodes[0].w_xy,
-            nodes[0].depth,
-        ) {
+        if self
+            .config
+            .restrictions
+            .can_split(nodes[0].w_xy, nodes[0].depth)
+        {
             if let Some(split) = split_searcher.find_best_split(
                 build_nodes[0].as_ref().unwrap(),
                 dataset,
                 self.loss.as_ref(),
                 &self.config.restrictions,
+                max_features_count,
+                &mut rng,
             ) {
                 heap.push(CandidateSplit {
                     node_index: 0,
@@ -164,9 +197,11 @@ impl TreeBuilder {
             let split = &candidate.split;
 
             // Create child cells via the dtype-erased SplitOp
-            let (left_cell, right_cell) = parent_build_node
-                .cell
-                .apply_split(&split.col_name, split.op.as_ref(), split.none_to_left);
+            let (left_cell, right_cell) = parent_build_node.cell.apply_split(
+                &split.col_name,
+                split.op.as_ref(),
+                split.none_to_left,
+            );
 
             // Propagate sorted indices
             let (left_build, right_build) =
@@ -228,15 +263,18 @@ impl TreeBuilder {
             // Search for best splits on children and push to heap
             for child_idx in [left_idx, right_idx] {
                 let child_node = build_nodes[child_idx].as_ref().unwrap();
-                if self.config.restrictions.can_split(
-                    nodes[child_idx].w_xy,
-                    nodes[child_idx].depth,
-                ) {
+                if self
+                    .config
+                    .restrictions
+                    .can_split(nodes[child_idx].w_xy, nodes[child_idx].depth)
+                {
                     if let Some(child_split) = split_searcher.find_best_split(
                         child_node,
                         dataset,
                         self.loss.as_ref(),
                         &self.config.restrictions,
+                        max_features_count,
+                        &mut rng,
                     ) {
                         heap.push(CandidateSplit {
                             node_index: child_idx,
@@ -309,10 +347,11 @@ mod tests {
                 min_samples_x: 1.0,
                 min_samples_y: 1.0,
                 min_gain: 0.0,
-                min_volume: 0.0,
+                min_volume_fraction: 0.0,
                 max_depth: 5,
                 min_samples_split: 2.0,
             },
+            ..Default::default()
         };
         let loss = Box::new(ConditionalLogLoss::new(8.0));
         let registry = Arc::new(DTypeRegistry::default());
@@ -335,6 +374,7 @@ mod tests {
             max_leaves: 2,
             boundaries_expansion_factor: 0.1,
             restrictions: SplitRestrictions::default(),
+            ..Default::default()
         };
         let loss = Box::new(ConditionalLogLoss::new(8.0));
         let registry = Arc::new(DTypeRegistry::default());
@@ -355,6 +395,7 @@ mod tests {
                 max_depth: 1,
                 ..Default::default()
             },
+            ..Default::default()
         };
         let loss = Box::new(ConditionalLogLoss::new(8.0));
         let registry = Arc::new(DTypeRegistry::default());
@@ -385,5 +426,202 @@ mod tests {
 
         assert_eq!(tree.n_leaves(), 1, "no valid splits possible");
         assert_eq!(tree.nodes.len(), 1, "only root node");
+    }
+
+    /// Set `min_volume_fraction` above 0.5 so that every binary target split
+    /// is rejected: since left + right = parent volume = domain volume (all splits
+    /// start from the root), both children cannot simultaneously hold more than
+    /// 50 % of the domain's target volume. No `YSplit` should appear in the split
+    /// history.
+    #[test]
+    fn respects_min_target_volume() {
+        let dataset = make_dataset();
+        // Any fraction > 0.5 makes every binary YSplit invalid because the two
+        // children must partition the root (domain) volume, so at least one of
+        // them is always < 50 % of it.
+        let min_frac = 0.6_f64;
+
+        let config = TreeBuilderConfig {
+            max_leaves: 100,
+            boundaries_expansion_factor: 0.1,
+            restrictions: SplitRestrictions {
+                min_volume_fraction: min_frac,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let loss = Box::new(ConditionalLogLoss::new(8.0));
+        let registry = Arc::new(DTypeRegistry::default());
+        let builder = TreeBuilder::new(config, loss, registry);
+
+        let tree = builder.build(&dataset);
+
+        // No target-space split should appear in the history.
+        let y_splits: Vec<_> = tree
+            .split_history
+            .iter()
+            .filter(|r| r.split_kind == SplitKind::YSplit)
+            .collect();
+
+        assert!(
+            y_splits.is_empty(),
+            "expected no YSplits with min_volume_fraction={min_frac}, found {} YSplit(s)",
+            y_splits.len()
+        );
+
+        // Safety net: for any YSplit that somehow appeared, each child must hold
+        // at least `min_frac` of the total target domain volume.
+        for rec in &tree.split_history {
+            if rec.split_kind == SplitKind::YSplit {
+                let domain_vol = tree.nodes[rec.parent_index].cell.target_domain_volume();
+                let lv = tree.nodes[rec.left_child_index].cell.target_volume();
+                let rv = tree.nodes[rec.right_child_index].cell.target_volume();
+                assert!(
+                    lv >= min_frac * domain_vol,
+                    "left child fraction {:.4} < {min_frac}",
+                    lv / domain_vol
+                );
+                assert!(
+                    rv >= min_frac * domain_vol,
+                    "right child fraction {:.4} < {min_frac}",
+                    rv / domain_vol
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn build_with_max_samples_produces_valid_tree() {
+        let dataset = make_dataset();
+        let config = TreeBuilderConfig {
+            max_leaves: 10,
+            boundaries_expansion_factor: 0.1,
+            restrictions: SplitRestrictions::default(),
+            max_samples: Some(0.5),
+            max_features: None,
+            seed: Some(42),
+        };
+        let loss = Box::new(ConditionalLogLoss::new(8.0));
+        let registry = Arc::new(DTypeRegistry::default());
+        let builder = TreeBuilder::new(config, loss, registry);
+
+        let tree = builder.build(&dataset);
+
+        assert!(
+            tree.n_leaves() >= 1,
+            "tree with max_samples should have at least 1 leaf"
+        );
+        // The tree must have valid structure
+        for node in &tree.nodes {
+            if node.is_leaf {
+                assert!(node.left_child.is_none());
+                assert!(node.right_child.is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn build_with_max_features_produces_valid_tree() {
+        let dataset = make_dataset();
+        let config = TreeBuilderConfig {
+            max_leaves: 10,
+            boundaries_expansion_factor: 0.1,
+            restrictions: SplitRestrictions::default(),
+            max_samples: None,
+            max_features: Some(0.5),
+            seed: Some(42),
+        };
+        let loss = Box::new(ConditionalLogLoss::new(8.0));
+        let registry = Arc::new(DTypeRegistry::default());
+        let builder = TreeBuilder::new(config, loss, registry);
+
+        let tree = builder.build(&dataset);
+
+        assert!(
+            tree.n_leaves() >= 1,
+            "tree with max_features should have at least 1 leaf"
+        );
+        assert!(!tree.split_history.is_empty(), "should still find splits");
+    }
+
+    #[test]
+    fn same_seed_produces_same_tree() {
+        let dataset = make_dataset();
+
+        let build_tree = |seed: u64| {
+            let config = TreeBuilderConfig {
+                max_leaves: 10,
+                boundaries_expansion_factor: 0.1,
+                restrictions: SplitRestrictions::default(),
+                max_samples: Some(0.7),
+                max_features: Some(0.5),
+                seed: Some(seed),
+            };
+            let loss = Box::new(ConditionalLogLoss::new(8.0));
+            let registry = Arc::new(DTypeRegistry::default());
+            TreeBuilder::new(config, loss, registry).build(&dataset)
+        };
+
+        let tree_a = build_tree(42);
+        let tree_b = build_tree(42);
+
+        assert_eq!(
+            tree_a.split_history.len(),
+            tree_b.split_history.len(),
+            "same seed should produce same number of splits"
+        );
+        for (a, b) in tree_a.split_history.iter().zip(tree_b.split_history.iter()) {
+            assert_eq!(a.col_name, b.col_name, "split columns should match");
+            assert!(
+                (a.gain - b.gain).abs() < 1e-12,
+                "split gains should match: {} vs {}",
+                a.gain,
+                b.gain
+            );
+        }
+    }
+
+    #[test]
+    fn different_seeds_can_produce_different_trees() {
+        let dataset = make_dataset();
+
+        let build_tree = |seed: u64| {
+            let config = TreeBuilderConfig {
+                max_leaves: 10,
+                boundaries_expansion_factor: 0.1,
+                restrictions: SplitRestrictions::default(),
+                max_samples: Some(0.5),
+                max_features: Some(0.5),
+                seed: Some(seed),
+            };
+            let loss = Box::new(ConditionalLogLoss::new(8.0));
+            let registry = Arc::new(DTypeRegistry::default());
+            TreeBuilder::new(config, loss, registry).build(&dataset)
+        };
+
+        // Try multiple seed pairs; at least one pair should differ
+        let mut found_different = false;
+        for s in 0..20 {
+            let tree_a = build_tree(s);
+            let tree_b = build_tree(s + 1000);
+
+            let same = tree_a.split_history.len() == tree_b.split_history.len()
+                && tree_a
+                    .split_history
+                    .iter()
+                    .zip(tree_b.split_history.iter())
+                    .all(|(a, b)| a.col_name == b.col_name && (a.gain - b.gain).abs() < 1e-12);
+
+            if !same {
+                found_different = true;
+                break;
+            }
+        }
+
+        assert!(
+            found_different,
+            "different seeds with max_samples + max_features should produce \
+             different trees for at least one seed pair"
+        );
     }
 }

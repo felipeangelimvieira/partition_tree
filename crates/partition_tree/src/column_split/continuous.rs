@@ -2,12 +2,12 @@
 //!
 //! Handles `Float64`, `Float32` and similar continuous numeric columns
 //! using a presorted scan with a moving XY pointer.
+use super::{ColumnSplitSearcher, cumsum, split_nulls};
 use crate::cell::Cell;
 use crate::dataset_view::{ColumnView, DatasetView};
 use crate::loss::{CellStats, LossFunc};
 use crate::node::Node;
 use crate::split_result::{ContinuousSplitOp, SplitKind, SplitPoint, SplitRestrictions};
-use super::{ColumnSplitSearcher, cumsum, split_nulls};
 
 // ---------------------------------------------------------------------------
 // ContinuousColumnSplitSearcher
@@ -159,7 +159,7 @@ impl ColumnSplitSearcher for ContinuousColumnSplitSearcher {
                 let right_stats = CellStats::new(w_xy_right, w_x_right, w_y_right, vol_right);
 
                 // Validate restrictions
-                if !restrictions.is_valid_children(&left_stats, &right_stats, node.depth) {
+                if !restrictions.is_valid_children(&left_stats, &right_stats, node.depth, cell.target_domain_volume()) {
                     continue;
                 }
 
@@ -195,10 +195,10 @@ impl ColumnSplitSearcher for ContinuousColumnSplitSearcher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rules::ContinuousInterval;
     use crate::dataset_view::PolarsDatasetView;
     use crate::loss::ConditionalLogLoss;
     use crate::rule::DynRule;
+    use crate::rules::ContinuousInterval;
     use polars::prelude::*;
 
     fn make_test_dataset() -> PolarsDatasetView {

@@ -4,12 +4,12 @@
 //! prefix scan algorithm.
 use std::collections::HashSet;
 
+use super::{ColumnSplitSearcher, cumsum};
 use crate::cell::Cell;
 use crate::dataset_view::{ColumnView, DatasetView};
 use crate::loss::{CellStats, LossFunc};
 use crate::node::Node;
 use crate::split_result::{CategoricalSplitOp, SplitKind, SplitPoint, SplitRestrictions};
-use super::{ColumnSplitSearcher, cumsum};
 
 // ---------------------------------------------------------------------------
 // CategoricalColumnSplitSearcher
@@ -155,7 +155,7 @@ impl ColumnSplitSearcher for CategoricalColumnSplitSearcher {
                 let left_stats = CellStats::new(w_xy_left, w_x_left, w_y_left, vol_left);
                 let right_stats = CellStats::new(w_xy_right, w_x_right, w_y_right, vol_right);
 
-                if !restrictions.is_valid_children(&left_stats, &right_stats, node.depth) {
+                if !restrictions.is_valid_children(&left_stats, &right_stats, node.depth, cell.target_domain_volume()) {
                     continue;
                 }
 

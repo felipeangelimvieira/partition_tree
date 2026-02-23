@@ -46,6 +46,8 @@ fn fit_forest(n_estimators: usize) -> (PartitionForest, DataFrame) {
         /* max_depth */ 6,
         /* min_samples_split */ 2.0,
         /* seed */ Some(42),
+        /* max_samples */ None,
+        /* max_features */ None,
     );
     let fitted = model.fit(&x, &y, None).expect("fit should succeed");
     (fitted, x)
@@ -273,4 +275,110 @@ fn forest_more_trees_reduce_variance() {
         mse_small <= 2.0,
         "small forest MSE should be low, got {mse_small}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Subsampling / random-tree tests
+// ---------------------------------------------------------------------------
+
+/// Build a forest with max_samples and max_features enabled.
+fn fit_forest_subsampled(
+    n_estimators: usize,
+    max_samples: Option<f64>,
+    max_features: Option<f64>,
+    seed: Option<usize>,
+) -> (PartitionForest, DataFrame) {
+    let (x, y) = make_xy();
+    let mut model = PartitionForest::new(
+        n_estimators,
+        /* max_leaves */ 13,
+        /* boundaries_expansion_factor */ 0.0,
+        /* min_samples_xy */ 0.0,
+        /* min_samples_x */ 0.0,
+        /* min_samples_y */ 0.0,
+        /* min_gain */ 1e-8,
+        /* min_volume */ 0.0,
+        /* max_depth */ 6,
+        /* min_samples_split */ 2.0,
+        /* seed */ seed,
+        /* max_samples */ max_samples,
+        /* max_features */ max_features,
+    );
+    let fitted = model.fit(&x, &y, None).expect("fit should succeed");
+    (fitted, x)
+}
+
+#[test]
+fn forest_with_subsampling_produces_diverse_trees() {
+    let (fitted, _x) = fit_forest_subsampled(5, Some(0.8), Some(0.5), Some(42));
+    let trees = fitted.trees.as_ref().unwrap();
+
+    // Collect each tree's split history as (col_name, gain) tuples for comparison
+    let histories: Vec<Vec<(String, f64)>> = trees
+        .iter()
+        .map(|t| {
+            t.split_history
+                .iter()
+                .map(|r| (r.col_name.clone(), r.gain))
+                .collect()
+        })
+        .collect();
+
+    // At least one pair of trees must differ in their split history
+    let all_identical = histories.windows(2).all(|w| {
+        w[0].len() == w[1].len()
+            && w[0]
+                .iter()
+                .zip(w[1].iter())
+                .all(|(a, b)| a.0 == b.0 && (a.1 - b.1).abs() < 1e-12)
+    });
+
+    assert!(
+        !all_identical,
+        "forest trees with max_samples + max_features should NOT all be identical"
+    );
+}
+
+#[test]
+fn forest_with_subsampling_predictions_reasonable() {
+    let (x, y) = make_xy();
+    let (fitted, _) = fit_forest_subsampled(10, Some(0.8), Some(0.5), Some(42));
+    let preds = fitted.predict(&x).unwrap();
+
+    let pred_col = preds.column("y").unwrap().f64().unwrap();
+    let y_col = y.column("y").unwrap().f64().unwrap();
+
+    let mse: f64 = (0..x.height())
+        .map(|i| {
+            let d = pred_col.get(i).unwrap() - y_col.get(i).unwrap();
+            d * d
+        })
+        .sum::<f64>()
+        / x.height() as f64;
+
+    assert!(
+        mse < 2.0,
+        "forest with subsampling should still have reasonable MSE, got {mse}"
+    );
+}
+
+#[test]
+fn forest_subsampling_is_reproducible() {
+    let (fitted_a, x) = fit_forest_subsampled(5, Some(0.8), Some(0.5), Some(42));
+    let (fitted_b, _) = fit_forest_subsampled(5, Some(0.8), Some(0.5), Some(42));
+
+    let preds_a = fitted_a.predict(&x).unwrap();
+    let preds_b = fitted_b.predict(&x).unwrap();
+
+    let col_a = preds_a.column("y").unwrap().f64().unwrap();
+    let col_b = preds_b.column("y").unwrap().f64().unwrap();
+
+    for i in 0..x.height() {
+        let a = col_a.get(i).unwrap();
+        let b = col_b.get(i).unwrap();
+        assert!(
+            (a - b).abs() < 1e-12,
+            "row {i}: same seed should give identical predictions: {a} vs {b}"
+        );
+    }
 }

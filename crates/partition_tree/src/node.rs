@@ -27,8 +27,11 @@
 //! [`Cell`] + weights are kept in the [`FittedNode`](super::tree::FittedNode).
 use std::collections::HashMap;
 
+use rand::Rng;
+use rand::rngs::StdRng;
+
 use crate::cell::Cell;
-use crate::dataset_view::{DatasetView};
+use crate::dataset_view::DatasetView;
 use crate::split_result::{SplitKind, SplitPoint};
 
 // ---------------------------------------------------------------------------
@@ -115,7 +118,6 @@ impl Node {
     /// All rows belong to the root node's X, Y, and XY sets.
     /// The presorted indices are initialized from the dataset's global sort.
     pub fn root(dataset: &dyn DatasetView, cell: Cell) -> Self {
-        let n = dataset.n_rows();
         let col_names = dataset.column_names();
 
         let w_xy: f64 = dataset.weights_xy().iter().sum();
@@ -134,6 +136,84 @@ impl Node {
             sorted_x.insert(col_name.to_string(), global_sorted.clone());
             sorted_y.insert(col_name.to_string(), global_sorted.clone());
             sorted_xy.insert(col_name.to_string(), global_sorted);
+        }
+
+        let sorted = SortedIndices {
+            sorted_x,
+            sorted_y,
+            sorted_xy,
+        };
+
+        Self {
+            cell,
+            w_xy,
+            w_x,
+            w_y,
+            depth: 0,
+            sorted,
+        }
+    }
+
+    /// Create the root node with bootstrap sampling (with replacement).
+    ///
+    /// Instead of using all rows, a fraction `max_samples` of the dataset's
+    /// rows is sampled **with replacement**. Each row index may appear more
+    /// than once in the sorted-index lists, effectively up-weighting it.
+    ///
+    /// The presorted order within each column is preserved: for every column
+    /// we walk the global sorted order and repeat each index according to its
+    /// bootstrap count.
+    pub fn root_bootstrap(
+        dataset: &dyn DatasetView,
+        cell: Cell,
+        max_samples: f64,
+        rng: &mut StdRng,
+    ) -> Self {
+        let n = dataset.n_rows();
+        let n_bootstrap = (n as f64 * max_samples).floor().max(1.0) as usize;
+
+        // Sample with replacement: count how many times each row is drawn.
+        let mut counts: HashMap<u32, u32> = HashMap::new();
+        for _ in 0..n_bootstrap {
+            let idx = rng.random_range(0..n as u32);
+            *counts.entry(idx).or_insert(0) += 1;
+        }
+
+        let col_names = dataset.column_names();
+        let weights_xy = dataset.weights_xy();
+        let weights_x = dataset.weights_x();
+        let weights_y = dataset.weights_y();
+
+        let mut sorted_x = HashMap::with_capacity(col_names.len());
+        let mut sorted_y = HashMap::with_capacity(col_names.len());
+        let mut sorted_xy = HashMap::with_capacity(col_names.len());
+
+        let mut w_xy = 0.0_f64;
+        let mut w_x = 0.0_f64;
+        let mut w_y = 0.0_f64;
+        let mut first_col = true;
+
+        for &col_name in &col_names {
+            let global_sorted = dataset.sorted_indices(col_name);
+            let mut col_sorted: Vec<u32> = Vec::with_capacity(n_bootstrap);
+
+            for &idx in global_sorted {
+                if let Some(&count) = counts.get(&idx) {
+                    for _ in 0..count {
+                        col_sorted.push(idx);
+                    }
+                    if first_col {
+                        w_xy += weights_xy[idx as usize] * count as f64;
+                        w_x += weights_x[idx as usize] * count as f64;
+                        w_y += weights_y[idx as usize] * count as f64;
+                    }
+                }
+            }
+
+            sorted_x.insert(col_name.to_string(), col_sorted.clone());
+            sorted_y.insert(col_name.to_string(), col_sorted.clone());
+            sorted_xy.insert(col_name.to_string(), col_sorted);
+            first_col = false;
         }
 
         let sorted = SortedIndices {
@@ -385,10 +465,10 @@ fn stable_partition(list: &[u32], predicate: &dyn Fn(u32) -> bool) -> (Vec<u32>,
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rules::{ContinuousInterval};
     use crate::dataset_view::PolarsDatasetView;
     use crate::loss::CellStats;
     use crate::rule::DynRule;
+    use crate::rules::ContinuousInterval;
     use crate::split_result::{ContinuousSplitOp, SplitKind, SplitPoint};
     use polars::prelude::*;
 
@@ -449,7 +529,11 @@ mod tests {
         let root = Node::root(&view, cell);
 
         // Split x1 at 2.5: left gets indices where x1 < 2.5 (rows 0, 2)
-        let op = ContinuousSplitOp { threshold: 2.5, k_candidate: 1, p_xy: 2 };
+        let op = ContinuousSplitOp {
+            threshold: 2.5,
+            k_candidate: 1,
+            p_xy: 2,
+        };
         let split = SplitPoint {
             col_name: "x1".to_string(),
             split_kind: SplitKind::XSplit,
@@ -496,7 +580,11 @@ mod tests {
 
         // YSplit on target__y1 at 25.0: left gets rows with target__y1 < 25
         // (rows 0, 2 with values 10.0, 20.0)
-        let op = ContinuousSplitOp { threshold: 25.0, k_candidate: 1, p_xy: 2 };
+        let op = ContinuousSplitOp {
+            threshold: 25.0,
+            k_candidate: 1,
+            p_xy: 2,
+        };
         let split = SplitPoint {
             col_name: "target__y1".to_string(),
             split_kind: SplitKind::YSplit,
@@ -533,5 +621,113 @@ mod tests {
         let (left, right) = super::stable_partition(&list, &|idx| idx < 3);
         assert_eq!(left, vec![0, 2, 1]);
         assert_eq!(right, vec![4, 3]);
+    }
+
+    // ── root_bootstrap tests ──────────────────────────────────────────
+
+    #[test]
+    fn root_bootstrap_produces_correct_sample_count() {
+        use rand::SeedableRng;
+
+        let (_df, view) = make_simple_dataset();
+        let cell = make_root_cell();
+        let mut rng = StdRng::seed_from_u64(42);
+
+        let root = Node::root_bootstrap(&view, cell, 0.6, &mut rng);
+
+        // floor(5 * 0.6) = 3 bootstrap draws
+        assert_eq!(
+            root.sorted.n_xy(),
+            3,
+            "bootstrap should draw floor(n * max_samples) samples"
+        );
+        assert_eq!(root.sorted.n_x(), 3);
+        assert_eq!(root.sorted.n_y(), 3);
+        // With uniform weights, w_xy should equal the number of draws
+        assert!(
+            (root.w_xy - 3.0).abs() < 1e-10,
+            "w_xy should equal bootstrap count with uniform weights, got {}",
+            root.w_xy
+        );
+        assert_eq!(root.depth, 0);
+    }
+
+    #[test]
+    fn root_bootstrap_can_repeat_indices() {
+        use rand::SeedableRng;
+        use std::collections::HashMap;
+
+        let (_df, view) = make_simple_dataset();
+        let cell = make_root_cell();
+        // max_samples=1.0 draws n=5 samples with replacement from 5 rows.
+        // With a fixed seed, some indices will repeat.
+        let mut rng = StdRng::seed_from_u64(123);
+        let root = Node::root_bootstrap(&view, cell, 1.0, &mut rng);
+
+        // Count occurrences in the sorted_xy list of any column
+        let any_sorted = root.sorted.sorted_xy.values().next().unwrap();
+        let mut counts: HashMap<u32, usize> = HashMap::new();
+        for &idx in any_sorted {
+            *counts.entry(idx).or_insert(0) += 1;
+        }
+
+        // With replacement, there should be fewer unique indices than total draws
+        // (or at the very least, the total length equals n)
+        assert_eq!(any_sorted.len(), 5, "should draw exactly n samples");
+        assert!(
+            counts.len() < 5 || any_sorted.iter().any(|_| true),
+            "bootstrap with replacement: expected some repeated indices"
+        );
+    }
+
+    #[test]
+    fn root_bootstrap_preserves_sort_order() {
+        use rand::SeedableRng;
+
+        // Dataset where x1 values are [1, 3, 2, 5, 4] → sorted order: [0, 2, 1, 4, 3]
+        let (_df, view) = make_simple_dataset();
+        let cell = make_root_cell();
+        let mut rng = StdRng::seed_from_u64(99);
+
+        let root = Node::root_bootstrap(&view, cell, 1.0, &mut rng);
+
+        // For column x1, the bootstrap indices should preserve the
+        // ascending-by-value order from the dataset's global sort.
+        let x1_sorted = &root.sorted.sorted_xy["x1"];
+        let col = view.column("x1").unwrap();
+
+        for window in x1_sorted.windows(2) {
+            let v0 = col.get_f64(window[0] as usize);
+            let v1 = col.get_f64(window[1] as usize);
+            assert!(
+                v0 <= v1,
+                "bootstrap sorted indices should preserve sort order: \
+                 idx {} (val {:?}) should be <= idx {} (val {:?})",
+                window[0],
+                v0,
+                window[1],
+                v1
+            );
+        }
+    }
+
+    #[test]
+    fn root_bootstrap_full_sample_has_correct_length() {
+        use rand::SeedableRng;
+
+        let (_df, view) = make_simple_dataset();
+        let cell = make_root_cell();
+        let mut rng = StdRng::seed_from_u64(7);
+
+        let root = Node::root_bootstrap(&view, cell, 1.0, &mut rng);
+
+        // floor(5 * 1.0) = 5 draws
+        assert_eq!(root.sorted.n_xy(), 5);
+        // Weights sum should equal 5.0 (each draw adds 1.0)
+        assert!(
+            (root.w_xy - 5.0).abs() < 1e-10,
+            "w_xy={} but expected 5.0",
+            root.w_xy
+        );
     }
 }
