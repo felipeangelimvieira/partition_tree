@@ -1,0 +1,207 @@
+---
+title: "Tutorial: sklearn Interface"
+subtitle: "Classification and Regression with Partition Trees"
+---
+
+The `partition_tree.sklearn` module provides drop-in replacements for scikit-learn's
+`DecisionTreeClassifier`, `DecisionTreeRegressor`, `RandomForestClassifier`, and
+`RandomForestRegressor` — but using the Partition Tree algorithm under the hood.
+
+All estimators follow the standard scikit-learn API: `fit`, `predict`, `predict_proba`,
+and are compatible with pipelines, cross-validation, and grid search.
+
+## Available Estimators
+
+| Class | Task | Base |
+|---|---|---|
+| `PartitionTreeClassifier` | Classification | `ClassifierMixin`, `BaseEstimator` |
+| `PartitionForestClassifier` | Classification (ensemble) | `ClassifierMixin`, `BaseEstimator` |
+| `PartitionTreeRegressor` | Regression | `RegressorMixin`, `BaseEstimator` |
+| `PartitionForestRegressor` | Regression (ensemble) | `RegressorMixin`, `BaseEstimator` |
+
+---
+
+## 1. Classification
+
+### 1.1 Single Tree
+
+```{python}
+#| eval: false
+from partition_tree.sklearn import PartitionTreeClassifier
+from sklearn.datasets import load_iris
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, log_loss
+
+# Load data
+X, y = load_iris(return_X_y=True)
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.3, random_state=42
+)
+
+# Train
+clf = PartitionTreeClassifier(max_leaves=20, max_depth=5)
+clf.fit(X_train, y_train)
+
+# Evaluate
+y_pred = clf.predict(X_test)
+y_proba = clf.predict_proba(X_test)
+
+print(f"Accuracy : {accuracy_score(y_test, y_pred):.4f}")
+print(f"Log-loss : {log_loss(y_test, y_proba):.4f}")
+print(f"Classes  : {clf.classes_}")
+```
+
+### 1.2 Forest (Ensemble)
+
+```{python}
+#| eval: false
+from partition_tree.sklearn import PartitionForestClassifier
+
+forest = PartitionForestClassifier(
+    n_estimators=50,
+    max_leaves=30,
+    max_depth=6,
+    random_state=42,
+)
+forest.fit(X_train, y_train)
+
+y_pred_forest = forest.predict(X_test)
+y_proba_forest = forest.predict_proba(X_test)
+
+print(f"Forest Accuracy : {accuracy_score(y_test, y_pred_forest):.4f}")
+print(f"Forest Log-loss : {log_loss(y_test, y_proba_forest):.4f}")
+```
+
+### 1.3 Cross-Validation
+
+Since the estimators follow the scikit-learn API, you can use them directly with
+`cross_val_score`, `GridSearchCV`, etc.
+
+```{python}
+#| eval: false
+from sklearn.model_selection import cross_val_score
+
+scores = cross_val_score(
+    PartitionTreeClassifier(max_leaves=20, max_depth=5),
+    X, y,
+    cv=5,
+    scoring="neg_log_loss",
+)
+print(f"CV log-loss: {-scores.mean():.4f} ± {scores.std():.4f}")
+```
+
+---
+
+## 2. Regression
+
+### 2.1 Single Tree
+
+```{python}
+#| eval: false
+from partition_tree.sklearn import PartitionTreeRegressor
+from sklearn.datasets import fetch_california_housing
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_error, r2_score
+import numpy as np
+
+# Load data
+X, y = fetch_california_housing(return_X_y=True)
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42
+)
+
+# Train
+reg = PartitionTreeRegressor(
+    max_leaves=200,
+    max_depth=10,
+    min_samples_split=5.0,
+)
+reg.fit(X_train, y_train)
+
+# Evaluate
+y_pred = reg.predict(X_test)
+
+print(f"MAE  : {mean_absolute_error(y_test, y_pred):.4f}")
+print(f"RMSE : {np.sqrt(((y_test - y_pred) ** 2).mean()):.4f}")
+print(f"R²   : {r2_score(y_test, y_pred):.4f}")
+```
+
+### 2.2 Forest (Ensemble)
+
+```{python}
+#| eval: false
+from partition_tree.sklearn import PartitionForestRegressor
+
+forest_reg = PartitionForestRegressor(
+    n_estimators=100,
+    max_leaves=100,
+    max_depth=8,
+    random_state=42,
+)
+forest_reg.fit(X_train, y_train)
+
+y_pred_forest = forest_reg.predict(X_test)
+print(f"Forest MAE : {mean_absolute_error(y_test, y_pred_forest):.4f}")
+print(f"Forest R²  : {r2_score(y_test, y_pred_forest):.4f}")
+```
+
+---
+
+## 3. Comparison with CART
+
+A side-by-side comparison on California Housing:
+
+```{python}
+#| eval: false
+from sklearn.tree import DecisionTreeRegressor
+import pandas as pd
+
+# CART baseline
+cart = DecisionTreeRegressor(max_depth=10, random_state=42)
+cart.fit(X_train, y_train)
+y_pred_cart = cart.predict(X_test)
+
+results = pd.DataFrame({
+    "Model": ["PartitionTreeRegressor", "DecisionTreeRegressor"],
+    "MAE": [
+        mean_absolute_error(y_test, y_pred),
+        mean_absolute_error(y_test, y_pred_cart),
+    ],
+    "R²": [
+        r2_score(y_test, y_pred),
+        r2_score(y_test, y_pred_cart),
+    ],
+})
+print(results.to_string(index=False))
+```
+
+---
+
+## 4. Key Hyperparameters
+
+| Parameter | Default | Description |
+|---|---|---|
+| `max_leaves` | 101 | Maximum number of leaves |
+| `max_depth` | 5 (regressor) / 1000 (classifier) | Maximum tree depth |
+| `min_samples_split` | 2.0 | Min samples to attempt a split |
+| `min_gain` | 0.0 | Min gain to accept a split |
+| `min_volume_fraction` | 0.0 | Min fraction of root $Y$-volume for a leaf |
+| `boundaries_expansion_factor` | 0.1 | Padding for the outcome bounding box |
+| `n_estimators` | 100 | Number of trees (forest only) |
+| `max_samples` | 0.8 | Bootstrap fraction (forest only) |
+| `max_features` | 0.8 | Feature subsampling fraction (forest only) |
+| `random_state` / `seed` | 42 | Random seed (forest only) |
+
+::: {.callout-tip}
+## Tip
+For regression, increasing `max_leaves` and `max_depth` tends to improve accuracy
+at the cost of potential overfitting. Use cross-validation to find the right balance.
+:::
+
+## 5. Input Formats
+
+The estimators accept:
+
+- **NumPy arrays** — standard `(n_samples, n_features)` float arrays.
+- **Pandas DataFrames** — column names are preserved for feature importance.
+- **Missing values** — `NaN` values are supported (`allow_nan = True`).
