@@ -58,9 +58,6 @@ pub struct PartitionForest {
     // ── Forest-level parameters ───────────────────────────────────────
     /// Number of trees in the ensemble.
     pub n_estimators: usize,
-    /// Base random seed. Tree `i` receives `base_seed + i`.
-    pub seed: Option<usize>,
-
     // ── Per-tree builder configuration ────────────────────────────────
     /// Maximum number of leaves per tree.
     pub max_leaves: usize,
@@ -81,6 +78,9 @@ pub struct PartitionForest {
     pub max_depth: usize,
     /// Minimum total samples in a parent to attempt a split.
     pub min_samples_split: f64,
+
+    /// Base random seed. Tree `i` receives `base_seed + i`.
+    pub seed: Option<usize>,
 
     // ── Stochastic tree parameters ────────────────────────────────────
     /// Fraction of rows to bootstrap-sample (with replacement) per tree.
@@ -112,24 +112,24 @@ impl PartitionForest {
         min_volume_fraction: f64,
         max_depth: usize,
         min_samples_split: f64,
-        seed: Option<usize>,
         max_samples: Option<f64>,
         max_features: Option<f64>,
+        seed: Option<usize>,
     ) -> Self {
         Self {
-            n_estimators,
-            seed,
-            max_leaves,
-            boundaries_expansion_factor,
-            min_samples_xy,
-            min_samples_x,
-            min_samples_y,
-            min_gain,
-            min_volume_fraction,
-            max_depth,
-            min_samples_split,
-            max_samples,
-            max_features,
+            n_estimators: n_estimators,
+            max_leaves: max_leaves,
+            boundaries_expansion_factor: boundaries_expansion_factor,
+            min_samples_xy: min_samples_xy,
+            min_samples_x: min_samples_x,
+            min_samples_y: min_samples_y,
+            min_gain: min_gain,
+            min_volume_fraction: min_volume_fraction,
+            max_depth: max_depth,
+            min_samples_split: min_samples_split,
+            max_samples: max_samples,
+            max_features: max_features,
+            seed: seed,
             trees: None,
             schema: None,
         }
