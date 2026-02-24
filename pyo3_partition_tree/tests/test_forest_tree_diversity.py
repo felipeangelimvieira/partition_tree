@@ -95,9 +95,9 @@ class TestForestTreeMeanPredictionsDiffer:
 
         # At least two trees must disagree on at least one sample
         all_same = all(np.allclose(means[0], m) for m in means[1:])
-        assert not all_same, (
-            "All trees produced identical mean predictions — randomization may be broken"
-        )
+        assert (
+            not all_same
+        ), "All trees produced identical mean predictions — randomization may be broken"
 
     def test_diabetes_trees_give_different_mean_predictions(self):
         """On Diabetes (regression), individual trees must differ."""
@@ -108,24 +108,20 @@ class TestForestTreeMeanPredictionsDiffer:
         means = _extract_per_tree_means(forest, x_df)
 
         all_same = all(np.allclose(means[0], m) for m in means[1:])
-        assert not all_same, (
-            "All trees produced identical mean predictions on Diabetes"
-        )
+        assert not all_same, "All trees produced identical mean predictions on Diabetes"
 
     def test_synthetic_regression_trees_differ(self):
         """On synthetic regression with many features, trees should differ."""
-        X, y = make_regression(
-            n_samples=300, n_features=10, noise=1.0, random_state=7
-        )
+        X, y = make_regression(n_samples=300, n_features=10, noise=1.0, random_state=7)
         x_df, y_df = _to_polars_x_y(X, y)
 
         forest = _fit_forest(x_df, y_df, n_estimators=10)
         means = _extract_per_tree_means(forest, x_df)
 
         all_same = all(np.allclose(means[0], m) for m in means[1:])
-        assert not all_same, (
-            "All trees produced identical predictions on synthetic regression"
-        )
+        assert (
+            not all_same
+        ), "All trees produced identical predictions on synthetic regression"
 
 
 # ---------------------------------------------------------------------------
@@ -151,9 +147,7 @@ class TestForestTreeStructureDiffers:
         # Collect n_cells for each (tree, sample) pair
         cell_counts_per_tree = []
         for tree_dists in per_tree:
-            cell_counts_per_tree.append(
-                tuple(dist.n_cells() for dist in tree_dists)
-            )
+            cell_counts_per_tree.append(tuple(dist.n_cells() for dist in tree_dists))
 
         unique_patterns = set(cell_counts_per_tree)
         assert len(unique_patterns) > 1, (
@@ -216,9 +210,7 @@ class TestForestTreeDecorrelation:
 
     def test_at_least_some_pairs_have_moderate_decorrelation(self):
         """At least one tree pair should have correlation noticeably below 1."""
-        X, y = make_regression(
-            n_samples=300, n_features=10, noise=1.0, random_state=7
-        )
+        X, y = make_regression(n_samples=300, n_features=10, noise=1.0, random_state=7)
         x_df, y_df = _to_polars_x_y(X, y)
 
         forest = _fit_forest(x_df, y_df, n_estimators=10)
@@ -256,9 +248,9 @@ class TestForestSeedDiversity:
         preds_a = forest_a.predict(x_df)
         preds_b = forest_b.predict(x_df)
 
-        assert not preds_a.equals(preds_b), (
-            "Forests with different seeds produced identical predictions"
-        )
+        assert not preds_a.equals(
+            preds_b
+        ), "Forests with different seeds produced identical predictions"
 
     def test_same_seed_gives_same_predictions(self):
         """Forests with the same seed should be deterministic."""
@@ -271,9 +263,9 @@ class TestForestSeedDiversity:
         preds_a = forest_a.predict(x_df)
         preds_b = forest_b.predict(x_df)
 
-        assert preds_a.equals(preds_b), (
-            "Forests with the same seed should produce identical predictions"
-        )
+        assert preds_a.equals(
+            preds_b
+        ), "Forests with the same seed should produce identical predictions"
 
 
 # ---------------------------------------------------------------------------
@@ -320,7 +312,8 @@ class TestForestTreesIdenticalWithoutRandomization:
         x_df, y_df = _to_polars_x_y(X, y)
 
         forest = _fit_forest(
-            x_df, y_df,
+            x_df,
+            y_df,
             n_estimators=5,
             max_samples=None,
             max_features=None,
@@ -328,9 +321,9 @@ class TestForestTreesIdenticalWithoutRandomization:
         means = _extract_per_tree_means(forest, x_df)
 
         all_same = all(np.allclose(means[0], m) for m in means[1:])
-        assert all_same, (
-            "Without max_samples/max_features all trees should be identical"
-        )
+        assert (
+            all_same
+        ), "Without max_samples/max_features all trees should be identical"
 
     def test_bootstrap_alone_produces_diversity(self):
         """Setting only max_samples (bootstrap) should produce diverse trees."""
@@ -338,7 +331,8 @@ class TestForestTreesIdenticalWithoutRandomization:
         x_df, y_df = _to_polars_x_y(X, y)
 
         forest = _fit_forest(
-            x_df, y_df,
+            x_df,
+            y_df,
             n_estimators=10,
             max_samples=0.8,
             max_features=None,
@@ -346,9 +340,7 @@ class TestForestTreesIdenticalWithoutRandomization:
         means = _extract_per_tree_means(forest, x_df)
 
         all_same = all(np.allclose(means[0], m) for m in means[1:])
-        assert not all_same, (
-            "Bootstrap sampling alone should produce different trees"
-        )
+        assert not all_same, "Bootstrap sampling alone should produce different trees"
 
     def test_feature_subsampling_alone_produces_diversity(self):
         """Setting only max_features should produce diverse trees."""
@@ -356,7 +348,8 @@ class TestForestTreesIdenticalWithoutRandomization:
         x_df, y_df = _to_polars_x_y(X, y)
 
         forest = _fit_forest(
-            x_df, y_df,
+            x_df,
+            y_df,
             n_estimators=10,
             max_samples=None,
             max_features=0.7,
@@ -364,6 +357,4 @@ class TestForestTreesIdenticalWithoutRandomization:
         means = _extract_per_tree_means(forest, x_df)
 
         all_same = all(np.allclose(means[0], m) for m in means[1:])
-        assert not all_same, (
-            "Feature subsampling alone should produce different trees"
-        )
+        assert not all_same, "Feature subsampling alone should produce different trees"

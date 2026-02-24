@@ -35,6 +35,11 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 include = ["partition_tree*"]
 
+[dependency-groups]
+docs = [
+    "quarto>=0.1.0",
+]
+
 [tool.uv.sources]
 pyo3-partition-tree = { path = "../pyo3_partition_tree", editable = true }
 
