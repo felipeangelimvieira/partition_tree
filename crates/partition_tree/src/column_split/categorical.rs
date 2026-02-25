@@ -76,9 +76,19 @@ impl ColumnSplitSearcher for CategoricalColumnSplitSearcher {
             }
             SplitKind::YSplit => {
                 let sy = node.sorted.sorted_y.get(col_name)?;
-                for &idx in sy {
-                    if let Some(cat) = col.get_cat(idx as usize) {
-                        *map_b.entry(cat).or_insert(0.0) += weights_y[idx as usize];
+                if loss.uses_empirical_y_measure() {
+                    // BalancedLogLoss: b_c = empirical weight sum Σ w_y per category
+                    for &idx in sy {
+                        if let Some(cat) = col.get_cat(idx as usize) {
+                            *map_b.entry(cat).or_insert(0.0) += weights_y[idx as usize];
+                        }
+                    }
+                } else {
+                    // ConditionalLogLoss: b_c = 1.0 per category (Lebesgue volume)
+                    for &idx in sy {
+                        if let Some(cat) = col.get_cat(idx as usize) {
+                            map_b.entry(cat).or_insert(1.0);
+                        }
                     }
                 }
             }
@@ -155,7 +165,12 @@ impl ColumnSplitSearcher for CategoricalColumnSplitSearcher {
                 let left_stats = CellStats::new(w_xy_left, w_x_left, w_y_left, vol_left);
                 let right_stats = CellStats::new(w_xy_right, w_x_right, w_y_right, vol_right);
 
-                if !restrictions.is_valid_children(&left_stats, &right_stats, node.depth, cell.target_domain_volume()) {
+                if !restrictions.is_valid_children(
+                    &left_stats,
+                    &right_stats,
+                    node.depth,
+                    cell.target_domain_volume(),
+                ) {
                     continue;
                 }
 

@@ -91,6 +91,16 @@ pub trait LossFunc: Send + Sync {
     fn gain(&self, parent: &CellStats, left: &CellStats, right: &CellStats) -> f64 {
         self.cell_loss(parent) - (self.cell_loss(left) + self.cell_loss(right))
     }
+
+    /// Whether the Y-measure is empirical (`w_y`) rather than geometric (Lebesgue volume).
+    ///
+    /// When `true`, categorical Y-splits compute per-category `b_c` as the
+    /// sum of `weights_y` for samples in that category ([`BalancedLogLoss`]).
+    /// When `false` (default), `b_c = 1.0` per category, corresponding to
+    /// the Lebesgue/geometric volume ([`ConditionalLogLoss`]).
+    fn uses_empirical_y_measure(&self) -> bool {
+        false
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -194,6 +204,10 @@ impl BalancedLogLoss {
 }
 
 impl LossFunc for BalancedLogLoss {
+    fn uses_empirical_y_measure(&self) -> bool {
+        true
+    }
+
     fn cell_loss(&self, stats: &CellStats) -> f64 {
         let CellStats { w_xy, w_x, w_y, .. } = *stats;
 
@@ -312,6 +326,24 @@ mod tests {
         assert!(
             approx_eq(gain, expected, 1e-6),
             "got {gain}, expected {expected}"
+        );
+    }
+
+    #[test]
+    fn conditional_loss_uses_geometric_y_measure() {
+        let loss = ConditionalLogLoss::new(100.0);
+        assert!(
+            !loss.uses_empirical_y_measure(),
+            "ConditionalLogLoss should use geometric (Lebesgue) Y-measure"
+        );
+    }
+
+    #[test]
+    fn balanced_loss_uses_empirical_y_measure() {
+        let loss = BalancedLogLoss::new(100.0);
+        assert!(
+            loss.uses_empirical_y_measure(),
+            "BalancedLogLoss should use empirical Y-measure"
         );
     }
 }
