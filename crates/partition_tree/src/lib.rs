@@ -48,7 +48,7 @@
 //!     boundaries_expansion_factor: 0.0,
 //!     restrictions: SplitRestrictions { max_depth: 5, ..Default::default() },
 //! };
-//! let loss = Box::new(ConditionalLogLoss::new(dataset.n_rows() as f64));
+//! let loss = Box::new(ConditionalLogLoss);
 //! let registry = Arc::new(DTypeRegistry::default());
 //! let tree = TreeBuilder::new(config, loss, registry).build(&dataset);
 //!
@@ -78,7 +78,7 @@ pub mod tree_builder;
 // ── Re-exports for convenience ──────────────────────────────────────────────
 
 /// Loss function trait and built-in implementations.
-pub use loss::{BalancedLogLoss, CellStats, ConditionalLogLoss, LossFunc};
+pub use loss::{BalancedLogLoss, CellStats, ConditionalLogLoss, LossFunc, MeanIntegratedSquaredError};
 
 /// Multi-dimensional partition constraint.
 pub use cell::Cell;

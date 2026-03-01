@@ -41,6 +41,9 @@ impl SplitSearcher {
     /// When `max_features` is `Some(k)`, only `k` randomly chosen feature
     /// columns are considered (target columns are always included).
     ///
+    /// `dataset_size` is the normalizing constant $D$ forwarded to
+    /// [`LossFunc::gain`].
+    ///
     /// Returns `None` when no column produces a valid split that satisfies
     /// the [`SplitRestrictions`].
     pub fn find_best_split(
@@ -51,6 +54,7 @@ impl SplitSearcher {
         restrictions: &SplitRestrictions,
         max_features: Option<usize>,
         rng: &mut StdRng,
+        dataset_size: f64,
     ) -> Option<SplitPoint> {
         // Collect all (column, split_kind) pairs to search
         let columns = dataset.columns();
@@ -110,6 +114,7 @@ impl SplitSearcher {
                     dataset,
                     loss,
                     restrictions,
+                    dataset_size,
                 )
             })
             .collect();
@@ -182,11 +187,11 @@ mod tests {
         use rand::rngs::StdRng;
 
         let (dataset, node, searcher) = make_test_setup();
-        let loss = ConditionalLogLoss::new(5.0);
+        let loss = ConditionalLogLoss;
         let restrictions = SplitRestrictions::default();
         let mut rng = StdRng::seed_from_u64(42);
 
-        let result = searcher.find_best_split(&node, &dataset, &loss, &restrictions, None, &mut rng);
+        let result = searcher.find_best_split(&node, &dataset, &loss, &restrictions, None, &mut rng, 5.0);
 
         assert!(result.is_some(), "should find a valid split");
         let split = result.unwrap();
@@ -201,12 +206,12 @@ mod tests {
         // Setup has 1 feature (x1) and 1 target (target__y1).
         // max_features=Some(1) keeps the only feature → should still find a split.
         let (dataset, node, searcher) = make_test_setup();
-        let loss = ConditionalLogLoss::new(5.0);
+        let loss = ConditionalLogLoss;
         let restrictions = SplitRestrictions::default();
         let mut rng = StdRng::seed_from_u64(42);
 
         let result = searcher.find_best_split(
-            &node, &dataset, &loss, &restrictions, Some(1), &mut rng,
+            &node, &dataset, &loss, &restrictions, Some(1), &mut rng, 5.0,
         );
 
         assert!(result.is_some(), "should find a split even with max_features=1");
@@ -253,7 +258,7 @@ mod tests {
         let node = Node::root(&dataset, cell);
         let registry = Arc::new(DTypeRegistry::default());
         let searcher = SplitSearcher::new(registry);
-        let loss = ConditionalLogLoss::new(5.0);
+        let loss = ConditionalLogLoss;
         let restrictions = SplitRestrictions::default();
 
         // Run many iterations — with max_features=1, only 1 of 2 features
@@ -263,7 +268,7 @@ mod tests {
         for seed in 0..50 {
             let mut rng = StdRng::seed_from_u64(seed);
             if let Some(split) = searcher.find_best_split(
-                &node, &dataset, &loss, &restrictions, Some(1), &mut rng,
+                &node, &dataset, &loss, &restrictions, Some(1), &mut rng, 5.0,
             ) {
                 if split.split_kind == SplitKind::YSplit {
                     saw_ysplit = true;

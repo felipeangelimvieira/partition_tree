@@ -50,7 +50,7 @@ fn main() {
         println!("sorted_xy[{}] = {:?}", col_name, indices);
     }
 
-    let loss = ConditionalLogLoss::new(4.0);
+    let loss = ConditionalLogLoss;
     let restrictions = SplitRestrictions {
         min_samples_xy: 0.0,
         min_samples_x: 0.0,
@@ -64,7 +64,7 @@ fn main() {
     let target_col = dataset.column("target_a").unwrap();
     println!("\nSearching categorical split on target_a (YSplit)...");
     let cat_searcher = CategoricalColumnSplitSearcher;
-    let result = cat_searcher.search(&node, &node.cell, target_col, SplitKind::YSplit, &dataset, &loss, &restrictions);
+    let result = cat_searcher.search(&node, &node.cell, target_col, SplitKind::YSplit, &dataset, &loss, &restrictions, 4.0);
     match &result {
         Some(s) => println!("Cat split: gain={:.6} col={} op={:?}", s.gain, s.col_name, s.op),
         None => println!("Cat split: NONE"),
@@ -73,7 +73,7 @@ fn main() {
     let x1_col = dataset.column("x1").unwrap();
     println!("\nSearching continuous split on x1 (XSplit)...");
     let cont_searcher = ContinuousColumnSplitSearcher;
-    let result2 = cont_searcher.search(&node, &node.cell, x1_col, SplitKind::XSplit, &dataset, &loss, &restrictions);
+    let result2 = cont_searcher.search(&node, &node.cell, x1_col, SplitKind::XSplit, &dataset, &loss, &restrictions, 4.0);
     match &result2 {
         Some(s) => println!("Cont split: gain={:.6} col={} op={:?}", s.gain, s.col_name, s.op),
         None => println!("Cont split: NONE"),

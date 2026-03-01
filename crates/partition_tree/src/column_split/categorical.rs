@@ -46,6 +46,7 @@ impl ColumnSplitSearcher for CategoricalColumnSplitSearcher {
         dataset: &dyn DatasetView,
         loss: &dyn LossFunc,
         restrictions: &SplitRestrictions,
+        dataset_size: f64,
     ) -> Option<SplitPoint> {
         let col_name = col.name();
         let weights_xy = dataset.weights_xy();
@@ -174,7 +175,7 @@ impl ColumnSplitSearcher for CategoricalColumnSplitSearcher {
                     continue;
                 }
 
-                let gain = loss.gain(&parent_stats, &left_stats, &right_stats);
+                let gain = loss.gain(&parent_stats, &left_stats, &right_stats, dataset_size);
                 if gain < restrictions.min_gain {
                     continue;
                 }

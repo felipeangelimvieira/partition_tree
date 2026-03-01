@@ -242,6 +242,7 @@ class PartitionTreeClassifier(ClassifierMixin, BaseEstimator):
         min_volume_fraction=0.0,
         max_depth=1000,
         min_samples_split=2.0,
+        loss=None,
     ):
         self.max_leaves = max_leaves
         self.boundaries_expansion_factor = boundaries_expansion_factor
@@ -252,6 +253,7 @@ class PartitionTreeClassifier(ClassifierMixin, BaseEstimator):
         self.min_volume_fraction = min_volume_fraction
         self.max_depth = max_depth
         self.min_samples_split = min_samples_split
+        self.loss = loss
         super().__init__()
 
     def fit(self, X, y, sample_weights=None):
@@ -265,6 +267,7 @@ class PartitionTreeClassifier(ClassifierMixin, BaseEstimator):
             min_volume_fraction=self.min_volume_fraction,
             max_depth=self.max_depth,
             min_samples_split=self.min_samples_split,
+            loss=self.loss,
         )
 
         self.label_encoder_ = LabelEncoder()
@@ -334,6 +337,7 @@ class PartitionForestClassifier(ClassifierMixin, BaseEstimator):
         min_samples_split=2.0,
         max_samples=0.8,
         max_features=0.8,
+        loss=None,
         random_state=None,
     ):
         self.n_estimators = n_estimators
@@ -348,6 +352,7 @@ class PartitionForestClassifier(ClassifierMixin, BaseEstimator):
         self.min_samples_split = min_samples_split
         self.max_samples = max_samples
         self.max_features = max_features
+        self.loss = loss
         self.random_state = random_state
         super().__init__()
 
@@ -365,6 +370,7 @@ class PartitionForestClassifier(ClassifierMixin, BaseEstimator):
             min_samples_split=self.min_samples_split,
             max_samples=self.max_samples,
             max_features=self.max_features,
+            loss=self.loss,
             seed=self.random_state,
         )
 
@@ -423,6 +429,7 @@ class PartitionTreeRegressor(RegressorMixin, BaseEstimator):
         min_volume_fraction=0.0,
         max_depth=5,
         min_samples_split=2.0,
+        loss=None,
     ):
         self.max_leaves = max_leaves
         self.boundaries_expansion_factor = boundaries_expansion_factor
@@ -433,6 +440,7 @@ class PartitionTreeRegressor(RegressorMixin, BaseEstimator):
         self.min_volume_fraction = min_volume_fraction
         self.max_depth = max_depth
         self.min_samples_split = min_samples_split
+        self.loss = loss
         super().__init__()
 
     def fit(self, X, y, sample_weights=None):
@@ -450,6 +458,7 @@ class PartitionTreeRegressor(RegressorMixin, BaseEstimator):
             min_volume_fraction=self.min_volume_fraction,
             max_depth=self.max_depth,
             min_samples_split=self.min_samples_split,
+            loss=self.loss,
         )
 
         X_pol, y_pol, self._y_columns, self._categorical_metadata = (
@@ -508,6 +517,7 @@ class PartitionForestRegressor(RegressorMixin, BaseEstimator):
         min_samples_split=2.0,
         max_samples=0.8,
         max_features=0.8,
+        loss=None,
         random_state=42,
     ):
         self.n_estimators = n_estimators
@@ -522,6 +532,7 @@ class PartitionForestRegressor(RegressorMixin, BaseEstimator):
         self.min_samples_split = min_samples_split
         self.max_samples = max_samples
         self.max_features = max_features
+        self.loss = loss
         self.random_state = random_state
         super().__init__()
 
@@ -543,7 +554,8 @@ class PartitionForestRegressor(RegressorMixin, BaseEstimator):
             min_samples_split=self.min_samples_split,
             max_samples=self.max_samples,
             max_features=self.max_features,
-            seed=self.random_seed,
+            loss=self.loss,
+            seed=self.random_state,
         )
 
         X_pol, y_pol, self._y_columns, self._categorical_metadata = (

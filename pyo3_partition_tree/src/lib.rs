@@ -1,6 +1,9 @@
 use bincode;
 use estimators::api::*;
 use partition_tree::estimators::{PartitionForest, PartitionTree};
+use partition_tree::loss::{
+    BalancedLogLoss, ConditionalLogLoss, LossFunc, MeanIntegratedSquaredError,
+};
 use partition_tree::predict::PiecewiseConstantDistribution;
 use partition_tree::rules::{BelongsTo, ContinuousInterval, IntegerInterval};
 use polars::prelude::DataFrame as PolarsDataFrame;
@@ -13,6 +16,53 @@ use pyo3_polars::{PolarsAllocator, PyDataFrame};
 
 #[global_allocator]
 static ALLOC: PolarsAllocator = PolarsAllocator::new();
+
+/// Convert a single `FittedNode` (by arena index) into a Python dict.
+fn fitted_node_to_dict<'py>(
+    py: Python<'py>,
+    idx: usize,
+    node: &partition_tree::FittedNode,
+) -> Bound<'py, PyDict> {
+    let d = PyDict::new(py);
+    d.set_item("node_index", idx).unwrap();
+    d.set_item("is_leaf", node.is_leaf).unwrap();
+    d.set_item("depth", node.depth).unwrap();
+    d.set_item("parent", node.parent).unwrap();
+    d.set_item("left_child", node.left_child).unwrap();
+    d.set_item("right_child", node.right_child).unwrap();
+    d.set_item("w_xy", node.w_xy).unwrap();
+    d.set_item("w_x", node.w_x).unwrap();
+    d.set_item("w_y", node.w_y).unwrap();
+    d.set_item("conditional_density", node.conditional_density())
+        .unwrap();
+
+    let partitions = PyDict::new(py);
+    for (name, rule) in &node.cell.rules {
+        let info = PyDict::new(py);
+        if let Some(ci) = rule.as_any().downcast_ref::<ContinuousInterval>() {
+            info.set_item("type", "continuous").unwrap();
+            info.set_item("low", ci.low).unwrap();
+            info.set_item("high", ci.high).unwrap();
+            info.set_item("lower_closed", ci.lower_closed).unwrap();
+            info.set_item("upper_closed", ci.upper_closed).unwrap();
+        } else if let Some(ii) = rule.as_any().downcast_ref::<IntegerInterval>() {
+            info.set_item("type", "integer").unwrap();
+            info.set_item("low", ii.low).unwrap();
+            info.set_item("high", ii.high).unwrap();
+        } else if let Some(bt) = rule.as_any().downcast_ref::<BelongsTo>() {
+            info.set_item("type", "categorical").unwrap();
+            let cats: Vec<String> = bt
+                .values
+                .iter()
+                .filter_map(|&i| bt.domain_names.get(i).cloned())
+                .collect();
+            info.set_item("categories", cats).unwrap();
+        }
+        partitions.set_item(name, info).unwrap();
+    }
+    d.set_item("partitions", partitions).unwrap();
+    d
+}
 
 #[pyclass(module = "pyo3_partition_tree")]
 pub struct PyPartitionTree {
@@ -50,7 +100,8 @@ impl PyPartitionTree {
         min_samples_split = 2.0,
         max_samples = None,
         max_features = None,
-        seed = 0,
+        loss = None,
+        seed = None,
     ))]
     pub fn new(
         max_leaves: usize,
@@ -64,9 +115,26 @@ impl PyPartitionTree {
         min_samples_split: f64,
         max_samples: Option<f64>,
         max_features: Option<f64>,
+        loss: Option<String>,
         seed: Option<u64>,
-    ) -> Self {
-        Self {
+    ) -> PyResult<Self> {
+        let loss_obj: Option<Box<dyn LossFunc>> = match loss {
+            Some(l) => match l.as_str() {
+                "conditional_log_loss" => {
+                    Ok(Some(Box::new(ConditionalLogLoss) as Box<dyn LossFunc>))
+                }
+                "balanced_log_loss" => Ok(Some(Box::new(BalancedLogLoss) as Box<dyn LossFunc>)),
+                "mise" => Ok(Some(
+                    Box::new(MeanIntegratedSquaredError) as Box<dyn LossFunc>
+                )),
+                _ => Err(pyo3::exceptions::PyValueError::new_err(
+                    "Invalid loss function. Supported: 'conditional_log_loss', 'balanced_log_loss', 'mise'",
+                )),
+            },
+            None => Ok(None),
+        }?;
+
+        Ok(Self {
             inner: PartitionTree::new(
                 max_leaves,
                 boundaries_expansion_factor,
@@ -79,9 +147,10 @@ impl PyPartitionTree {
                 min_samples_split,
                 max_samples,
                 max_features,
+                loss_obj,
                 seed,
             ),
-        }
+        })
     }
 
     pub fn fit(
@@ -226,6 +295,62 @@ impl PyPartitionTree {
         Ok(PyList::new(py, py_leaves)?.into())
     }
 
+    /// Get information about every node in the fitted tree.
+    ///
+    /// Returns a list of dicts (length = total nodes), one per node in
+    /// arena order. Each dict contains: node_index, is_leaf, depth,
+    /// parent, left_child, right_child, w_xy, w_x, w_y,
+    /// conditional_density, partitions.
+    pub fn get_nodes_info(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let tree = self
+            .inner
+            .tree
+            .as_ref()
+            .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("Model is not fitted"))?;
+
+        let nodes: Vec<PyObject> = tree
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(idx, node)| fitted_node_to_dict(py, idx, node).into())
+            .collect();
+
+        Ok(PyList::new(py, nodes)?.into())
+    }
+
+    /// Get the split history of the fitted tree.
+    ///
+    /// Returns a list of dicts, one per split, in best-first order.
+    /// Each dict contains: parent_index, col_name, split_kind, gain,
+    /// left_child_index, right_child_index.
+    pub fn get_split_history(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let tree = self
+            .inner
+            .tree
+            .as_ref()
+            .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("Model is not fitted"))?;
+
+        let records: Vec<PyObject> = tree
+            .split_history
+            .iter()
+            .map(|rec| {
+                let d = PyDict::new(py);
+                d.set_item("parent_index", rec.parent_index).unwrap();
+                d.set_item("col_name", &rec.col_name).unwrap();
+                d.set_item("split_kind", rec.split_kind.to_string())
+                    .unwrap();
+                d.set_item("gain", rec.gain).unwrap();
+                d.set_item("left_child_index", rec.left_child_index)
+                    .unwrap();
+                d.set_item("right_child_index", rec.right_child_index)
+                    .unwrap();
+                d.into()
+            })
+            .collect();
+
+        Ok(PyList::new(py, records)?.into())
+    }
+
     /// Compute feature importances based on cumulative gain from all splits.
     ///
     /// Parameters
@@ -283,6 +408,7 @@ impl PyPartitionForest {
         min_samples_split = 2.0,
         max_samples = None,
         max_features = None,
+        loss = None,
         seed = None,
     ))]
     pub fn new(
@@ -298,9 +424,26 @@ impl PyPartitionForest {
         min_samples_split: f64,
         max_samples: Option<f64>,
         max_features: Option<f64>,
+        loss: Option<String>,
         seed: Option<usize>,
-    ) -> Self {
-        Self {
+    ) -> PyResult<Self> {
+        let loss_obj: Option<Box<dyn LossFunc>> = match loss {
+            Some(l) => match l.as_str() {
+                "conditional_log_loss" => {
+                    Ok(Some(Box::new(ConditionalLogLoss) as Box<dyn LossFunc>))
+                }
+                "balanced_log_loss" => Ok(Some(Box::new(BalancedLogLoss) as Box<dyn LossFunc>)),
+                "mise" => Ok(Some(
+                    Box::new(MeanIntegratedSquaredError) as Box<dyn LossFunc>
+                )),
+                _ => Err(pyo3::exceptions::PyValueError::new_err(
+                    "Invalid loss function. Supported: 'conditional_log_loss', 'balanced_log_loss', 'mise'",
+                )),
+            },
+            None => Ok(None),
+        }?;
+
+        Ok(Self {
             inner: PartitionForest::new(
                 n_estimators,
                 max_leaves,
@@ -314,9 +457,10 @@ impl PyPartitionForest {
                 min_samples_split,
                 max_samples,
                 max_features,
+                loss_obj,
                 seed,
             ),
-        }
+        })
     }
 
     pub fn fit(
@@ -398,6 +542,72 @@ impl PyPartitionForest {
             })
             .collect();
         Ok(proba_per_tree)
+    }
+
+    /// Get information about every node for each tree in the forest.
+    ///
+    /// Returns a list of lists of dicts — one inner list per tree.
+    /// Each dict has the same schema as `PyPartitionTree.get_nodes_info`.
+    pub fn get_nodes_info(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let trees = self
+            .inner
+            .trees
+            .as_ref()
+            .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("Model is not fitted"))?;
+
+        let all_trees: Vec<PyObject> = trees
+            .iter()
+            .map(|tree| {
+                let nodes: Vec<PyObject> = tree
+                    .nodes
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, node)| fitted_node_to_dict(py, idx, node).into())
+                    .collect();
+                PyList::new(py, nodes).unwrap().into()
+            })
+            .collect();
+
+        Ok(PyList::new(py, all_trees)?.into())
+    }
+
+    /// Get the split history for each tree in the forest.
+    ///
+    /// Returns a list of lists of dicts — one inner list per tree.
+    /// Each dict contains: parent_index, col_name, split_kind, gain,
+    /// left_child_index, right_child_index.
+    pub fn get_split_history(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let trees = self
+            .inner
+            .trees
+            .as_ref()
+            .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("Model is not fitted"))?;
+
+        let all_trees: Vec<PyObject> = trees
+            .iter()
+            .map(|tree| {
+                let records: Vec<PyObject> = tree
+                    .split_history
+                    .iter()
+                    .map(|rec| {
+                        let d = PyDict::new(py);
+                        d.set_item("parent_index", rec.parent_index).unwrap();
+                        d.set_item("col_name", &rec.col_name).unwrap();
+                        d.set_item("split_kind", rec.split_kind.to_string())
+                            .unwrap();
+                        d.set_item("gain", rec.gain).unwrap();
+                        d.set_item("left_child_index", rec.left_child_index)
+                            .unwrap();
+                        d.set_item("right_child_index", rec.right_child_index)
+                            .unwrap();
+                        d.into()
+                    })
+                    .collect();
+                PyList::new(py, records).unwrap().into()
+            })
+            .collect();
+
+        Ok(PyList::new(py, all_trees)?.into())
     }
 
     /// Compute feature importances aggregated across all trees.

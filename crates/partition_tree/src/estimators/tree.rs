@@ -78,6 +78,8 @@ pub struct PartitionTree {
     /// Fraction of feature columns to consider at each split.
     /// `None` means use all features.
     pub max_features: Option<f64>,
+    // Loss function to be used
+    pub loss: Option<Box<dyn LossFunc>>,
     /// RNG seed for reproducible bootstrap / feature subsampling.
     pub seed: Option<u64>,
 
@@ -104,6 +106,7 @@ impl PartitionTree {
         min_samples_split: f64,
         max_samples: Option<f64>,
         max_features: Option<f64>,
+        loss: Option<Box<dyn LossFunc>>,
         seed: Option<u64>,
     ) -> Self {
         Self {
@@ -118,6 +121,7 @@ impl PartitionTree {
             min_samples_split,
             max_samples,
             max_features,
+            loss,
             seed,
             tree: None,
             schema: None,
@@ -138,6 +142,7 @@ impl PartitionTree {
             min_samples_split: 2.0,
             max_samples: None,
             max_features: None,
+            loss: None,
             seed: None,
             tree: None,
             schema: None,
@@ -291,13 +296,18 @@ impl Estimator for PartitionTree {
 
         // ── 3. Build tree ─────────────────────────────────────────────
         let dataset = PolarsDatasetView::new(&xy);
-        let n = dataset.n_rows() as f64;
 
         let config = self.build_config();
-        let loss: Box<dyn LossFunc> = Box::new(ConditionalLogLoss::new(n));
+        // Clone the loss non-destructively so `self.loss` is preserved for
+        // future `fit` calls and so we can return it in the fitted struct.
+        let loss: Box<dyn LossFunc> = self
+            .loss
+            .as_deref()
+            .map(|l| l.clone_box())
+            .unwrap_or_else(|| Box::new(ConditionalLogLoss));
         let registry = Arc::new(DTypeRegistry::default());
 
-        let builder = TreeBuilder::new(config, loss, registry);
+        let builder = TreeBuilder::new(config, loss.clone_box(), registry);
         let tree = builder.build(&dataset);
 
         // ── 4. Store fitted state and return ──────────────────────────
@@ -316,6 +326,7 @@ impl Estimator for PartitionTree {
             min_samples_split: self.min_samples_split,
             max_samples: self.max_samples,
             max_features: self.max_features,
+            loss: Some(loss),
             seed: self.seed,
             tree: self.tree.take(),
             schema: Some(schema),
@@ -383,7 +394,9 @@ mod tests {
     #[test]
     fn fit_and_predict_roundtrip() {
         let (x, y) = make_xy();
-        let mut model = PartitionTree::new(13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, None, None);
+        let mut model = PartitionTree::new(
+            13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, None, None, None,
+        );
         let fitted = model.fit(&x, &y, None).expect("fit should succeed");
         let preds = fitted.predict(&x).expect("predict should succeed");
 
@@ -397,7 +410,9 @@ mod tests {
     #[test]
     fn predict_proba_returns_distributions() {
         let (x, y) = make_xy();
-        let mut model = PartitionTree::new(13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, None, None);
+        let mut model = PartitionTree::new(
+            13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, None, None, None,
+        );
         let fitted = model.fit(&x, &y, None).unwrap();
         let dists = fitted
             .predict_proba(&x)
@@ -415,7 +430,9 @@ mod tests {
     #[test]
     fn feature_importances_are_nonempty() {
         let (x, y) = make_xy();
-        let mut model = PartitionTree::new(13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, None, None);
+        let mut model = PartitionTree::new(
+            13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, None, None, None,
+        );
         let fitted = model.fit(&x, &y, None).unwrap();
         let imp = fitted.feature_importances(true).unwrap();
 
@@ -431,7 +448,9 @@ mod tests {
     #[test]
     fn apply_returns_leaf_indices() {
         let (x, y) = make_xy();
-        let mut model = PartitionTree::new(13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, None, None);
+        let mut model = PartitionTree::new(
+            13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, None, None, None,
+        );
         let fitted = model.fit(&x, &y, None).unwrap();
         let leaf_indices = fitted.apply(&x).unwrap();
 
@@ -448,7 +467,9 @@ mod tests {
     #[test]
     fn leaves_info_matches_tree() {
         let (x, y) = make_xy();
-        let mut model = PartitionTree::new(13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, None, None);
+        let mut model = PartitionTree::new(
+            13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, None, None, None,
+        );
         let fitted = model.fit(&x, &y, None).unwrap();
         let infos = fitted.leaves_info().unwrap();
 
@@ -481,7 +502,9 @@ mod tests {
     fn predictions_match_actual_values() {
         // y = 2*x1, so for x1=1 → y=2, x1=2 → y=4
         let (x, y) = make_xy();
-        let mut model = PartitionTree::new(13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, None, None);
+        let mut model = PartitionTree::new(
+            13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, None, None, None,
+        );
         let fitted = model.fit(&x, &y, None).unwrap();
         let preds = fitted.predict(&x).unwrap();
 
@@ -502,7 +525,9 @@ mod tests {
     #[test]
     fn serde_roundtrip_bincode() {
         let (x, y) = make_xy();
-        let mut model = PartitionTree::new(13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, None, None);
+        let mut model = PartitionTree::new(
+            13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, None, None, None,
+        );
         let fitted = model.fit(&x, &y, None).unwrap();
 
         // ── Serialize ──

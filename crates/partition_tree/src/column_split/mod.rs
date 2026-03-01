@@ -23,7 +23,7 @@ pub use integer::IntegerColumnSplitSearcher;
 
 use crate::cell::Cell;
 use crate::dataset_view::{ColumnView, DatasetView};
-use crate::loss::{CellStats, LossFunc};
+use crate::loss::LossFunc;
 use crate::node::Node;
 use crate::split_result::{SplitKind, SplitPoint, SplitRestrictions};
 
@@ -50,6 +50,9 @@ use crate::split_result::{SplitKind, SplitPoint, SplitRestrictions};
 pub trait ColumnSplitSearcher: Send + Sync {
     /// Search for the best split point on `col` given the current `node`.
     ///
+    /// `dataset_size` is the normalizing constant $D$ forwarded to
+    /// [`LossFunc::gain`].
+    ///
     /// Returns `None` if no valid split satisfying the restrictions is found.
     fn search(
         &self,
@@ -60,6 +63,7 @@ pub trait ColumnSplitSearcher: Send + Sync {
         dataset: &dyn DatasetView,
         loss: &dyn LossFunc,
         restrictions: &SplitRestrictions,
+        dataset_size: f64,
     ) -> Option<SplitPoint>;
 }
 

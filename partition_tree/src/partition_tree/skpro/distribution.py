@@ -10,6 +10,73 @@ from typing import Iterable, List, Sequence, Tuple
 import numpy as np
 import pandas as pd
 from skpro.distributions.base import BaseDistribution
+from typing import List
+
+import numpy as np
+import pandas as pd
+from skpro.distributions.base import BaseDistribution
+
+
+def _coerce_1d_per_instance(values, n_instances: int, name: str) -> np.ndarray:
+    """Coerce scalar / vector / (n,1) inputs to shape (n_instances,)."""
+    arr = np.asarray(values, dtype=float)
+
+    if arr.ndim == 0:
+        return np.full(n_instances, float(arr), dtype=float)
+
+    if arr.ndim == 1:
+        if arr.shape[0] == n_instances:
+            return arr.astype(float)
+        if arr.shape[0] == 1:
+            return np.full(n_instances, float(arr[0]), dtype=float)
+
+    if arr.ndim == 2:
+        if arr.shape == (n_instances, 1):
+            return arr[:, 0].astype(float)
+        if arr.shape == (1, n_instances):
+            return arr[0, :].astype(float)
+
+    raise ValueError(
+        f"{name} must broadcast to shape ({n_instances},) or ({n_instances}, 1)"
+    )
+
+
+def _truncated_interval_length(low: float, high: float, x: float) -> float:
+    """Length of [low, high] intersected with (-inf, x]."""
+    if x <= low:
+        return 0.0
+    if x >= high:
+        return high - low
+    return x - low
+
+
+def _abs_interval_integral(a: float, b: float, x0: float) -> float:
+    """Integral int_a^b |x - x0| dx."""
+    if b <= a:
+        return 0.0
+    if x0 <= a:
+        return 0.5 * ((b - x0) ** 2 - (a - x0) ** 2)
+    if x0 >= b:
+        return 0.5 * ((x0 - a) ** 2 - (x0 - b) ** 2)
+    return 0.5 * ((x0 - a) ** 2 + (b - x0) ** 2)
+
+
+def _uniform_cross_energy(a: float, b: float, c: float, d: float) -> float:
+    """E[|U - V|] where U ~ Uniform(a, b), V ~ Uniform(c, d)."""
+    wa = b - a
+    wb = d - c
+    if wa <= 0 or wb <= 0:
+        return 0.0
+
+    def _H(x: float) -> float:
+        # Antiderivative of G(x) = int_c^d |x - y| dy
+        if x <= c:
+            return ((d - x) ** 3 - (c - x) ** 3) / 6.0
+        if x >= d:
+            return ((x - c) ** 3 - (x - d) ** 3) / 6.0
+        return ((x - c) ** 3 + (d - x) ** 3) / 6.0
+
+    return (_H(b) - _H(a)) / (wa * wb)
 
 
 class Interval:
@@ -27,6 +94,9 @@ class Interval:
         self.lower_closed = lower_closed
         self.upper_closed = upper_closed
 
+        if self.high < self.low:
+            raise ValueError("Interval high must be >= low")
+
     def measure(self) -> float:
         return float(self.high - self.low)
 
@@ -38,26 +108,20 @@ class Interval:
 
 class IntervalDistribution(BaseDistribution):
     """
-    Piecewise-uniform distributions over disjoint intervals.
+    Piecewise-uniform distribution over intervals.
 
     Parameters
     ----------
-    intervals : list[Interval] | list[list[Interval]] | list[tuple]
-        Either a shared interval list or a list per distribution instance. Tuples
-        ``(low, high)`` are accepted and converted to `Interval` objects.
-    pdf_values : array-like, optional
-        Densities per interval, typically the direct output of
-        ``pdf_with_intervals``. Accepts 1D (single instance) or 2D (rows per
-        instance). If not provided, ``probability_measures`` must be given.
-    probability_measures : array-like, optional
-        Probability masses per interval. Used to derive densities when
-        ``pdf_values`` is not supplied.
+    intervals : list[list[tuple]]
+        One list of interval-tuples per instance. Each tuple is either
+        (low, high) or (low, high, lower_closed, upper_closed).
+    pdf_values : list[list[float]]
+        Raw densities per interval, one list per instance. They are normalized
+        internally using total mass = sum(density * interval_width).
     index : pandas.Index, optional
-        Index for the distribution instances. Defaults to a RangeIndex.
+        Row index for instances.
     columns : pandas.Index, optional
-        Columns for pandas alignment. Defaults to a single column ``0``.
-    normalize : bool, default True
-        Whether to renormalize masses/densities to sum to 1 per instance.
+        Column index for pandas alignment.
     """
 
     _tags = {
@@ -105,6 +169,9 @@ class IntervalDistribution(BaseDistribution):
         return [params1, params2]
 
     def __init__(self, intervals, pdf_values=None, index=None, columns=None):
+        if pdf_values is None:
+            raise ValueError("pdf_values must be provided")
+
         self.intervals = intervals
         self.pdf_values = pdf_values
 
@@ -113,88 +180,245 @@ class IntervalDistribution(BaseDistribution):
             index = pd.RangeIndex(start=0, stop=n_instances, step=1)
         if columns is None:
             columns = pd.Index([0])
+
         self.index = index
         self.columns = columns
 
         super().__init__(index=self.index, columns=self.columns)
 
-        # Handle intervals with optional boundary flags
-        # Each interval can be (low, high) or (low, high, lower_closed, upper_closed)
         def make_interval(x):
             if len(x) == 2:
                 return Interval(x[0], x[1])
-            elif len(x) == 4:
+            if len(x) == 4:
                 return Interval(x[0], x[1], x[2], x[3])
-            else:
-                raise ValueError(f"Invalid interval tuple: {x}")
+            raise ValueError(f"Invalid interval tuple: {x}")
 
-        self._intervals = list(
-            map(lambda ints: list(map(make_interval, ints)), intervals)
-        )
-        # Density times volume = probability mass
+        self._intervals = [list(map(make_interval, ints)) for ints in intervals]
+
+        if len(self._intervals) != len(self.pdf_values):
+            raise ValueError("intervals and pdf_values must have the same outer length")
+
         self._mass = []
         self._normalization_factor = []
+
         for i in range(len(self._intervals)):
-            densities = self.pdf_values[i]
             intervals_i = self._intervals[i]
+            densities_i = self.pdf_values[i]
+
+            if len(intervals_i) != len(densities_i):
+                raise ValueError(
+                    f"Instance {i}: number of intervals and pdf_values must match"
+                )
+
             masses_i = [
-                densities[j] * intervals_i[j].measure() for j in range(len(intervals_i))
+                float(densities_i[j]) * intervals_i[j].measure()
+                for j in range(len(intervals_i))
             ]
             self._mass.append(masses_i)
-            # Normalization factor is the total mass (sum of densities × widths)
-            self._normalization_factor.append(sum(masses_i))
+            self._normalization_factor.append(float(sum(masses_i)))
 
-    # ------------------------------------------------------------------
-    # Core distribution methods
-    # ------------------------------------------------------------------
     def _pdf(self, x):
-        x = np.asarray(x)
+        x = _coerce_1d_per_instance(x, len(self.index), "x")
         n_instances = len(self.index)
-        if x.ndim == 0:
-            x = np.full((n_instances, 1), x)
-        elif x.ndim == 1:
-            x = np.tile(x, (n_instances, 1))
-        elif x.shape[0] != n_instances:
-            raise ValueError("x must broadcast to (n_instances, n_points)")
 
-        pdf_vals = np.zeros((x.shape[0]), dtype=float)
+        pdf_vals = np.zeros(n_instances, dtype=float)
         for i in range(n_instances):
-            densities = self.pdf_values[i]
-            intervals = self._intervals[i]
-            norm_factor = self._normalization_factor[i]
-            for j, interval in enumerate(intervals):
+            norm = self._normalization_factor[i]
+            if norm <= 0:
+                pdf_vals[i] = 0.0
+                continue
 
+            for density, interval in zip(self.pdf_values[i], self._intervals[i]):
                 if interval.contains(x[i]):
-                    # Normalize the density by the total mass
-                    pdf_vals[i] = densities[j] / norm_factor
+                    pdf_vals[i] = float(density) / norm
+                    break
 
-        return pd.DataFrame(pdf_vals + 1e-8, index=self.index, columns=self.columns)
+        return pd.DataFrame(pdf_vals, index=self.index, columns=self.columns)
 
-    def _match_interval_idx(self, x: np.ndarray):
+    def _log_pdf(self, x):
+        pdf = self._pdf(x).to_numpy()
+        with np.errstate(divide="ignore"):
+            out = np.log(pdf)
+        return pd.DataFrame(out, index=self.index, columns=self.columns)
 
-        idxs = np.empty_like(x, dtype=int)
-        for intervals, val in zip(self._intervals, x):
+    def _cdf(self, x):
+        x = _coerce_1d_per_instance(x, len(self.index), "x")
+        n_instances = len(self.index)
+
+        cdf_vals = np.zeros(n_instances, dtype=float)
+        for i in range(n_instances):
+            norm = self._normalization_factor[i]
+            if norm <= 0:
+                cdf_vals[i] = 0.0
+                continue
+
+            cdf_val = 0.0
+            for density, interval in zip(self.pdf_values[i], self._intervals[i]):
+                cdf_val += float(density) * _truncated_interval_length(
+                    interval.low, interval.high, x[i]
+                )
+            cdf_vals[i] = cdf_val / norm
+
+        return pd.DataFrame(cdf_vals, index=self.index, columns=self.columns)
+
+    def _ppf(self, p):
+        """Percent point function (inverse CDF) for piecewise uniform distribution."""
+        p = _coerce_1d_per_instance(p, len(self.index), "p")
+        n_instances = len(self.index)
+
+        ppf_vals = np.zeros(n_instances, dtype=float)
+        for i in range(n_instances):
+            intervals = self._intervals[i]
+            densities = self.pdf_values[i]
+            norm = self._normalization_factor[i]
+
+            if not intervals or norm <= 0:
+                ppf_vals[i] = np.nan
+                continue
+
+            q = float(np.clip(p[i], 0.0, 1.0))
+
+            if q <= 0.0:
+                ppf_vals[i] = intervals[0].low
+                continue
+            if q >= 1.0:
+                ppf_vals[i] = intervals[-1].high
+                continue
+
+            cumulative = 0.0
+            found = False
+            for density, interval in zip(densities, intervals):
+                mass = float(density) * interval.measure() / norm
+                if cumulative + mass >= q - 1e-12:
+                    remaining = q - cumulative
+                    if density > 0:
+                        offset = remaining * norm / float(density)
+                        ppf_vals[i] = interval.low + offset
+                    else:
+                        ppf_vals[i] = interval.low
+                    found = True
+                    break
+                cumulative += mass
+
+            if not found:
+                ppf_vals[i] = intervals[-1].high
+
+        return pd.DataFrame(ppf_vals, index=self.index, columns=self.columns)
+
+    def _mean(self):
+        n_instances = len(self.index)
+        means = np.zeros(n_instances, dtype=float)
+
+        for i in range(n_instances):
+            norm = self._normalization_factor[i]
+            if norm <= 0:
+                means[i] = np.nan
+                continue
+
+            num = 0.0
+            for density, interval in zip(self.pdf_values[i], self._intervals[i]):
+                a, b = interval.low, interval.high
+                num += float(density) * 0.5 * (b**2 - a**2)
+
+            means[i] = num / norm
+
+        return pd.DataFrame(means, index=self.index, columns=self.columns)
+
+    def _var(self):
+        n_instances = len(self.index)
+        variances = np.zeros(n_instances, dtype=float)
+        means = self._mean().to_numpy().reshape(-1)
+
+        for i in range(n_instances):
+            norm = self._normalization_factor[i]
+            if norm <= 0:
+                variances[i] = np.nan
+                continue
+
+            second_moment = 0.0
+            for density, interval in zip(self.pdf_values[i], self._intervals[i]):
+                a, b = interval.low, interval.high
+                second_moment += float(density) * (b**3 - a**3) / 3.0
+            second_moment /= norm
+
+            variances[i] = max(second_moment - means[i] ** 2, 0.0)
+
+        return pd.DataFrame(variances, index=self.index, columns=self.columns)
+
+    def _energy_x(self, x):
+        """Exact E[|X - x|] for each instance."""
+        x = _coerce_1d_per_instance(x, len(self.index), "x")
+        n_instances = len(self.index)
+
+        energy = np.zeros(n_instances, dtype=float)
+        for i in range(n_instances):
+            norm = self._normalization_factor[i]
+            if norm <= 0:
+                energy[i] = np.nan
+                continue
+
+            val = 0.0
+            for density, interval in zip(self.pdf_values[i], self._intervals[i]):
+                val += float(density) * _abs_interval_integral(
+                    interval.low, interval.high, x[i]
+                )
+            energy[i] = val / norm
+
+        return energy.reshape(-1, 1)
+
+    def _energy_self(self):
+        """Exact E[|X - X'|] for each instance."""
+        n_instances = len(self.index)
+        out = np.zeros((n_instances, 1), dtype=float)
+
+        for i in range(n_instances):
+            masses = np.asarray(self._mass[i], dtype=float)
+            total_mass = masses.sum()
+
+            if total_mass <= 0:
+                out[i, 0] = np.nan
+                continue
+
+            probs = masses / total_mass
+            intervals = self._intervals[i]
+
+            val = 0.0
+            for ia, iv_a in enumerate(intervals):
+                pa = probs[ia]
+                if pa <= 0:
+                    continue
+
+                for ib, iv_b in enumerate(intervals):
+                    pb = probs[ib]
+                    if pb <= 0:
+                        continue
+
+                    val += (
+                        pa
+                        * pb
+                        * _uniform_cross_energy(
+                            iv_a.low, iv_a.high, iv_b.low, iv_b.high
+                        )
+                    )
+
+            out[i, 0] = val
+
+        return out
+
+    def _match_interval_idx(self, x):
+        x = _coerce_1d_per_instance(x, len(self.index), "x")
+        idxs = np.full(len(self.index), -1, dtype=int)
+
+        for pos, (intervals, val) in enumerate(zip(self._intervals, x)):
             for idx, interval in enumerate(intervals):
                 if interval.contains(val):
-                    idxs[idx] = idx
+                    idxs[pos] = idx
                     break
+
         return idxs
 
     def plot(self, ax=None, colors=None, alpha=0.6, **kwargs):
-        """Plot the piecewise constant PDF as histogram-like bars.
-
-        Parameters
-        ----------
-        ax : matplotlib.axes.Axes, optional
-            Axis to plot on. If ``None``, a new figure and axis are created.
-        colors : sequence, optional
-            Sequence of colors to cycle through for each instance.
-            Defaults to Matplotlib's ``tab10`` cycle.
-        alpha : float, optional
-            Transparency for the bars. Defaults to ``0.6``.
-        **kwargs
-            Additional keyword arguments forwarded to ``ax.bar``.
-        """
+        """Plot the piecewise constant PDF as histogram-like bars."""
         import matplotlib.pyplot as plt
         from itertools import cycle
 
@@ -208,10 +432,14 @@ class IntervalDistribution(BaseDistribution):
         for i in range(len(self.index)):
             intervals_i = self._intervals[i]
             densities_i = self.pdf_values[i]
+            norm_i = self._normalization_factor[i]
 
             lows = [interval.low for interval in intervals_i]
             widths = [interval.high - interval.low for interval in intervals_i]
-            heights = densities_i
+            heights = [
+                (float(densities_i[j]) / norm_i) if norm_i > 0 else 0.0
+                for j in range(len(intervals_i))
+            ]
 
             ax.bar(
                 lows,
@@ -230,203 +458,26 @@ class IntervalDistribution(BaseDistribution):
         ax.legend()
         return ax
 
-    def _cdf(self, x):
-        x = np.asarray(x)
-        n_instances = len(self.index)
-        if x.ndim == 0:
-            x = np.full((n_instances, 1), x)
-        elif x.ndim == 1:
-            x = np.tile(x, (n_instances, 1))
-        elif x.shape[0] != n_instances:
-            raise ValueError("x must broadcast to (n_instances, n_points)")
-
-        cdf_vals = np.zeros((x.shape[0]), dtype=float)
-        for i in range(n_instances):
-            intervals = self._intervals[i]
-            densities = self.pdf_values[i]
-            norm = self._normalization_factor[i]
-            val = x[i]
-
-            cdf_val = 0.0
-            for k, interval in enumerate(intervals):
-                if val < interval.low:
-                    break
-                elif interval.contains(val):
-                    cdf_val += densities[k] * (val - interval.low)
-                    break
-                else:
-                    cdf_val += densities[k] * interval.measure()
-            cdf_vals[i] = cdf_val / norm if norm > 0 else 0.0
-
-        return pd.DataFrame(cdf_vals, index=self.index, columns=self.columns)
-
-    def _ppf(self, p):
-        """Percent point function (inverse of CDF) for piecewise uniform distribution."""
-        p = np.asarray(p, dtype=float)
-        n_instances = len(self.index)
-        if p.ndim == 0:
-            p = np.full((n_instances,), p)
-        elif p.ndim == 2:
-            p = p.ravel()[:n_instances]
-
-        ppf_vals = np.zeros((n_instances,), dtype=float)
-        for i in range(n_instances):
-            intervals = self._intervals[i]
-            densities = self.pdf_values[i]
-            norm = self._normalization_factor[i]
-            q = float(p[i])
-
-            cumulative = 0.0
-            found = False
-            for k, interval in enumerate(intervals):
-                mass_k = densities[k] * interval.measure() / norm
-                if cumulative + mass_k >= q - 1e-12:
-                    remaining = q - cumulative
-                    if densities[k] > 0:
-                        offset = remaining * norm / densities[k]
-                    else:
-                        offset = 0.0
-                    ppf_vals[i] = interval.low + offset
-                    found = True
-                    break
-                cumulative += mass_k
-
-            if not found:
-                ppf_vals[i] = intervals[-1].high if intervals else np.nan
-
-        return pd.DataFrame(ppf_vals, index=self.index, columns=self.columns)
-
-    def _mean(self):
-        n_instances = len(self.index)
-        means = np.zeros((n_instances,), dtype=float)
-        for i in range(len(self.index)):
-            intervals_i = self._intervals[i]
-            densities_i = self.pdf_values[i]
-            total_mass = 0
-            mean_i = 0.0
-            for j, interval in enumerate(intervals_i):
-                mean_i += densities_i[j] * (
-                    0.5 * (interval.low + interval.high) * interval.measure()
-                )
-                total_mass += densities_i[j] * interval.measure()
-
-            means[i] = mean_i / total_mass
-        return pd.DataFrame(means, index=self.index, columns=self.columns)
-
-    def _energy_x(self, x):
-        """`\mathbb{E}[|X-x|]`, where :math:`X` is a copy of self,"""
-
-        n_instances = len(self.index)
-        energy = np.zeros((n_instances,), dtype=float)
-        for i in range(n_instances):
-            intervals = self._intervals[i]
-            masses = np.asarray(self._mass[i], dtype=float)
-            x_i = x[i]
-
-            total_mass = masses.sum()
-            if total_mass <= 0:
-                energy[i] = np.nan
-                continue
-
-            energy_val = 0.0
-            for mass, interval in zip(masses, intervals):
-                midpoint = 0.5 * (interval.low + interval.high)
-                energy_val += mass * abs(midpoint - x_i)
-            energy[i] = energy_val / total_mass
-
-        return energy.reshape(-1, 1)
-
-    def _energy_self(self):
-        n_instances = len(self.index)
-        out = np.zeros((n_instances, 1), dtype=float)
-
-        for i in range(n_instances):
-            intervals = self._intervals[i]
-            masses = np.asarray(self._mass[i], dtype=float)
-
-            # sort by interval low (keeps "left-to-right" assumption true)
-            order = np.argsort([iv.low for iv in intervals])
-            intervals = [intervals[k] for k in order]
-            masses = masses[order]
-
-            widths = np.asarray([iv.measure() for iv in intervals], dtype=float)
-            mids = np.asarray(
-                [0.5 * (iv.low + iv.high) for iv in intervals], dtype=float
-            )
-
-            total_mass = masses.sum()
-            if total_mass <= 0:
-                out[i, 0] = np.nan
-                continue
-
-            # Between-interval part: 2 * sum_{i<j} m_i m_j (mid_j - mid_i)
-            prefix_m = 0.0
-            prefix_mm = 0.0  # sum m_k * mid_k over k<j
-            between = 0.0
-            for m, mid in zip(masses, mids):
-                between += 2.0 * m * (mid * prefix_m - prefix_mm)
-                prefix_m += m
-                prefix_mm += m * mid
-
-            # Within-interval part: sum m_j^2 * (width_j / 3)
-            within = np.sum((masses**2) * (widths / 3.0))
-
-            # Normalize if masses are not probabilities
-            out[i, 0] = (between + within) / (total_mass**2)
-
-        return out
-
-    def _var(self):
-        mean = self.mean().to_numpy().reshape(-1)
-        n_instances = len(self.index)
-        variances = np.zeros((n_instances,), dtype=float)
-        for i in range(len(self.index)):
-            intervals_i = self._intervals[i]
-            masses_i = self._mass[i]
-            total_mass = 0
-            var_i = 0.0
-            for j, interval in enumerate(intervals_i):
-                midpoint = 0.5 * (interval.low + interval.high)
-                var_i += masses_i[j] * (((midpoint - mean[i]) ** 2))
-                total_mass += masses_i[j]
-
-            variances[i] = var_i / total_mass
-
-        return pd.DataFrame(variances, index=self.index, columns=self.columns)
-
     def _subset_params(self, rowidx, colidx, coerce_scalar=False):
-        """Subset distribution parameters to given rows and columns.
-
-        Parameters
-        ----------
-        rowidx : None, numpy index/slice coercible, or int
-            Rows to subset to. If None, no subsetting is done.
-        colidx : None, numpy index/slice coercible, or int
-            Columns to subset to. If None, no subsetting is done.
-        coerce_scalar : bool, optional, default=False
-            If True, and the subsetted parameter is a scalar, coerce it to a scalar.
-
-        Returns
-        -------
-        dict
-            Dictionary with subsetted distribution parameters.
-            Keys are parameter names of ``self``, values are the subsetted parameters.
-        """
+        """Subset distribution parameters to given rows and columns."""
         params = self._get_dist_params()
+
+        if rowidx is None:
+            return params
+
+        if isinstance(rowidx, int):
+            idxs = [rowidx]
+        elif isinstance(rowidx, pd.Index):
+            idxs = list(rowidx.values)
+        elif isinstance(rowidx, np.ndarray):
+            idxs = list(rowidx)
+        else:
+            idxs = list(rowidx)
 
         subset_param_dict = {}
         for param, val in params.items():
-            if rowidx is None:
-                subset_param_dict[param] = val
-                continue
-            if isinstance(rowidx, int):
-                subset_param_dict[param] = val[rowidx]
-                continue
-            if isinstance(rowidx, pd.Index):
-                idxs = rowidx.values
-            if isinstance(rowidx, np.ndarray):
-                idxs = rowidx
             subset_param_dict[param] = [val[i] for i in idxs]
+
         return subset_param_dict
 
     @staticmethod
@@ -436,45 +487,11 @@ class IntervalDistribution(BaseDistribution):
         index: pd.Index = None,
         columns: pd.Index = None,
     ) -> "IntervalDistribution":
-        """Create a single IntervalDistribution by merging multiple distributions.
+        """
+        Create a single IntervalDistribution representing the true mixture.
 
-        This method takes a list of IntervalDistributions (potentially with
-        overlapping intervals) and creates a new distribution with piecewise
-        disjoint intervals. Where intervals overlap, the PDF value is the
-        weighted average of the PDFs from the original distributions.
-
-        Parameters
-        ----------
-        distributions : list of IntervalDistribution
-            List of IntervalDistribution objects to merge. All distributions
-            must have the same number of instances (same index length).
-        weights : list of float, optional
-            Weights for each distribution. If None, uniform weights are used.
-            Will be normalized to sum to 1.
-        index : pd.Index, optional
-            Index for the resulting distribution. If None, uses the index
-            from the first distribution.
-        columns : pd.Index, optional
-            Columns for the resulting distribution. If None, uses the columns
-            from the first distribution.
-
-        Returns
-        -------
-        IntervalDistribution
-            A new IntervalDistribution with disjoint intervals and averaged PDFs.
-
-        Examples
-        --------
-        >>> # Two overlapping interval distributions
-        >>> dist1 = IntervalDistribution(
-        ...     intervals=[[((0, 2),), ((3, 5),)]],
-        ...     pdf_values=[[0.25, 0.25]]
-        ... )
-        >>> dist2 = IntervalDistribution(
-        ...     intervals=[[((1, 4),)]],
-        ...     pdf_values=[[0.333]]
-        ... )
-        >>> merged = IntervalDistribution.from_mixture([dist1, dist2])
+        The merged density on each subinterval is the weighted sum of the
+        normalized component PDFs, not an average over active components.
         """
         if not distributions:
             raise ValueError("distributions list cannot be empty")
@@ -482,21 +499,22 @@ class IntervalDistribution(BaseDistribution):
         n_dists = len(distributions)
         n_instances = len(distributions[0].index)
 
-        # Validate all distributions have same number of instances
         for d in distributions:
             if len(d.index) != n_instances:
                 raise ValueError(
                     "All distributions must have the same number of instances"
                 )
 
-        # Handle weights
         if weights is None:
-            weights = np.ones(n_dists) / n_dists
+            weights = np.ones(n_dists, dtype=float) / n_dists
         else:
             weights = np.asarray(weights, dtype=float)
+            if np.any(weights < 0):
+                raise ValueError("weights must be non-negative")
+            if weights.sum() <= 0:
+                raise ValueError("weights must sum to a positive value")
             weights = weights / weights.sum()
 
-        # Use index/columns from first distribution if not provided
         if index is None:
             index = distributions[0].index
         if columns is None:
@@ -506,56 +524,46 @@ class IntervalDistribution(BaseDistribution):
         merged_pdf_values = []
 
         for instance_idx in range(n_instances):
-            # Collect all boundary points from all distributions for this instance
             boundaries = set()
             for d in distributions:
-                intervals_i = d._intervals[instance_idx]
-                for interval in intervals_i:
+                for interval in d._intervals[instance_idx]:
                     boundaries.add(interval.low)
                     boundaries.add(interval.high)
 
-            # Sort boundaries to create disjoint intervals
-            sorted_boundaries = sorted(boundaries)
+            bps = sorted(boundaries)
 
-            if len(sorted_boundaries) < 2:
-                # Edge case: no valid intervals
+            if len(bps) < 2:
                 merged_intervals.append([])
                 merged_pdf_values.append([])
                 continue
 
-            # Create disjoint intervals from consecutive boundary points
             instance_intervals = []
             instance_pdfs = []
 
-            for j in range(len(sorted_boundaries) - 1):
-                low = sorted_boundaries[j]
-                high = sorted_boundaries[j + 1]
-
+            for j in range(len(bps) - 1):
+                low, high = bps[j], bps[j + 1]
                 if high <= low:
                     continue
 
-                # Compute midpoint to test which original intervals contain this region
-                midpoint = (low + high) / 2.0
+                mid = 0.5 * (low + high)
 
-                # Compute weighted average PDF at this point
-                total_pdf = 0.0
-                total_weight = 0.0
+                mix_pdf = 0.0
+                for w, d in zip(weights, distributions):
+                    norm = d._normalization_factor[instance_idx]
+                    if norm <= 0:
+                        continue
 
-                for dist_idx, d in enumerate(distributions):
-                    intervals_i = d._intervals[instance_idx]
-                    densities_i = d.pdf_values[instance_idx]
-
-                    for k, interval in enumerate(intervals_i):
-                        if interval.low <= midpoint <= interval.high:
-                            total_pdf += weights[dist_idx] * densities_i[k]
-                            total_weight += weights[dist_idx]
+                    for density, interval in zip(
+                        d.pdf_values[instance_idx], d._intervals[instance_idx]
+                    ):
+                        if interval.contains(mid):
+                            mix_pdf += w * float(density) / norm
                             break
 
-                # Only add interval if it's covered by at least one distribution
-                if total_weight > 0:
-                    avg_pdf = total_pdf / total_weight
-                    instance_intervals.append((low, high))
-                    instance_pdfs.append(avg_pdf)
+                if mix_pdf > 0:
+                    upper_closed = j == len(bps) - 2
+                    instance_intervals.append((low, high, True, upper_closed))
+                    instance_pdfs.append(mix_pdf)
 
             merged_intervals.append(instance_intervals)
             merged_pdf_values.append(instance_pdfs)
@@ -566,3 +574,398 @@ class IntervalDistribution(BaseDistribution):
             index=index,
             columns=columns,
         )
+
+
+class MixtureIntervalDistribution(BaseDistribution):
+    """Mixture of :class:`IntervalDistribution` objects computed without merging.
+
+    For a mixture :math:`F_{\\text{mix}} = \\sum_m w_m F_m` the following
+    quantities are computed directly from the component distributions:
+
+    * **PDF** – :math:`f_{\\text{mix}}(x) = \\sum_m w_m f_m(x)`
+    * **CDF** – :math:`F_{\\text{mix}}(x) = \\sum_m w_m F_m(x)`
+    * **Mean** – :math:`\\mu_{\\text{mix}} = \\sum_m w_m \\mu_m`
+    * **Variance** – mixture identity:
+      :math:`\\text{Var}_{\\text{mix}} = \\sum_m w_m(\\sigma_m^2 + \\mu_m^2) - \\mu_{\\text{mix}}^2`
+    * **Energy against a point** –
+      :math:`\\mathbb{E}_{\\text{mix}}|X - x| = \\sum_m w_m \\mathbb{E}_m|X - x|`
+    * **Self-energy** – exact pairwise cross-interval terms:
+      :math:`\\mathbb{E}_{\\text{mix}}|X - X'| = \\sum_{m,n} w_m w_n \\mathbb{E}|X_m - X_n|`
+    * **PPF** – exact piecewise inversion on the union-of-breakpoints partition
+    * **Sampling** – hierarchical mixture sampling (draw component first)
+
+    Parameters
+    ----------
+    distributions : list of IntervalDistribution
+        Component distributions.  All must have the same number of instances.
+    weights : list of float, optional
+        Non-negative mixture weights.  Normalised to sum to 1 internally.
+        Uniform weights are used when *None*.
+    index : pandas.Index, optional
+        Index for the instances.  Defaults to the first component's index.
+    columns : pandas.Index, optional
+        Columns for pandas alignment.  Defaults to the first component's columns.
+    """
+
+    _tags = {
+        "authors": ["felipeangelimvieira"],
+        "capabilities:approx": [],
+        "capabilities:exact": [
+            "mean",
+            "var",
+            "energy",
+            "pdf",
+            "log_pdf",
+            "cdf",
+            "ppf",
+        ],
+        "distr:measuretype": "continuous",
+        "distr:paramtype": "nonparametric",
+        "broadcast_init": "off",
+    }
+
+    @classmethod
+    def get_test_params(cls, parameter_set="default"):
+        """Return testing parameter settings for the estimator."""
+        d1 = IntervalDistribution(
+            intervals=[[(0.0, 1.0), (1.0, 2.0), (2.0, 3.0)]],
+            pdf_values=[[0.2, 0.5, 0.3]],
+            index=pd.RangeIndex(1),
+            columns=pd.Index([0]),
+        )
+        d2 = IntervalDistribution(
+            intervals=[[(0.5, 1.5), (1.5, 2.5)]],
+            pdf_values=[[0.4, 0.6]],
+            index=pd.RangeIndex(1),
+            columns=pd.Index([0]),
+        )
+        params1 = {"distributions": [d1, d2], "weights": [0.6, 0.4]}
+        params2 = {"distributions": [d1]}
+        return [params1, params2]
+
+    def __init__(
+        self,
+        distributions: List["IntervalDistribution"],
+        weights: List[float] = None,
+        index: pd.Index = None,
+        columns: pd.Index = None,
+    ):
+        if not distributions:
+            raise ValueError("distributions list cannot be empty")
+
+        n_instances = len(distributions[0].index)
+        for d in distributions:
+            if len(d.index) != n_instances:
+                raise ValueError(
+                    "All distributions must have the same number of instances"
+                )
+
+        self.distributions = distributions
+        self.weights = weights
+
+        n_dists = len(distributions)
+        if weights is None:
+            self._weights = np.ones(n_dists) / n_dists
+        else:
+            w = np.asarray(weights, dtype=float)
+            self._weights = w / w.sum()
+
+        if index is None:
+            index = distributions[0].index
+        if columns is None:
+            columns = distributions[0].columns
+
+        super().__init__(index=index, columns=columns)
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _union_breakpoints(self, instance_idx: int):
+        """Return sorted boundary points over all components for one instance."""
+        boundaries = set()
+        for d in self.distributions:
+            for iv in d._intervals[instance_idx]:
+                boundaries.add(iv.low)
+                boundaries.add(iv.high)
+        return sorted(boundaries)
+
+    def _mixture_pdf_at(self, instance_idx: int, x: float) -> float:
+        """Evaluate the mixture PDF at a scalar *x* for one instance."""
+        val = 0.0
+        for w, d in zip(self._weights, self.distributions):
+            ivs = d._intervals[instance_idx]
+            dens = d.pdf_values[instance_idx]
+            norm = d._normalization_factor[instance_idx]
+            for k, iv in enumerate(ivs):
+                if iv.contains(x):
+                    val += w * dens[k] / norm
+                    break
+        return val
+
+    def _mixture_cdf_at(self, instance_idx: int, x: float) -> float:
+        """Evaluate the mixture CDF at a scalar *x* for one instance."""
+        val = 0.0
+        for w, d in zip(self._weights, self.distributions):
+            ivs = d._intervals[instance_idx]
+            dens = d.pdf_values[instance_idx]
+            norm = d._normalization_factor[instance_idx]
+            if norm <= 0:
+                continue
+            cdf_k = 0.0
+            for k, iv in enumerate(ivs):
+                if x < iv.low:
+                    break
+                elif iv.contains(x):
+                    cdf_k += dens[k] * (x - iv.low)
+                    break
+                else:
+                    cdf_k += dens[k] * iv.measure()
+            val += w * cdf_k / norm
+        return val
+
+    # ------------------------------------------------------------------
+    # Core distribution methods
+    # ------------------------------------------------------------------
+
+    def _pdf(self, x):
+        x = np.asarray(x)
+        n = len(self.index)
+        if x.ndim == 0:
+            x = np.full((n,), float(x))
+        elif x.ndim == 2:
+            x = x.ravel()[:n]
+
+        pdf_vals = np.array(
+            [self._mixture_pdf_at(i, float(x[i])) for i in range(n)], dtype=float
+        )
+        return pd.DataFrame(pdf_vals, index=self.index, columns=self.columns)
+
+    def _cdf(self, x):
+        x = np.asarray(x)
+        n = len(self.index)
+        if x.ndim == 0:
+            x = np.full((n,), float(x))
+        elif x.ndim == 2:
+            x = x.ravel()[:n]
+
+        cdf_vals = np.array(
+            [self._mixture_cdf_at(i, float(x[i])) for i in range(n)], dtype=float
+        )
+        return pd.DataFrame(cdf_vals, index=self.index, columns=self.columns)
+
+    def _ppf(self, p):
+        """Exact PPF via piecewise inversion on the union-of-breakpoints partition."""
+        p = np.asarray(p, dtype=float)
+        n = len(self.index)
+        if p.ndim == 0:
+            p = np.full((n,), float(p))
+        elif p.ndim == 2:
+            p = p.ravel()[:n]
+
+        ppf_vals = np.zeros(n, dtype=float)
+        for i in range(n):
+            bps = self._union_breakpoints(i)
+            q = float(p[i])
+
+            cumulative = 0.0
+            found = False
+            for j in range(len(bps) - 1):
+                low, high = bps[j], bps[j + 1]
+                if high <= low:
+                    continue
+                # constant mixture density on (low, high)
+                mid = (low + high) / 2.0
+                density = self._mixture_pdf_at(i, mid)
+                density = max(density, 0.0)
+                mass = density * (high - low)
+                if cumulative + mass >= q - 1e-12:
+                    remaining = q - cumulative
+                    if density > 0:
+                        ppf_vals[i] = low + remaining / density
+                    else:
+                        ppf_vals[i] = low
+                    found = True
+                    break
+                cumulative += mass
+
+            if not found:
+                # clamp to the rightmost boundary
+                ppf_vals[i] = bps[-1] if bps else np.nan
+
+        return pd.DataFrame(ppf_vals, index=self.index, columns=self.columns)
+
+    def _mean(self):
+        n = len(self.index)
+        # μ_mix = Σ w_m μ_m
+        means = np.zeros(n, dtype=float)
+        for w, d in zip(self._weights, self.distributions):
+            m = d._mean().to_numpy().reshape(-1)
+            means += w * m
+        return pd.DataFrame(means, index=self.index, columns=self.columns)
+
+    def _var(self):
+        n = len(self.index)
+        mu_mix = self._mean().to_numpy().reshape(-1)
+        # Var_mix = Σ w_m (σ_m² + μ_m²) - μ_mix²
+        second_moment = np.zeros(n, dtype=float)
+        for w, d in zip(self._weights, self.distributions):
+            var_m = d._var().to_numpy().reshape(-1)
+            mu_m = d._mean().to_numpy().reshape(-1)
+            second_moment += w * (var_m + mu_m**2)
+        variances = second_moment - mu_mix**2
+        variances = np.maximum(variances, 0.0)  # numerical safety
+        return pd.DataFrame(variances, index=self.index, columns=self.columns)
+
+    def _energy_x(self, x):
+        """E_mix[|X - x|] = Σ w_m E_m[|X - x|]."""
+        n = len(self.index)
+        energy = np.zeros(n, dtype=float)
+        for w, d in zip(self._weights, self.distributions):
+            e_m = d._energy_x(x).reshape(-1)
+            energy += w * e_m
+        return energy.reshape(-1, 1)
+
+    def _cross_energy(
+        self,
+        instance_idx: int,
+        intervals_a,
+        masses_a: np.ndarray,
+        intervals_b,
+        masses_b: np.ndarray,
+    ) -> float:
+        """Compute E[|X_a - X_b|] for two independent piecewise uniform RVs.
+
+        Uses the analytic formula for two intervals:
+        E[|X_a - X_b|] where X_a ~ Uniform(a_low, a_high),
+                               X_b ~ Uniform(b_low, b_high).
+
+        For disjoint or overlapping uniform intervals, the closed form is:
+        E[|U - V|] for U ~ Uniform(a,b), V ~ Uniform(c,d) is computed as the
+        integral of |x-y| over the product measure.
+        """
+        total_a = masses_a.sum()
+        total_b = masses_b.sum()
+        if total_a <= 0 or total_b <= 0:
+            return 0.0
+
+        result = 0.0
+        for ia, iv_a in enumerate(intervals_a):
+            pa = masses_a[ia] / total_a
+            if pa <= 0:
+                continue
+            a, b = iv_a.low, iv_a.high
+            for ib, iv_b in enumerate(intervals_b):
+                pb = masses_b[ib] / total_b
+                if pb <= 0:
+                    continue
+                c, d = iv_b.low, iv_b.high
+                # E[|U - V|] for U ~ Uniform(a,b), V ~ Uniform(c,d)
+                result += pa * pb * _uniform_cross_energy(a, b, c, d)
+        return result
+
+    def _energy_self(self):
+        """E_mix[|X - X'|] = Σ_{m,n} w_m w_n E[|X_m - X_n|]."""
+        n = len(self.index)
+        out = np.zeros((n, 1), dtype=float)
+        n_dists = len(self.distributions)
+
+        for i in range(n):
+            val = 0.0
+            for m_idx in range(n_dists):
+                for n_idx in range(n_dists):
+                    d_m = self.distributions[m_idx]
+                    d_n = self.distributions[n_idx]
+                    w_mn = self._weights[m_idx] * self._weights[n_idx]
+                    if w_mn <= 0:
+                        continue
+                    ivs_m = d_m._intervals[i]
+                    masses_m = np.asarray(d_m._mass[i], dtype=float)
+                    ivs_n = d_n._intervals[i]
+                    masses_n = np.asarray(d_n._mass[i], dtype=float)
+                    val += w_mn * self._cross_energy(
+                        i, ivs_m, masses_m, ivs_n, masses_n
+                    )
+            out[i, 0] = val
+        return out
+
+    def _subset_params(self, rowidx, colidx, coerce_scalar=False):
+        """Subset distribution parameters to given rows and columns."""
+        if rowidx is None:
+            return {"distributions": self.distributions, "weights": self.weights}
+
+        if isinstance(rowidx, int):
+            idxs = [rowidx]
+        elif isinstance(rowidx, pd.Index):
+            idxs = list(rowidx.values)
+        elif isinstance(rowidx, np.ndarray):
+            idxs = list(rowidx)
+        else:
+            idxs = list(rowidx)
+
+        # Subset each component distribution
+        subset_dists = []
+        for d in self.distributions:
+            sub_intervals = [d.intervals[i] for i in idxs]
+            sub_pdf_values = [d.pdf_values[i] for i in idxs]
+            new_index = (
+                d.index[idxs]
+                if hasattr(d.index, "__getitem__")
+                else pd.RangeIndex(len(idxs))
+            )
+            subset_dists.append(
+                IntervalDistribution(
+                    intervals=sub_intervals,
+                    pdf_values=sub_pdf_values,
+                    index=new_index,
+                    columns=d.columns,
+                )
+            )
+        return {"distributions": subset_dists, "weights": self.weights}
+
+
+# ---------------------------------------------------------------------------
+# Module-level helper: analytic E[|U - V|] for two independent uniforms
+# ---------------------------------------------------------------------------
+
+
+def _uniform_cross_energy(a: float, b: float, c: float, d: float) -> float:
+    """E[|U - V|] where U ~ Uniform(a, b) and V ~ Uniform(c, d).
+
+    Derived by integrating :math:`\\int_a^b G(x)\\,dx` where
+
+    .. math::
+        G(x) = \\int_c^d |x - y|\\,dy =
+        \\begin{cases}
+            -(d-x)^3/6 + (c-x)^3/6 & x \\le c \\\\
+            (x-c)^3/6 - (d-x)^3/6  & c \\le x \\le d \\\\
+            (x-c)^3/6 - (x-d)^3/6  & x \\ge d
+        \\end{cases}
+
+    whose anti-derivative (used for the outer integral) is:
+
+    .. math::
+        H(x) =
+        \\begin{cases}
+            -(d-x)^3/6 + (c-x)^3/6 & x \\le c \\\\
+            (x-c)^3/6 - (d-x)^3/6  & c \\le x \\le d \\\\
+            (x-c)^3/6 - (x-d)^3/6  & x \\ge d
+        \\end{cases}
+
+    and the result is :math:`(H(b) - H(a)) / ((b-a)(d-c))`.
+    """
+    wa = b - a
+    wb = d - c
+    if wa <= 0 or wb <= 0:
+        return 0.0
+
+    def _H(x: float) -> float:
+        """Anti-derivative of the inner integral G(x) = int_c^d |x-y| dy."""
+        if x <= c:
+            return -((d - x) ** 3) / 6.0 + (c - x) ** 3 / 6.0
+        elif x >= d:
+            return (x - c) ** 3 / 6.0 - (x - d) ** 3 / 6.0
+        else:
+            return (x - c) ** 3 / 6.0 - (d - x) ** 3 / 6.0
+
+    return (_H(b) - _H(a)) / (wa * wb)

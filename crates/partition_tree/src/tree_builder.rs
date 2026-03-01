@@ -107,6 +107,7 @@ impl TreeBuilder {
     /// Returns a `Tree` containing the fitted nodes and leaf indices.
     pub fn build(&self, dataset: &dyn DatasetView) -> Tree {
         let split_searcher = SplitSearcher::new(Arc::clone(&self.registry));
+        let dataset_size = dataset.n_rows() as f64;
 
         // Create RNG from seed (or OS entropy)
         let mut rng = match self.config.seed {
@@ -167,6 +168,7 @@ impl TreeBuilder {
                 &self.config.restrictions,
                 max_features_count,
                 &mut rng,
+                dataset_size,
             ) {
                 heap.push(CandidateSplit {
                     node_index: 0,
@@ -275,6 +277,7 @@ impl TreeBuilder {
                         &self.config.restrictions,
                         max_features_count,
                         &mut rng,
+                        dataset_size,
                     ) {
                         heap.push(CandidateSplit {
                             node_index: child_idx,
@@ -353,7 +356,7 @@ mod tests {
             },
             ..Default::default()
         };
-        let loss = Box::new(ConditionalLogLoss::new(8.0));
+        let loss = Box::new(ConditionalLogLoss);
         let registry = Arc::new(DTypeRegistry::default());
         let builder = TreeBuilder::new(config, loss, registry);
 
@@ -376,7 +379,7 @@ mod tests {
             restrictions: SplitRestrictions::default(),
             ..Default::default()
         };
-        let loss = Box::new(ConditionalLogLoss::new(8.0));
+        let loss = Box::new(ConditionalLogLoss);
         let registry = Arc::new(DTypeRegistry::default());
         let builder = TreeBuilder::new(config, loss, registry);
 
@@ -397,7 +400,7 @@ mod tests {
             },
             ..Default::default()
         };
-        let loss = Box::new(ConditionalLogLoss::new(8.0));
+        let loss = Box::new(ConditionalLogLoss);
         let registry = Arc::new(DTypeRegistry::default());
         let builder = TreeBuilder::new(config, loss, registry);
 
@@ -418,7 +421,7 @@ mod tests {
         let dataset = PolarsDatasetView::new(&df);
 
         let config = TreeBuilderConfig::default();
-        let loss = Box::new(ConditionalLogLoss::new(4.0));
+        let loss = Box::new(ConditionalLogLoss);
         let registry = Arc::new(DTypeRegistry::default());
         let builder = TreeBuilder::new(config, loss, registry);
 
@@ -450,7 +453,7 @@ mod tests {
             },
             ..Default::default()
         };
-        let loss = Box::new(ConditionalLogLoss::new(8.0));
+        let loss = Box::new(ConditionalLogLoss);
         let registry = Arc::new(DTypeRegistry::default());
         let builder = TreeBuilder::new(config, loss, registry);
 
@@ -501,7 +504,7 @@ mod tests {
             max_features: None,
             seed: Some(42),
         };
-        let loss = Box::new(ConditionalLogLoss::new(8.0));
+        let loss = Box::new(ConditionalLogLoss);
         let registry = Arc::new(DTypeRegistry::default());
         let builder = TreeBuilder::new(config, loss, registry);
 
@@ -531,7 +534,7 @@ mod tests {
             max_features: Some(0.5),
             seed: Some(42),
         };
-        let loss = Box::new(ConditionalLogLoss::new(8.0));
+        let loss = Box::new(ConditionalLogLoss);
         let registry = Arc::new(DTypeRegistry::default());
         let builder = TreeBuilder::new(config, loss, registry);
 
@@ -557,7 +560,7 @@ mod tests {
                 max_features: Some(0.5),
                 seed: Some(seed),
             };
-            let loss = Box::new(ConditionalLogLoss::new(8.0));
+            let loss = Box::new(ConditionalLogLoss);
             let registry = Arc::new(DTypeRegistry::default());
             TreeBuilder::new(config, loss, registry).build(&dataset)
         };
@@ -594,7 +597,7 @@ mod tests {
                 max_features: Some(0.5),
                 seed: Some(seed),
             };
-            let loss = Box::new(ConditionalLogLoss::new(8.0));
+            let loss = Box::new(ConditionalLogLoss);
             let registry = Arc::new(DTypeRegistry::default());
             TreeBuilder::new(config, loss, registry).build(&dataset)
         };

@@ -292,6 +292,7 @@ mod forest_tests {
             /* min_samples_split */ 2.0,
             /* max_samples */ None,
             /* max_features */ None,
+            /* loss */ None,
             /* seed */ Some(42),
         )
     }

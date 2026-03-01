@@ -12,7 +12,6 @@ use partition_tree::{
     ConditionalLogLoss, DTypeRegistry, PolarsDatasetView, SplitRestrictions, Tree, TreeBuilder,
     TreeBuilderConfig,
 };
-use partition_tree::dataset_view::DatasetView;
 use polars::prelude::*;
 
 // ---- Data generation (identical to v1 example) ----
@@ -109,11 +108,10 @@ fn main() {
     };
 
     let dataset = PolarsDatasetView::new(&df);
-    let n = dataset.n_rows() as f64;
 
     let builder = TreeBuilder::new(
         config,
-        Box::new(ConditionalLogLoss::new(n)),
+        Box::new(ConditionalLogLoss),
         Arc::new(DTypeRegistry::default()),
     );
 

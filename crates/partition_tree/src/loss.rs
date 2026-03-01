@@ -26,12 +26,12 @@
 //! # Implementing a custom loss
 //!
 //! ```rust,ignore
-//! use partition_tree::v2::loss::{LossFunc, CellStats};
+//! use partition_tree::loss::{LossFunc, CellStats};
 //!
 //! struct MyLoss;
 //!
 //! impl LossFunc for MyLoss {
-//!     fn cell_loss(&self, stats: &CellStats) -> f64 { /* … */ }
+//!     fn cell_loss(&self, stats: &CellStats, dataset_size: f64) -> f64 { /* … */ }
 //!     // Optionally override `gain` for non-standard formulas.
 //! }
 //! ```
@@ -77,19 +77,33 @@ impl CellStats {
 ///
 /// Implementations must be `Send + Sync` because column-level split
 /// search is parallelized with `rayon`.
+#[typetag::serde(tag = "type")]
 pub trait LossFunc: Send + Sync {
     /// Loss contribution of a single cell.
     ///
+    /// `dataset_size` is the normalizing constant $D$ (typically
+    /// `dataset.n_rows() as f64`). Implementations that do not need
+    /// normalization may ignore it.
+    ///
     /// Returns 0.0 when any weight or volume is non-positive.
-    fn cell_loss(&self, stats: &CellStats) -> f64;
+    fn cell_loss(&self, stats: &CellStats, dataset_size: f64) -> f64;
 
     /// Information gain from splitting `parent` into `left` and `right`.
+    ///
+    /// `dataset_size` is the normalizing constant $D$.
     ///
     /// The default implementation subtracts child losses from the parent
     /// loss. Override this when the parent's effective statistics differ
     /// from the stored `CellStats` (see [`ConditionalLogLoss::gain`]).
-    fn gain(&self, parent: &CellStats, left: &CellStats, right: &CellStats) -> f64 {
-        self.cell_loss(parent) - (self.cell_loss(left) + self.cell_loss(right))
+    fn gain(
+        &self,
+        parent: &CellStats,
+        left: &CellStats,
+        right: &CellStats,
+        dataset_size: f64,
+    ) -> f64 {
+        self.cell_loss(parent, dataset_size)
+            - (self.cell_loss(left, dataset_size) + self.cell_loss(right, dataset_size))
     }
 
     /// Whether the Y-measure is empirical (`w_y`) rather than geometric (Lebesgue volume).
@@ -101,6 +115,9 @@ pub trait LossFunc: Send + Sync {
     fn uses_empirical_y_measure(&self) -> bool {
         false
     }
+
+    /// Return a heap-allocated clone of this loss function.
+    fn clone_box(&self) -> Box<dyn LossFunc>;
 }
 
 // ---------------------------------------------------------------------------
@@ -115,21 +132,16 @@ pub trait LossFunc: Send + Sync {
 /// This loss is appropriate when the Y-measure is the Lebesgue measure
 /// (continuous targets). The density being estimated is
 /// $f(y|x) = w_{xy} / (w_x \cdot V)$.
-#[derive(Debug, Clone)]
-pub struct ConditionalLogLoss {
-    /// Normalizing constant $D$ (typically `dataset.n_rows() as f64`).
-    pub dataset_size: f64,
-}
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct ConditionalLogLoss;
 
-impl ConditionalLogLoss {
-    /// Create a new `ConditionalLogLoss` with the given dataset size.
-    pub fn new(dataset_size: f64) -> Self {
-        Self { dataset_size }
-    }
-}
-
+#[typetag::serde]
 impl LossFunc for ConditionalLogLoss {
-    fn cell_loss(&self, stats: &CellStats) -> f64 {
+    fn clone_box(&self) -> Box<dyn LossFunc> {
+        Box::new(self.clone())
+    }
+
+    fn cell_loss(&self, stats: &CellStats, dataset_size: f64) -> f64 {
         let CellStats {
             w_xy, w_x, volume, ..
         } = *stats;
@@ -139,7 +151,7 @@ impl LossFunc for ConditionalLogLoss {
         }
 
         let density = w_xy / (w_x * volume);
-        -w_xy * density.ln() / self.dataset_size
+        -w_xy * density.ln() / dataset_size
     }
 
     /// Gain computed using the v1-compatible formula:
@@ -155,7 +167,13 @@ impl LossFunc for ConditionalLogLoss {
     /// This differs from the naïve `parent_loss − sum(child_losses)` for
     /// target splits, where both children carry the full X-measure and
     /// $N_x = 2 \times w_x^{\text{parent}}$.
-    fn gain(&self, parent: &CellStats, left: &CellStats, right: &CellStats) -> f64 {
+    fn gain(
+        &self,
+        parent: &CellStats,
+        left: &CellStats,
+        right: &CellStats,
+        dataset_size: f64,
+    ) -> f64 {
         let total_xy = left.w_xy + right.w_xy;
         let total_x = left.w_x + right.w_x;
 
@@ -163,20 +181,52 @@ impl LossFunc for ConditionalLogLoss {
             return 0.0;
         }
 
-        // Children log: weighted average of child log-densities
-        let mut children_log = 0.0;
-        for child in [left, right] {
-            if child.w_xy > 0.0 && child.w_x > 0.0 && child.volume > 0.0 {
-                let density = child.w_xy / (child.w_x * child.volume);
-                children_log += (child.w_xy / total_xy) * density.ln();
-            }
+        self.cell_loss(parent, dataset_size)
+            - (self.cell_loss(left, dataset_size) + self.cell_loss(right, dataset_size))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Mean Integrated Squared Error (MISE)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct MeanIntegratedSquaredError;
+
+#[typetag::serde]
+impl LossFunc for MeanIntegratedSquaredError {
+    fn clone_box(&self) -> Box<dyn LossFunc> {
+        Box::new(self.clone())
+    }
+
+    fn cell_loss(&self, stats: &CellStats, dataset_size: f64) -> f64 {
+        let CellStats {
+            w_xy, w_x, volume, ..
+        } = *stats;
+
+        if w_xy <= 0.0 || w_x <= 0.0 || volume <= 0.0 {
+            return 0.0;
         }
 
-        // Parent log: using total_x = w_x_left + w_x_right
-        let parent_density = total_xy / (total_x * parent.volume);
-        let parent_log = parent_density.ln();
+        -(w_xy / dataset_size).powf(2.0) / (w_x / dataset_size * volume)
+    }
 
-        (total_xy / self.dataset_size) * (children_log - parent_log)
+    fn gain(
+        &self,
+        parent: &CellStats,
+        left: &CellStats,
+        right: &CellStats,
+        dataset_size: f64,
+    ) -> f64 {
+        let total_xy = left.w_xy + right.w_xy;
+        let total_x = left.w_x + right.w_x;
+
+        if total_xy <= 0.0 || total_x <= 0.0 || parent.volume <= 0.0 {
+            return 0.0;
+        }
+
+        self.cell_loss(parent, dataset_size)
+            - (self.cell_loss(left, dataset_size) + self.cell_loss(right, dataset_size))
     }
 }
 
@@ -190,40 +240,41 @@ impl LossFunc for ConditionalLogLoss {
 /// Replaces the geometric target volume with the empirical Y-weight
 /// $w_y$. This is suitable for categorical targets or situations where
 /// a counting measure on Y is preferred over the Lebesgue measure.
-#[derive(Debug, Clone)]
-pub struct BalancedLogLoss {
-    /// Normalizing constant $D$ (typically `dataset.n_rows() as f64`).
-    pub dataset_size: f64,
-}
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct BalancedLogLoss;
 
-impl BalancedLogLoss {
-    /// Create a new `BalancedLogLoss` with the given dataset size.
-    pub fn new(dataset_size: f64) -> Self {
-        Self { dataset_size }
-    }
-}
-
+#[typetag::serde]
 impl LossFunc for BalancedLogLoss {
+    fn clone_box(&self) -> Box<dyn LossFunc> {
+        Box::new(self.clone())
+    }
+
     fn uses_empirical_y_measure(&self) -> bool {
         true
     }
 
-    fn cell_loss(&self, stats: &CellStats) -> f64 {
+    fn cell_loss(&self, stats: &CellStats, dataset_size: f64) -> f64 {
         let CellStats { w_xy, w_x, w_y, .. } = *stats;
 
         if w_xy <= 0.0 || w_x <= 0.0 || w_y <= 0.0 {
             return 0.0;
         }
 
-        let ratio = w_xy / (w_x * w_y);
-        -w_xy * ratio.ln() / self.dataset_size
+        let ratio = (w_xy / dataset_size) / ((w_x / dataset_size) * (w_y / dataset_size));
+        -w_xy * ratio.ln() / dataset_size
     }
 
     /// Gain using the v1-compatible formula with $w_y$ replacing volume.
     ///
     /// Analogous to [`ConditionalLogLoss::gain`] but uses
     /// $\text{total}_y = w_y^L + w_y^R$ instead of geometric volumes.
-    fn gain(&self, parent: &CellStats, left: &CellStats, right: &CellStats) -> f64 {
+    fn gain(
+        &self,
+        parent: &CellStats,
+        left: &CellStats,
+        right: &CellStats,
+        dataset_size: f64,
+    ) -> f64 {
         let total_xy = left.w_xy + right.w_xy;
         let total_x = left.w_x + right.w_x;
         let total_y = left.w_y + right.w_y;
@@ -232,18 +283,8 @@ impl LossFunc for BalancedLogLoss {
             return 0.0;
         }
 
-        let mut children_log = 0.0;
-        for child in [left, right] {
-            if child.w_xy > 0.0 && child.w_x > 0.0 && child.w_y > 0.0 {
-                let ratio = child.w_xy / (child.w_x * child.w_y);
-                children_log += (child.w_xy / total_xy) * ratio.ln();
-            }
-        }
-
-        let parent_ratio = total_xy / (total_x * total_y);
-        let parent_log = parent_ratio.ln();
-
-        (total_xy / self.dataset_size) * (children_log - parent_log)
+        self.cell_loss(parent, dataset_size)
+            - (self.cell_loss(left, dataset_size) + self.cell_loss(right, dataset_size))
     }
 }
 
@@ -261,18 +302,18 @@ mod tests {
 
     #[test]
     fn conditional_log_loss_zero_weights() {
-        let loss = ConditionalLogLoss::new(100.0);
+        let loss = ConditionalLogLoss;
         let stats = CellStats::new(0.0, 10.0, 5.0, 1.0);
-        assert_eq!(loss.cell_loss(&stats), 0.0);
+        assert_eq!(loss.cell_loss(&stats, 100.0), 0.0);
     }
 
     #[test]
     fn conditional_log_loss_basic() {
-        let loss = ConditionalLogLoss::new(100.0);
+        let loss = ConditionalLogLoss;
         // density = 50 / (100 * 2.0) = 0.25
         // cell_loss = -50 * ln(0.25) / 100 = -0.5 * ln(0.25)
         let stats = CellStats::new(50.0, 100.0, 50.0, 2.0);
-        let result = loss.cell_loss(&stats);
+        let result = loss.cell_loss(&stats, 100.0);
         let expected = -50.0 * (0.25_f64).ln() / 100.0;
         assert!(
             approx_eq(result, expected, 1e-10),
@@ -282,11 +323,11 @@ mod tests {
 
     #[test]
     fn balanced_log_loss_basic() {
-        let loss = BalancedLogLoss::new(100.0);
+        let loss = BalancedLogLoss;
         // ratio = 50 / (100 * 50) = 0.01
         // cell_loss = -50 * ln(0.01) / 100
         let stats = CellStats::new(50.0, 100.0, 50.0, 2.0);
-        let result = loss.cell_loss(&stats);
+        let result = loss.cell_loss(&stats, 100.0);
         let expected = -50.0 * (0.01_f64).ln() / 100.0;
         assert!(
             approx_eq(result, expected, 1e-10),
@@ -298,13 +339,15 @@ mod tests {
     fn gain_feature_split_matches_parent_minus_children() {
         // For feature splits, w_x_left + w_x_right == parent.w_x,
         // so the v1-compatible gain formula equals cell_loss(parent) - sum(cell_loss(children)).
-        let loss = ConditionalLogLoss::new(100.0);
+        let loss = ConditionalLogLoss;
+        let d = 100.0;
         let parent = CellStats::new(100.0, 200.0, 100.0, 4.0);
         let left = CellStats::new(60.0, 100.0, 60.0, 2.0);
         let right = CellStats::new(40.0, 100.0, 40.0, 2.0);
 
-        let gain = loss.gain(&parent, &left, &right);
-        let expected = loss.cell_loss(&parent) - (loss.cell_loss(&left) + loss.cell_loss(&right));
+        let gain = loss.gain(&parent, &left, &right, d);
+        let expected =
+            loss.cell_loss(&parent, d) - (loss.cell_loss(&left, d) + loss.cell_loss(&right, d));
         assert!(
             approx_eq(gain, expected, 1e-10),
             "got {gain}, expected {expected}"
@@ -316,12 +359,12 @@ mod tests {
         // For a target split on 200 samples with 50/50 categorical target:
         // Both children carry the full X-measure.
         // v1 gain = ln(2) ≈ 0.693147
-        let loss = ConditionalLogLoss::new(200.0);
+        let loss = ConditionalLogLoss;
         let parent = CellStats::new(200.0, 200.0, 200.0, 2.0);
         let left = CellStats::new(100.0, 200.0, 100.0, 1.0);
         let right = CellStats::new(100.0, 200.0, 100.0, 1.0);
 
-        let gain = loss.gain(&parent, &left, &right);
+        let gain = loss.gain(&parent, &left, &right, 200.0);
         let expected = 2.0_f64.ln(); // ln(2) ≈ 0.693147
         assert!(
             approx_eq(gain, expected, 1e-6),
@@ -331,7 +374,7 @@ mod tests {
 
     #[test]
     fn conditional_loss_uses_geometric_y_measure() {
-        let loss = ConditionalLogLoss::new(100.0);
+        let loss = ConditionalLogLoss;
         assert!(
             !loss.uses_empirical_y_measure(),
             "ConditionalLogLoss should use geometric (Lebesgue) Y-measure"
@@ -340,7 +383,7 @@ mod tests {
 
     #[test]
     fn balanced_loss_uses_empirical_y_measure() {
-        let loss = BalancedLogLoss::new(100.0);
+        let loss = BalancedLogLoss;
         assert!(
             loss.uses_empirical_y_measure(),
             "BalancedLogLoss should use empirical Y-measure"

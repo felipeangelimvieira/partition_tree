@@ -45,6 +45,7 @@ impl ColumnSplitSearcher for ContinuousColumnSplitSearcher {
         dataset: &dyn DatasetView,
         loss: &dyn LossFunc,
         restrictions: &SplitRestrictions,
+        dataset_size: f64,
     ) -> Option<SplitPoint> {
         let col_name = col.name();
         let weights_xy = dataset.weights_xy();
@@ -159,12 +160,17 @@ impl ColumnSplitSearcher for ContinuousColumnSplitSearcher {
                 let right_stats = CellStats::new(w_xy_right, w_x_right, w_y_right, vol_right);
 
                 // Validate restrictions
-                if !restrictions.is_valid_children(&left_stats, &right_stats, node.depth, cell.target_domain_volume()) {
+                if !restrictions.is_valid_children(
+                    &left_stats,
+                    &right_stats,
+                    node.depth,
+                    cell.target_domain_volume(),
+                ) {
                     continue;
                 }
 
                 // Compute gain
-                let gain = loss.gain(&parent_stats, &left_stats, &right_stats);
+                let gain = loss.gain(&parent_stats, &left_stats, &right_stats, dataset_size);
                 if gain < restrictions.min_gain {
                     continue;
                 }
@@ -248,7 +254,7 @@ mod tests {
         // Search on the target column (YSplit) — this changes volume and produces
         // positive gain under ConditionalLogLoss.
         let col = dataset.column("target__y1").unwrap();
-        let loss = ConditionalLogLoss::new(5.0);
+        let loss = ConditionalLogLoss;
         let restrictions = SplitRestrictions::default();
 
         let searcher = ContinuousColumnSplitSearcher;
@@ -260,6 +266,7 @@ mod tests {
             &dataset,
             &loss,
             &restrictions,
+            5.0,
         );
 
         assert!(result.is_some(), "should find a valid split");
@@ -273,7 +280,7 @@ mod tests {
         let dataset = make_test_dataset();
         let node = make_root_node(&dataset);
         let col = dataset.column("target__y1").unwrap();
-        let loss = ConditionalLogLoss::new(5.0);
+        let loss = ConditionalLogLoss;
         let restrictions = SplitRestrictions::default();
 
         let searcher = ContinuousColumnSplitSearcher;
@@ -285,6 +292,7 @@ mod tests {
             &dataset,
             &loss,
             &restrictions,
+            5.0,
         );
 
         assert!(result.is_some(), "should find a valid target split");

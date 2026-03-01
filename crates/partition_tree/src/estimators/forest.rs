@@ -78,6 +78,8 @@ pub struct PartitionForest {
     pub max_depth: usize,
     /// Minimum total samples in a parent to attempt a split.
     pub min_samples_split: f64,
+    // Loss
+    pub loss: Option<Box<dyn LossFunc>>,
 
     /// Base random seed. Tree `i` receives `base_seed + i`.
     pub seed: Option<usize>,
@@ -114,6 +116,7 @@ impl PartitionForest {
         min_samples_split: f64,
         max_samples: Option<f64>,
         max_features: Option<f64>,
+        loss: Option<Box<dyn LossFunc>>,
         seed: Option<usize>,
     ) -> Self {
         Self {
@@ -129,6 +132,7 @@ impl PartitionForest {
             min_samples_split: min_samples_split,
             max_samples: max_samples,
             max_features: max_features,
+            loss: loss,
             seed: seed,
             trees: None,
             schema: None,
@@ -151,6 +155,7 @@ impl PartitionForest {
             min_samples_split: 2.0,
             max_samples: None,
             max_features: None,
+            loss: None,
             trees: None,
             schema: None,
         }
@@ -354,12 +359,18 @@ impl Estimator for PartitionForest {
 
         // ── 3. Build shared DatasetView once ──────────────────────────
         let dataset = PolarsDatasetView::new(&xy);
-        let n = dataset.n_rows() as f64;
 
         // ── 4. Build trees in parallel ────────────────────────────────
         let base_seed = self.seed.unwrap_or(42);
         let config_template = self.build_config();
         let registry = Arc::new(DTypeRegistry::default());
+        // Clone the loss non-destructively so `self.loss` is preserved for
+        // future `fit` calls and so we can return it in the fitted struct.
+        let loss_factory: Box<dyn LossFunc> = self
+            .loss
+            .as_deref()
+            .map(|l| l.clone_box())
+            .unwrap_or_else(|| Box::new(ConditionalLogLoss));
 
         let fitted_trees: Vec<Tree> = (0..self.n_estimators)
             .into_par_iter()
@@ -372,7 +383,7 @@ impl Estimator for PartitionForest {
                     max_features: config_template.max_features,
                     seed: Some((base_seed + idx) as u64),
                 };
-                let loss: Box<dyn LossFunc> = Box::new(ConditionalLogLoss::new(n));
+                let loss: Box<dyn LossFunc> = loss_factory.clone_box();
                 let builder = TreeBuilder::new(config, loss, Arc::clone(&registry));
                 builder.build(&dataset)
             })
@@ -396,6 +407,7 @@ impl Estimator for PartitionForest {
             min_samples_split: self.min_samples_split,
             max_samples: self.max_samples,
             max_features: self.max_features,
+            loss: Some(loss_factory),
             trees: self.trees.take(),
             schema: Some(schema),
         })

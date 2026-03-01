@@ -10,7 +10,10 @@ from partition_tree.sklearn.partition_tree import (
     _convert_string_columns_to_categorical,
     _ensure_numeric_float64,
 )
-from partition_tree.skpro.distribution import IntervalDistribution
+from partition_tree.skpro.distribution import (
+    IntervalDistribution,
+    MixtureIntervalDistribution,
+)
 
 
 class PartitionTreeRegressor(BaseProbaRegressor):
@@ -45,6 +48,7 @@ class PartitionTreeRegressor(BaseProbaRegressor):
         min_volume_fraction=0.0,
         max_depth=5,
         min_samples_split=2.0,
+        loss=None,
     ):
         self.max_leaves = max_leaves
         self.boundaries_expansion_factor = boundaries_expansion_factor
@@ -55,6 +59,7 @@ class PartitionTreeRegressor(BaseProbaRegressor):
         self.min_volume_fraction = min_volume_fraction
         self.max_depth = max_depth
         self.min_samples_split = min_samples_split
+        self.loss = loss
         super().__init__()
 
     def _fit(self, X, y):
@@ -68,6 +73,7 @@ class PartitionTreeRegressor(BaseProbaRegressor):
             min_volume_fraction=self.min_volume_fraction,
             max_depth=self.max_depth,
             min_samples_split=self.min_samples_split,
+            loss=self.loss,
         )
 
         if isinstance(y, pd.Series):
@@ -199,8 +205,26 @@ class PartitionForestRegressor(BaseProbaRegressor):
         min_samples_split=2.0,
         max_samples=0.8,
         max_features=0.8,
+        loss=None,
         random_state=42,
+        output_distribution="merged",
     ):
+        """
+        Parameters
+        ----------
+        output_distribution : {"merged", "mixture"}, default "merged"
+            Controls how the per-tree predictive distributions are combined
+            when calling ``predict_proba``.
+
+            * ``"merged"`` (default) — builds a single :class:`IntervalDistribution`
+              on the union of all tree breakpoints via
+              ``IntervalDistribution.from_mixture``.  The resulting object is a
+              standard piecewise-uniform distribution and supports all skpro methods.
+            * ``"mixture"`` — returns a :class:`MixtureIntervalDistribution` that
+              stores the per-tree distributions and weights without merging.  PDF,
+              CDF, mean, variance, energy and PPF are all computed on-the-fly from
+              the mixture identity, avoiding the up-front merge cost.
+        """
         self.n_estimators = n_estimators
         self.max_leaves = max_leaves
         self.boundaries_expansion_factor = boundaries_expansion_factor
@@ -213,7 +237,9 @@ class PartitionForestRegressor(BaseProbaRegressor):
         self.min_samples_split = min_samples_split
         self.max_samples = max_samples
         self.max_features = max_features
+        self.loss = loss
         self.random_state = random_state
+        self.output_distribution = output_distribution
         super().__init__()
 
     def _fit(self, X, y):
@@ -230,6 +256,7 @@ class PartitionForestRegressor(BaseProbaRegressor):
             min_samples_split=self.min_samples_split,
             max_features=self.max_features,
             max_samples=self.max_samples,
+            loss=self.loss,
             seed=self.random_state,
         )
 
@@ -321,11 +348,25 @@ class PartitionForestRegressor(BaseProbaRegressor):
 
     def _predict_proba(self, X):
         check_is_fitted(self)
+        if self.output_distribution not in ("merged", "mixture"):
+            raise ValueError(
+                f"output_distribution must be 'merged' or 'mixture', "
+                f"got {self.output_distribution!r}"
+            )
         X_proc = _ensure_numeric_float64(_preprocess_X(X))
         interval_dists = self.predict_proba_per_tree(X)
+        weights = [1.0 / len(interval_dists)] * len(interval_dists)
+        if self.output_distribution == "mixture":
+            return MixtureIntervalDistribution(
+                distributions=interval_dists,
+                weights=weights,
+                index=X_proc.index,
+                columns=self._y_columns,
+            )
+        # default: "merged"
         return IntervalDistribution.from_mixture(
             distributions=interval_dists,
-            weights=[1.0 / self.n_estimators] * self.n_estimators,
+            weights=weights,
             index=X_proc.index,
             columns=self._y_columns,
         )

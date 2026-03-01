@@ -2,12 +2,12 @@
 //!
 //! Handles `Int32` and `Int64` Polars columns using a presorted scan
 //! analogous to the continuous searcher but with integer thresholds.
+use super::{ColumnSplitSearcher, cumsum, split_nulls};
 use crate::cell::Cell;
 use crate::dataset_view::{ColumnView, DatasetView};
 use crate::loss::{CellStats, LossFunc};
 use crate::node::Node;
 use crate::split_result::{IntegerSplitOp, SplitKind, SplitPoint, SplitRestrictions};
-use super::{cumsum, split_nulls, ColumnSplitSearcher};
 
 // ---------------------------------------------------------------------------
 // IntegerColumnSplitSearcher
@@ -42,6 +42,7 @@ impl ColumnSplitSearcher for IntegerColumnSplitSearcher {
         dataset: &dyn DatasetView,
         loss: &dyn LossFunc,
         restrictions: &SplitRestrictions,
+        dataset_size: f64,
     ) -> Option<SplitPoint> {
         let col_name = col.name();
         let weights_xy = dataset.weights_xy();
@@ -58,10 +59,8 @@ impl ColumnSplitSearcher for IntegerColumnSplitSearcher {
         let (sxy_some, wxy_null) = split_nulls(sxy, col, weights_xy);
 
         // Total weights at parent
-        let w_x_parent: f64 =
-            sx_some.iter().map(|&i| weights_x[i as usize]).sum::<f64>() + wx_null;
-        let w_y_parent: f64 =
-            sy_some.iter().map(|&i| weights_y[i as usize]).sum::<f64>() + wy_null;
+        let w_x_parent: f64 = sx_some.iter().map(|&i| weights_x[i as usize]).sum::<f64>() + wx_null;
+        let w_y_parent: f64 = sy_some.iter().map(|&i| weights_y[i as usize]).sum::<f64>() + wy_null;
         let w_xy_parent: f64 = sxy_some
             .iter()
             .map(|&i| weights_xy[i as usize])
@@ -159,12 +158,17 @@ impl ColumnSplitSearcher for IntegerColumnSplitSearcher {
                 let right_stats = CellStats::new(w_xy_right, w_x_right, w_y_right, vol_right);
 
                 // Validate restrictions
-                if !restrictions.is_valid_children(&left_stats, &right_stats, node.depth, cell.target_domain_volume()) {
+                if !restrictions.is_valid_children(
+                    &left_stats,
+                    &right_stats,
+                    node.depth,
+                    cell.target_domain_volume(),
+                ) {
                     continue;
                 }
 
                 // Compute gain
-                let gain = loss.gain(&parent_stats, &left_stats, &right_stats);
+                let gain = loss.gain(&parent_stats, &left_stats, &right_stats, dataset_size);
                 if gain < restrictions.min_gain {
                     continue;
                 }
