@@ -902,6 +902,304 @@ mod tests {
         }
     }
 
+    // -----------------------------------------------------------------------
+    // Categorical prediction helpers and tests
+    // -----------------------------------------------------------------------
+
+    /// Build a tree whose target column is categorical with three classes:
+    /// `"cat_A"` (code 0), `"cat_B"` (code 1), `"cat_C"` (code 2).
+    ///
+    /// Structure:
+    /// - Root: x ∈ [0, 10], target_label ∈ {0, 1, 2}
+    /// - Left leaf (index 1):  x ∈ [0, 5),  target_label = {0} → "cat_A"
+    /// - Right leaf (index 2): x ∈ [5, 10], target_label = {1} → "cat_B"
+    ///
+    /// Mass:  w_xy / w_x = 9/10 for left, 8/10 for right.
+    fn make_categorical_tree() -> Tree {
+        use crate::rules::BelongsTo;
+        use std::collections::HashSet;
+        use std::sync::Arc;
+
+        let domain = Arc::new(vec![0_usize, 1_usize, 2_usize]);
+        let domain_names = Arc::new(vec![
+            "cat_A".to_string(),
+            "cat_B".to_string(),
+            "cat_C".to_string(),
+        ]);
+
+        let full_x = || {
+            Box::new(ContinuousInterval::new(
+                0.0,
+                10.0,
+                true,
+                true,
+                Some((0.0, 10.0)),
+                false,
+            )) as Box<dyn DynRule>
+        };
+        let x_left = || {
+            Box::new(ContinuousInterval::new(
+                0.0,
+                5.0,
+                true,
+                false,
+                Some((0.0, 10.0)),
+                false,
+            )) as Box<dyn DynRule>
+        };
+        let x_right = || {
+            Box::new(ContinuousInterval::new(
+                5.0,
+                10.0,
+                true,
+                true,
+                Some((0.0, 10.0)),
+                false,
+            )) as Box<dyn DynRule>
+        };
+
+        // Root spans the full categorical domain {0, 1, 2}
+        let full_cat = || {
+            Box::new(BelongsTo::new(
+                HashSet::from([0, 1, 2]),
+                Arc::clone(&domain),
+                Arc::clone(&domain_names),
+                false,
+            )) as Box<dyn DynRule>
+        };
+        // Left leaf: only "cat_A" (code 0)
+        let cat_a = || {
+            Box::new(BelongsTo::new(
+                HashSet::from([0]),
+                Arc::clone(&domain),
+                Arc::clone(&domain_names),
+                false,
+            )) as Box<dyn DynRule>
+        };
+        // Right leaf: only "cat_B" (code 1)
+        let cat_b = || {
+            Box::new(BelongsTo::new(
+                HashSet::from([1]),
+                Arc::clone(&domain),
+                Arc::clone(&domain_names),
+                false,
+            )) as Box<dyn DynRule>
+        };
+
+        let root = FittedNode {
+            cell: Cell::new()
+                .with_rule("x", full_x())
+                .with_rule("target_label", full_cat()),
+            w_xy: 17.0,
+            w_x: 20.0,
+            w_y: 17.0,
+            depth: 0,
+            parent: None,
+            left_child: Some(1),
+            right_child: Some(2),
+            is_leaf: false,
+        };
+        let left = FittedNode {
+            cell: Cell::new()
+                .with_rule("x", x_left())
+                .with_rule("target_label", cat_a()),
+            w_xy: 9.0,
+            w_x: 10.0,
+            w_y: 9.0,
+            depth: 1,
+            parent: Some(0),
+            left_child: None,
+            right_child: None,
+            is_leaf: true,
+        };
+        let right = FittedNode {
+            cell: Cell::new()
+                .with_rule("x", x_right())
+                .with_rule("target_label", cat_b()),
+            w_xy: 8.0,
+            w_x: 10.0,
+            w_y: 8.0,
+            depth: 1,
+            parent: Some(0),
+            left_child: None,
+            right_child: None,
+            is_leaf: true,
+        };
+
+        Tree {
+            nodes: vec![root, left, right],
+            leaves: vec![1, 2],
+            split_history: vec![],
+        }
+    }
+
+    /// `predict_mean_vectors` should return a one-hot probability vector over
+    /// the full categorical domain for each row, with `1.0` at the index that
+    /// corresponds to the leaf's assigned category and `0.0` elsewhere.
+    #[test]
+    fn predict_mean_vectors_returns_correct_category_probabilities() {
+        let tree = make_categorical_tree();
+
+        // x=2.0 routes to the left leaf  → cat_A (code 0) → [1.0, 0.0, 0.0]
+        // x=7.0 routes to the right leaf → cat_B (code 1) → [0.0, 1.0, 0.0]
+        let x = DataFrame::new(vec![Column::new(
+            PlSmallStr::from_static("x"),
+            vec![2.0_f64, 7.0_f64],
+        )])
+        .unwrap();
+        let dataset = PolarsDatasetView::new(&x);
+
+        let mean_vecs = tree.predict_mean_vectors(&dataset);
+        assert_eq!(mean_vecs.len(), 2, "one vector per row");
+
+        let probs_row0 = mean_vecs[0]
+            .get("target_label")
+            .expect("target_label must be present");
+        let probs_row1 = mean_vecs[1]
+            .get("target_label")
+            .expect("target_label must be present");
+
+        // Row 0 (x=2): cat_A → index 0 should be 1.0, rest 0.0
+        assert_eq!(probs_row0.len(), 3, "domain has 3 categories");
+        assert!(
+            (probs_row0[0] - 1.0).abs() < 1e-10,
+            "cat_A probability must be 1.0, got {}",
+            probs_row0[0]
+        );
+        assert!(probs_row0[1] < 1e-10, "cat_B probability must be 0.0");
+        assert!(probs_row0[2] < 1e-10, "cat_C probability must be 0.0");
+
+        // Row 1 (x=7): cat_B → index 1 should be 1.0, rest 0.0
+        assert_eq!(probs_row1.len(), 3, "domain has 3 categories");
+        assert!(probs_row1[0] < 1e-10, "cat_A probability must be 0.0");
+        assert!(
+            (probs_row1[1] - 1.0).abs() < 1e-10,
+            "cat_B probability must be 1.0, got {}",
+            probs_row1[1]
+        );
+        assert!(probs_row1[2] < 1e-10, "cat_C probability must be 0.0");
+    }
+
+    /// `predict_mean` should produce a `DataFrame` column whose string values
+    /// are exactly the `domain_names` entries corresponding to argmax of each
+    /// row's probability vector—not numeric codes.
+    #[test]
+    fn predict_mean_maps_argmax_category_to_label_string() {
+        let tree = make_categorical_tree();
+
+        // x=2.0 → left leaf → cat_A; x=7.0 → right leaf → cat_B
+        let x = DataFrame::new(vec![Column::new(
+            PlSmallStr::from_static("x"),
+            vec![2.0_f64, 7.0_f64],
+        )])
+        .unwrap();
+        let dataset = PolarsDatasetView::new(&x);
+
+        let df = tree.predict_mean(&dataset);
+
+        let col = df
+            .column("target_label")
+            .expect("predict_mean must produce a 'target_label' column");
+        let utf8 = col.str().expect("categorical column must be Utf8/String");
+
+        assert_eq!(
+            utf8.get(0),
+            Some("cat_A"),
+            "row 0 (x=2): expected 'cat_A', got {:?}",
+            utf8.get(0)
+        );
+        assert_eq!(
+            utf8.get(1),
+            Some("cat_B"),
+            "row 1 (x=7): expected 'cat_B', got {:?}",
+            utf8.get(1)
+        );
+    }
+
+    /// When a leaf covers two categories with equal indicator mass, the
+    /// resulting probability vector has equal entries for those categories.
+    /// `predict_mean` should resolve ties consistently (last max wins per
+    /// `Iterator::max_by`) and return a valid domain label, never a
+    /// sentinel like `"unknown"`.
+    #[test]
+    fn predict_mean_vectors_two_category_leaf_has_equal_probabilities() {
+        use crate::rules::BelongsTo;
+        use std::collections::HashSet;
+        use std::sync::Arc;
+
+        let domain = Arc::new(vec![0_usize, 1_usize, 2_usize]);
+        let domain_names = Arc::new(vec![
+            "cat_A".to_string(),
+            "cat_B".to_string(),
+            "cat_C".to_string(),
+        ]);
+
+        // A single leaf spanning two categories: {0, 1} → "cat_A" and "cat_B"
+        let two_cat = BelongsTo::new(
+            HashSet::from([0, 1]),
+            Arc::clone(&domain),
+            Arc::clone(&domain_names),
+            false,
+        );
+
+        let root = FittedNode {
+            cell: Cell::new()
+                .with_rule(
+                    "x",
+                    Box::new(ContinuousInterval::new(
+                        0.0,
+                        10.0,
+                        true,
+                        true,
+                        Some((0.0, 10.0)),
+                        false,
+                    )) as Box<dyn DynRule>,
+                )
+                .with_rule("target_label", Box::new(two_cat) as Box<dyn DynRule>),
+            w_xy: 10.0,
+            w_x: 10.0,
+            w_y: 10.0,
+            depth: 0,
+            parent: None,
+            left_child: None,
+            right_child: None,
+            is_leaf: true,
+        };
+
+        let tree = Tree {
+            nodes: vec![root],
+            leaves: vec![0],
+            split_history: vec![],
+        };
+
+        let x = DataFrame::new(vec![Column::new(
+            PlSmallStr::from_static("x"),
+            vec![5.0_f64],
+        )])
+        .unwrap();
+        let dataset = PolarsDatasetView::new(&x);
+
+        let mean_vecs = tree.predict_mean_vectors(&dataset);
+        let probs = mean_vecs[0]
+            .get("target_label")
+            .expect("target_label must be present");
+
+        // Both cat_A (0) and cat_B (1) are in the leaf; cat_C (2) is not.
+        assert_eq!(probs.len(), 3);
+        assert!((probs[0] - 1.0).abs() < 1e-10, "cat_A prob = {}", probs[0]);
+        assert!((probs[1] - 1.0).abs() < 1e-10, "cat_B prob = {}", probs[1]);
+        assert!(probs[2] < 1e-10, "cat_C prob = {}", probs[2]);
+
+        // `predict_mean` must resolve the tie to a real domain label.
+        let df = tree.predict_mean(&dataset);
+        let col = df.column("target_label").unwrap();
+        let label = col.str().unwrap().get(0).expect("must produce a label");
+        assert!(
+            label == "cat_A" || label == "cat_B",
+            "tie should resolve to a valid domain label, got '{label}'"
+        );
+    }
+
     #[test]
     fn predict_distributions_matches_all_leaves_given_x() {
         let tree = make_tree_with_target_split_then_feature_split();

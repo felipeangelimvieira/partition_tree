@@ -29,8 +29,8 @@ use std::sync::Arc;
 
 use polars::prelude::*;
 
-use crate::rule::DynValue;
 use crate::conf::TARGET_PREFIX;
+use crate::rule::DynValue;
 
 // ---------------------------------------------------------------------------
 // Logical dtype enum (shared across v2)
@@ -90,6 +90,15 @@ pub trait ColumnView: Send + Sync {
 
     fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// Sorted string labels for categorical columns, mapping code → label.
+    ///
+    /// Returns `None` for non-categorical columns. The returned slice has
+    /// length equal to the number of categories; entry `i` is the label for
+    /// code `i`.
+    fn cat_labels(&self) -> Option<&[String]> {
+        None
     }
 
     /// Get the value at `idx` as a dtype-erased [`DynValue`].
@@ -181,6 +190,8 @@ pub struct PolarsColumnView {
     cat_values: Option<Vec<Option<usize>>>,
     /// For integer columns: i64 values indexed by row.
     i64_values: Option<Vec<Option<i64>>>,
+    /// Sorted string labels for categorical columns (code → label).
+    cat_labels: Option<Arc<Vec<String>>>,
     len: usize,
 }
 
@@ -194,34 +205,76 @@ impl PolarsColumnView {
         let name = series.name().to_string();
         let len = series.len();
 
-        let (logical_dtype, f64_values, cat_values, i64_values) = match series.dtype() {
+        let (logical_dtype, f64_values, cat_values, i64_values, cat_labels) = match series.dtype() {
             DataType::Float64 => {
                 let ca = series.f64().expect("f64 series");
                 let vals: Vec<Option<f64>> = ca.into_iter().collect();
-                (LogicalDType::Continuous, Some(vals), None, None)
+                (LogicalDType::Continuous, Some(vals), None, None, None)
             }
             DataType::Float32 => {
                 let ca = series.f32().expect("f32 series");
                 let vals: Vec<Option<f64>> = ca.into_iter().map(|v| v.map(|x| x as f64)).collect();
-                (LogicalDType::Continuous, Some(vals), None, None)
+                (LogicalDType::Continuous, Some(vals), None, None, None)
             }
             DataType::Int32 => {
                 let ca = series.i32().expect("i32 series");
                 let vals: Vec<Option<i64>> = ca.into_iter().map(|v| v.map(|x| x as i64)).collect();
-                (LogicalDType::Integer, None, None, Some(vals))
+                (LogicalDType::Integer, None, None, Some(vals), None)
             }
             DataType::Int64 => {
                 let ca = series.i64().expect("i64 series");
                 let vals: Vec<Option<i64>> = ca.into_iter().collect();
-                (LogicalDType::Integer, None, None, Some(vals))
+                (LogicalDType::Integer, None, None, Some(vals), None)
             }
             DataType::Enum(_, _) | DataType::Categorical(_, _) => {
-                let phys = series.to_physical_repr();
-                let phys_u32 = phys.cast(&DataType::UInt32).expect("cast to u32");
-                let ca = phys_u32.u32().expect("u32 chunked");
-                let vals: Vec<Option<usize>> =
-                    ca.into_iter().map(|v| v.map(|x| x as usize)).collect();
-                (LogicalDType::Categorical, None, Some(vals), None)
+                // Remap to lexicographic order so that cat_N always refers to
+                // the N-th class in lex order, independently of the Polars
+                // global string cache state.  We cast directly to String to
+                // avoid the rev_map / physical-code API which changed across
+                // Polars versions.
+                let str_series = series
+                    .cast(&DataType::String)
+                    .expect("cast categorical/enum to String");
+                let str_ca = str_series.str().expect("string chunked array");
+                let str_vals: Vec<Option<String>> = str_ca
+                    .into_iter()
+                    .map(|v| v.map(|s| s.to_owned()))
+                    .collect();
+
+                // Collect unique non-null labels and sort them lexicographically.
+                let mut unique_strs: Vec<String> = str_vals
+                    .iter()
+                    .filter_map(|v| v.clone())
+                    .collect::<std::collections::HashSet<_>>()
+                    .into_iter()
+                    .collect();
+                unique_strs.sort();
+
+                // Build label → lex-code mapping.
+                let str_to_code: HashMap<String, usize> = unique_strs
+                    .iter()
+                    .enumerate()
+                    .map(|(code, s)| (s.clone(), code))
+                    .collect();
+
+                // Apply mapping to each row.
+                let vals: Vec<Option<usize>> = str_vals
+                    .into_iter()
+                    .map(|v| v.and_then(|s| str_to_code.get(&s).copied()))
+                    .collect();
+
+                // Store sorted labels so downstream consumers (CategoricalPlugin,
+                // prediction) can map codes back to strings.
+                let labels = Arc::new(unique_strs);
+
+                (LogicalDType::Categorical, None, Some(vals), None, Some(labels))
+            }
+            DataType::Null => {
+                // All-null placeholder column (e.g., from a ScalarColumn fallback).
+                // Treat as all-null continuous — null target columns are not read
+                // during prediction, so this does not affect results.
+                let vals: Vec<Option<f64>> = vec![None; len];
+                (LogicalDType::Continuous, Some(vals), None, None, None)
             }
             dt => panic!("PolarsColumnView: unsupported dtype {dt:?}"),
         };
@@ -232,8 +285,60 @@ impl PolarsColumnView {
             f64_values,
             cat_values,
             i64_values,
+            cat_labels,
             len,
         }
+    }
+
+    /// Build a `PolarsColumnView` from a Polars `Series`, using a
+    /// pre-existing label→code mapping for categorical columns.
+    ///
+    /// This ensures that the same string label always maps to the same
+    /// integer code, regardless of which categories appear in this
+    /// particular series. Strings not present in `labels` are treated
+    /// as null (unknown category).
+    ///
+    /// For non-categorical series, this falls back to [`from_series`].
+    pub fn from_series_with_labels(series: &Series, labels: &[String]) -> Self {
+        match series.dtype() {
+            DataType::Enum(_, _) | DataType::Categorical(_, _) => {
+                let name = series.name().to_string();
+                let len = series.len();
+
+                let str_series = series
+                    .cast(&DataType::String)
+                    .expect("cast categorical/enum to String");
+                let str_ca = str_series.str().expect("string chunked array");
+
+                // Build label → code mapping from the provided labels.
+                let str_to_code: HashMap<String, usize> = labels
+                    .iter()
+                    .enumerate()
+                    .map(|(code, s)| (s.clone(), code))
+                    .collect();
+
+                let vals: Vec<Option<usize>> = str_ca
+                    .into_iter()
+                    .map(|v| v.and_then(|s| str_to_code.get(s).copied()))
+                    .collect();
+
+                Self {
+                    name,
+                    logical_dtype: LogicalDType::Categorical,
+                    f64_values: None,
+                    cat_values: Some(vals),
+                    i64_values: None,
+                    cat_labels: Some(Arc::new(labels.to_vec())),
+                    len,
+                }
+            }
+            _ => Self::from_series(series),
+        }
+    }
+
+    /// The sorted label list for categorical columns (code → label).
+    pub fn cat_label_arc(&self) -> Option<&Arc<Vec<String>>> {
+        self.cat_labels.as_ref()
     }
 }
 
@@ -284,6 +389,10 @@ impl ColumnView for PolarsColumnView {
                 .map_or(true, |v| v.get(idx).map_or(true, |x| x.is_none())),
         }
     }
+
+    fn cat_labels(&self) -> Option<&[String]> {
+        self.cat_labels.as_ref().map(|v| v.as_slice())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -331,13 +440,65 @@ impl PolarsDatasetView {
         weights_x: Option<Vec<f64>>,
         weights_y: Option<Vec<f64>>,
     ) -> Self {
+        Self::build_inner(df, weights_xy, weights_x, weights_y, None)
+    }
+
+    /// Build from a Polars `DataFrame` using pre-existing category label
+    /// mappings so that categorical codes are consistent with a previously
+    /// fitted model.
+    ///
+    /// `cat_labels` maps column name → sorted label list (code → label).
+    /// Columns present in the map use [`PolarsColumnView::from_series_with_labels`];
+    /// all others use the default [`PolarsColumnView::from_series`].
+    pub fn with_category_labels(
+        df: &DataFrame,
+        cat_labels: &HashMap<String, Vec<String>>,
+    ) -> Self {
+        Self::build_inner(df, None, None, None, Some(cat_labels))
+    }
+
+    /// Extract the category label mappings from all categorical columns.
+    ///
+    /// Returns a map of column name → sorted labels (code → label).
+    /// Only categorical columns are included.
+    pub fn category_labels(&self) -> HashMap<String, Vec<String>> {
+        self.columns
+            .iter()
+            .filter_map(|c| {
+                c.cat_label_arc()
+                    .map(|labels| (c.name().to_string(), labels.as_ref().clone()))
+            })
+            .collect()
+    }
+
+    /// Shared builder used by all constructors.
+    fn build_inner(
+        df: &DataFrame,
+        weights_xy: Option<Vec<f64>>,
+        weights_x: Option<Vec<f64>>,
+        weights_y: Option<Vec<f64>>,
+        cat_labels: Option<&HashMap<String, Vec<String>>>,
+    ) -> Self {
         let n_rows = df.height();
 
-        // Materialize columns
+        // Materialize columns.
         let columns: Vec<PolarsColumnView> = df
             .get_columns()
             .iter()
-            .map(|c| PolarsColumnView::from_series(c.as_series().unwrap()))
+            .map(|c| {
+                let series = match c.as_series() {
+                    Some(s) => s.clone(),
+                    None => Series::new_null(c.name().clone(), c.len()),
+                };
+                let col_name = c.name().to_string();
+                // If we have a pre-existing label mapping for this column, use it.
+                if let Some(labels_map) = cat_labels {
+                    if let Some(labels) = labels_map.get(&col_name) {
+                        return PolarsColumnView::from_series_with_labels(&series, labels);
+                    }
+                }
+                PolarsColumnView::from_series(&series)
+            })
             .collect();
 
         let col_index: HashMap<String, usize> = columns
@@ -536,5 +697,175 @@ mod tests {
 
         assert_eq!(view.weights_xy().len(), 5);
         assert!(view.weights_xy().iter().all(|&w| (w - 1.0).abs() < 1e-10));
+    }
+
+    // -----------------------------------------------------------------------
+    // Categorical code stability tests
+    // -----------------------------------------------------------------------
+
+    /// Helper: create a categorical (Enum) series from string slices.
+    fn make_cat_series(name: &str, values: &[&str], categories: &[&str]) -> Series {
+        let str_series = Series::new(name.into(), values);
+        let cats = polars::prelude::FrozenCategories::new(categories.iter().copied()).unwrap();
+        str_series
+            .cast(&DataType::from_frozen_categories(cats))
+            .expect("cast to Enum")
+    }
+
+    /// Proves that `from_series` alone assigns different codes when category
+    /// sets differ, but `from_series_with_labels` stabilises them by reusing
+    /// the training-time label mapping.
+    ///
+    /// Training: ["apple", "banana", "cherry"] → lex codes: apple=0, banana=1, cherry=2
+    /// Prediction raw: ["banana", "cherry", "date"] → lex codes: banana=0, cherry=1, date=2  (WRONG)
+    /// Prediction fixed (reuse training labels): banana=1, cherry=2, date=None   (CORRECT)
+    #[test]
+    fn categorical_codes_stable_across_different_category_sets() {
+        // -- Training dataset: 3 categories --
+        let train_series = make_cat_series(
+            "color",
+            &["apple", "banana", "cherry", "banana"],
+            &["apple", "banana", "cherry"],
+        );
+        let train_view = PolarsColumnView::from_series(&train_series);
+
+        let banana_code_train = train_view.get_cat(1).unwrap(); // "banana"
+        let cherry_code_train = train_view.get_cat(2).unwrap(); // "cherry"
+
+        // -- Raw `from_series` on shifted categories gives WRONG codes --
+        let pred_series = make_cat_series(
+            "color",
+            &["banana", "cherry", "date", "cherry"],
+            &["banana", "cherry", "date"],
+        );
+        let raw_pred = PolarsColumnView::from_series(&pred_series);
+        assert_ne!(
+            banana_code_train,
+            raw_pred.get_cat(0).unwrap(),
+            "from_series should produce different codes (proves the underlying bug)"
+        );
+
+        // -- `from_series_with_labels` reuses training labels → CORRECT codes --
+        let training_labels = train_view.cat_labels().unwrap().to_vec();
+        let fixed_pred = PolarsColumnView::from_series_with_labels(&pred_series, &training_labels);
+
+        let banana_code_fixed = fixed_pred.get_cat(0).unwrap();
+        let cherry_code_fixed = fixed_pred.get_cat(1).unwrap();
+
+        assert_eq!(
+            banana_code_train, banana_code_fixed,
+            "with_labels: 'banana' should get the same code as training ({banana_code_train}), got {banana_code_fixed}"
+        );
+        assert_eq!(
+            cherry_code_train, cherry_code_fixed,
+            "with_labels: 'cherry' should get the same code as training ({cherry_code_train}), got {cherry_code_fixed}"
+        );
+
+        // "date" is unknown to the training mapping → treated as null
+        assert!(
+            fixed_pred.get_cat(2).is_none(),
+            "'date' was not in training labels, so it should map to None"
+        );
+    }
+
+    /// End-to-end proof: a tree trained on {apple, banana, cherry} misroutes
+    /// samples when predicting on {banana, cherry, date} because codes shift.
+    ///
+    /// Setup:
+    ///   - Feature `color` perfectly predicts target `y`:
+    ///     apple → y=10, banana → y=20, cherry → y=30
+    ///   - Train the tree so it learns this mapping.
+    ///   - Predict on data containing ["banana", "cherry"] but with "date"
+    ///     present in the category set, shifting the lex codes.
+    ///   - The prediction for "banana" should be ≈20, but the code shift
+    ///     makes the tree see a different category.
+    #[test]
+    fn categorical_prediction_wrong_with_shifted_categories() {
+        use crate::estimators::PartitionTree;
+        use estimators::api::Estimator;
+
+        let n = 60; // 20 each of apple, banana, cherry
+
+        // -- Training data --
+        let labels_train: Vec<&str> = (0..n)
+            .map(|i| match i % 3 {
+                0 => "apple",
+                1 => "banana",
+                _ => "cherry",
+            })
+            .collect();
+        let y_train: Vec<f64> = (0..n)
+            .map(|i| match i % 3 {
+                0 => 10.0,
+                1 => 20.0,
+                _ => 30.0,
+            })
+            .collect();
+
+        let x_train_series =
+            make_cat_series("color", &labels_train, &["apple", "banana", "cherry"]);
+        let x_train = DataFrame::new(vec![x_train_series.into()]).unwrap();
+        let y_train = DataFrame::new(vec![Column::new("y".into(), y_train)]).unwrap();
+
+        // Fit tree — enough leaves to learn the 3-way split
+        let mut model = PartitionTree::new(
+            10, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10, 2.0, None, None, None, None,
+        );
+        let fitted = model
+            .fit(&x_train, &y_train, None)
+            .expect("fit should succeed");
+
+        // -- Verify training predictions are correct --
+        let train_preds = fitted.predict(&x_train).expect("predict on train");
+        let train_col = train_preds.column("y").unwrap().f64().unwrap();
+        // Apple rows (i%3==0) should predict ≈10, banana (i%3==1) ≈20, cherry ≈30
+        for i in 0..n {
+            let pred = train_col.get(i).unwrap();
+            let expected = match i % 3 {
+                0 => 10.0,
+                1 => 20.0,
+                _ => 30.0,
+            };
+            assert!(
+                (pred - expected).abs() < 5.0,
+                "Training row {i}: predicted {pred}, expected ≈{expected}"
+            );
+        }
+
+        // -- Prediction data: same labels but with "date" added to category set --
+        // This shifts lex codes: banana=0→0, cherry=1→1, date=2 (new)
+        // Wait — with {banana, cherry, date}: banana=0, cherry=1, date=2
+        // Training had {apple, banana, cherry}: apple=0, banana=1, cherry=2
+        //
+        // So "banana" was code 1 in training, but code 0 in prediction.
+        // "cherry" was code 2 in training, but code 1 in prediction.
+        let x_pred_series = make_cat_series(
+            "color",
+            &["banana", "cherry", "banana", "cherry"],
+            &["banana", "cherry", "date"],
+        );
+        let x_pred = DataFrame::new(vec![x_pred_series.into()]).unwrap();
+
+        let pred_result = fitted
+            .predict(&x_pred)
+            .expect("predict on shifted categories");
+        let pred_col = pred_result.column("y").unwrap().f64().unwrap();
+
+        // "banana" rows should predict ≈20, "cherry" rows should predict ≈30
+        let banana_pred = pred_col.get(0).unwrap();
+        let cherry_pred = pred_col.get(1).unwrap();
+
+        // This assertion should FAIL because of code mismatch:
+        // "banana" gets code 0 at prediction time, but code 0 was "apple" in training
+        assert!(
+            (banana_pred - 20.0).abs() < 5.0,
+            "banana should predict ≈20.0, but got {banana_pred} \
+             (likely matched 'apple' rule due to code shift)"
+        );
+        assert!(
+            (cherry_pred - 30.0).abs() < 5.0,
+            "cherry should predict ≈30.0, but got {cherry_pred} \
+             (likely matched 'banana' rule due to code shift)"
+        );
     }
 }

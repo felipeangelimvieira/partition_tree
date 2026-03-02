@@ -89,6 +89,9 @@ pub struct PartitionTree {
     /// Schema of the XY DataFrame used for fitting.
     #[serde(with = "schema_serde")]
     pub schema: Option<Schema>,
+    /// Category label mappings from training (col_name → sorted labels).
+    /// Used to ensure consistent code assignment at prediction time.
+    pub cat_labels: Option<HashMap<String, Vec<String>>>,
 }
 
 impl PartitionTree {
@@ -125,6 +128,7 @@ impl PartitionTree {
             seed,
             tree: None,
             schema: None,
+            cat_labels: None,
         }
     }
 
@@ -146,6 +150,7 @@ impl PartitionTree {
             seed: None,
             tree: None,
             schema: None,
+            cat_labels: None,
         }
     }
 
@@ -162,7 +167,7 @@ impl PartitionTree {
     ) -> Result<Vec<PiecewiseConstantDistribution>, PredictError> {
         let tree = self.fitted_tree()?;
         let xy = self.expand_with_schema(x)?;
-        let dataset = PolarsDatasetView::new(&xy);
+        let dataset = self.build_prediction_dataset(&xy);
         Ok(tree.predict_distributions(&dataset))
     }
 
@@ -170,7 +175,7 @@ impl PartitionTree {
     pub fn predict_mean_vectors(&self, x: &DataFrame) -> Result<Vec<MeanVector>, PredictError> {
         let tree = self.fitted_tree()?;
         let xy = self.expand_with_schema(x)?;
-        let dataset = PolarsDatasetView::new(&xy);
+        let dataset = self.build_prediction_dataset(&xy);
         Ok(tree.predict_mean_vectors(&dataset))
     }
 
@@ -189,7 +194,7 @@ impl PartitionTree {
     pub fn apply(&self, x: &DataFrame) -> Result<Vec<usize>, PredictError> {
         let tree = self.fitted_tree()?;
         let xy = self.expand_with_schema(x)?;
-        let dataset = PolarsDatasetView::new(&xy);
+        let dataset = self.build_prediction_dataset(&xy);
         Ok(tree.apply(&dataset))
     }
 
@@ -236,6 +241,15 @@ impl PartitionTree {
         DataFrame::new(cols).map_err(|e| {
             PredictError::InvalidInput(format!("Failed to build prediction DataFrame: {e}"))
         })
+    }
+
+    /// Build a `PolarsDatasetView` for prediction, using stored category
+    /// labels to ensure consistent code assignment.
+    fn build_prediction_dataset(&self, xy: &DataFrame) -> PolarsDatasetView {
+        match &self.cat_labels {
+            Some(labels) => PolarsDatasetView::with_category_labels(xy, labels),
+            None => PolarsDatasetView::new(xy),
+        }
     }
 
     /// Build the `TreeBuilderConfig` from our fields.
@@ -297,6 +311,9 @@ impl Estimator for PartitionTree {
         // ── 3. Build tree ─────────────────────────────────────────────
         let dataset = PolarsDatasetView::new(&xy);
 
+        // Extract category label mappings before the tree consumes the dataset.
+        let cat_labels = dataset.category_labels();
+
         let config = self.build_config();
         // Clone the loss non-destructively so `self.loss` is preserved for
         // future `fit` calls and so we can return it in the fitted struct.
@@ -313,6 +330,7 @@ impl Estimator for PartitionTree {
         // ── 4. Store fitted state and return ──────────────────────────
         self.tree = Some(tree);
         self.schema = Some(schema.clone());
+        self.cat_labels = Some(cat_labels.clone());
 
         Ok(PartitionTree {
             max_leaves: self.max_leaves,
@@ -330,13 +348,14 @@ impl Estimator for PartitionTree {
             seed: self.seed,
             tree: self.tree.take(),
             schema: Some(schema),
+            cat_labels: Some(cat_labels),
         })
     }
 
     fn _predict_impl(&self, x: &DataFrame) -> Result<DataFrame, PredictError> {
         let tree = self.fitted_tree()?;
         let xy = self.expand_with_schema(x)?;
-        let dataset = PolarsDatasetView::new(&xy);
+        let dataset = self.build_prediction_dataset(&xy);
 
         let mut out = tree.predict_mean(&dataset);
 

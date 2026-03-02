@@ -60,7 +60,21 @@ impl DTypePlugin for CategoricalPlugin {
         // Sort domain for determinism
         domain_order.sort();
 
-        let domain_names: Vec<String> = domain_order.iter().map(|c| format!("cat_{c}")).collect();
+        // Use real string labels from the column if available;
+        // fall back to synthetic "cat_N" names.
+        let domain_names: Vec<String> = if let Some(labels) = col.cat_labels() {
+            domain_order
+                .iter()
+                .map(|&c| {
+                    labels
+                        .get(c)
+                        .cloned()
+                        .unwrap_or_else(|| format!("cat_{c}"))
+                })
+                .collect()
+        } else {
+            domain_order.iter().map(|c| format!("cat_{c}")).collect()
+        };
         let values: HashSet<usize> = domain_order.iter().copied().collect();
 
         Box::new(BelongsTo::new(

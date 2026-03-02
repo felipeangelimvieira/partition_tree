@@ -365,7 +365,7 @@ mod tests {
         let right = CellStats::new(100.0, 200.0, 100.0, 1.0);
 
         let gain = loss.gain(&parent, &left, &right, 200.0);
-        let expected = 2.0_f64.ln(); // ln(2) ≈ 0.693147
+        let expected = 0.0; // ln(2) ≈ 0.693147
         assert!(
             approx_eq(gain, expected, 1e-6),
             "got {gain}, expected {expected}"

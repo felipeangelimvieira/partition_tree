@@ -140,16 +140,16 @@ fn naive_regression_mse(true_vals: &[f64]) -> f64 {
     true_vals.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / n
 }
 
-/// Map iris species strings to the `cat_X` labels produced by `CategoricalPlugin`.
+/// Map iris species strings to the labels produced by `CategoricalPlugin`.
 ///
-/// `FrozenCategories::new(["setosa", "versicolor", "virginica"])` assigns physical
-/// codes 0, 1, 2 in insertion order. The plugin sorts them and names them
-/// `cat_0`, `cat_1`, `cat_2` respectively.
+/// Since the plugin now uses real string labels extracted from the
+/// categorical column, the predicted output will contain the actual
+/// species name.
 fn species_to_cat_label(species: &str) -> &'static str {
     match species {
-        "setosa" => "cat_0",
-        "versicolor" => "cat_1",
-        "virginica" => "cat_2",
+        "setosa" => "setosa",
+        "versicolor" => "versicolor",
+        "virginica" => "virginica",
         _ => panic!("unknown species: {species}"),
     }
 }

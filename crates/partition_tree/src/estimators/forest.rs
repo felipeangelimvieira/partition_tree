@@ -97,8 +97,8 @@ pub struct PartitionForest {
     pub trees: Option<Vec<Tree>>,
     /// Schema of the XY DataFrame used for fitting.
     #[serde(with = "schema_serde")]
-    pub schema: Option<Schema>,
-}
+    pub schema: Option<Schema>,    /// Category label mappings from training (col_name → sorted labels).
+    pub cat_labels: Option<HashMap<String, Vec<String>>>,}
 
 impl PartitionForest {
     /// Create a new forest estimator with full control over parameters.
@@ -136,6 +136,7 @@ impl PartitionForest {
             seed: seed,
             trees: None,
             schema: None,
+            cat_labels: None,
         }
     }
 
@@ -158,6 +159,7 @@ impl PartitionForest {
             loss: None,
             trees: None,
             schema: None,
+            cat_labels: None,
         }
     }
 
@@ -174,7 +176,7 @@ impl PartitionForest {
     ) -> Result<Vec<PiecewiseConstantDistribution>, PredictError> {
         let trees = self.fitted_trees()?;
         let xy = self.expand_with_schema(x)?;
-        let dataset = PolarsDatasetView::new(&xy);
+        let dataset = self.build_prediction_dataset(&xy);
 
         // Collect per-tree distributions in parallel
         let per_tree: Vec<Vec<PiecewiseConstantDistribution>> = trees
@@ -195,7 +197,7 @@ impl PartitionForest {
     ) -> Result<Vec<Vec<PiecewiseConstantDistribution>>, PredictError> {
         let trees = self.fitted_trees()?;
         let xy = self.expand_with_schema(x)?;
-        let dataset = PolarsDatasetView::new(&xy);
+        let dataset = self.build_prediction_dataset(&xy);
 
         let per_tree: Vec<Vec<PiecewiseConstantDistribution>> = trees
             .par_iter()
@@ -269,6 +271,15 @@ impl PartitionForest {
         DataFrame::new(cols).map_err(|e| {
             PredictError::InvalidInput(format!("Failed to build prediction DataFrame: {e}"))
         })
+    }
+
+    /// Build a `PolarsDatasetView` for prediction, using stored category
+    /// labels to ensure consistent code assignment.
+    fn build_prediction_dataset(&self, xy: &DataFrame) -> PolarsDatasetView {
+        match &self.cat_labels {
+            Some(labels) => PolarsDatasetView::with_category_labels(xy, labels),
+            None => PolarsDatasetView::new(xy),
+        }
     }
 
     /// Build a `TreeBuilderConfig` from our fields.
@@ -359,7 +370,8 @@ impl Estimator for PartitionForest {
 
         // ── 3. Build shared DatasetView once ──────────────────────────
         let dataset = PolarsDatasetView::new(&xy);
-
+        // Extract category label mappings before the trees consume the dataset.
+        let cat_labels = dataset.category_labels();
         // ── 4. Build trees in parallel ────────────────────────────────
         let base_seed = self.seed.unwrap_or(42);
         let config_template = self.build_config();
@@ -392,6 +404,7 @@ impl Estimator for PartitionForest {
         // ── 5. Store fitted state and return ──────────────────────────
         self.trees = Some(fitted_trees);
         self.schema = Some(schema.clone());
+        self.cat_labels = Some(cat_labels.clone());
 
         Ok(PartitionForest {
             n_estimators: self.n_estimators,
@@ -410,13 +423,14 @@ impl Estimator for PartitionForest {
             loss: Some(loss_factory),
             trees: self.trees.take(),
             schema: Some(schema),
+            cat_labels: Some(cat_labels),
         })
     }
 
     fn _predict_impl(&self, x: &DataFrame) -> Result<DataFrame, PredictError> {
         let trees = self.fitted_trees()?;
         let xy = self.expand_with_schema(x)?;
-        let dataset = PolarsDatasetView::new(&xy);
+        let dataset = self.build_prediction_dataset(&xy);
 
         // Collect per-tree distributions in parallel
         let per_tree: Vec<Vec<PiecewiseConstantDistribution>> = trees
