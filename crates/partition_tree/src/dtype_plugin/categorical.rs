@@ -8,10 +8,10 @@ use std::sync::Arc;
 
 use crate::rules::BelongsTo;
 
+use super::DTypePlugin;
 use crate::column_split::{CategoricalColumnSplitSearcher, ColumnSplitSearcher};
 use crate::dataset_view::{ColumnView, LogicalDType};
 use crate::rule::DynRule;
-use super::DTypePlugin;
 
 // ---------------------------------------------------------------------------
 // CategoricalPlugin
@@ -45,7 +45,11 @@ impl DTypePlugin for CategoricalPlugin {
         LogicalDType::Categorical
     }
 
-    fn default_rule(&self, col: &dyn ColumnView, _boundaries_expansion_factor: f64) -> Box<dyn DynRule> {
+    fn default_rule(
+        &self,
+        col: &dyn ColumnView,
+        _boundaries_expansion_factor: f64,
+    ) -> Box<dyn DynRule> {
         // Scan for all observed category codes
         let mut seen = HashSet::new();
         let mut domain_order = Vec::new();
@@ -65,12 +69,7 @@ impl DTypePlugin for CategoricalPlugin {
         let domain_names: Vec<String> = if let Some(labels) = col.cat_labels() {
             domain_order
                 .iter()
-                .map(|&c| {
-                    labels
-                        .get(c)
-                        .cloned()
-                        .unwrap_or_else(|| format!("cat_{c}"))
-                })
+                .map(|&c| labels.get(c).cloned().unwrap_or_else(|| format!("cat_{c}")))
                 .collect()
         } else {
             domain_order.iter().map(|c| format!("cat_{c}")).collect()

@@ -267,7 +267,13 @@ impl PolarsColumnView {
                 // prediction) can map codes back to strings.
                 let labels = Arc::new(unique_strs);
 
-                (LogicalDType::Categorical, None, Some(vals), None, Some(labels))
+                (
+                    LogicalDType::Categorical,
+                    None,
+                    Some(vals),
+                    None,
+                    Some(labels),
+                )
             }
             DataType::Null => {
                 // All-null placeholder column (e.g., from a ScalarColumn fallback).
@@ -450,10 +456,7 @@ impl PolarsDatasetView {
     /// `cat_labels` maps column name → sorted label list (code → label).
     /// Columns present in the map use [`PolarsColumnView::from_series_with_labels`];
     /// all others use the default [`PolarsColumnView::from_series`].
-    pub fn with_category_labels(
-        df: &DataFrame,
-        cat_labels: &HashMap<String, Vec<String>>,
-    ) -> Self {
+    pub fn with_category_labels(df: &DataFrame, cat_labels: &HashMap<String, Vec<String>>) -> Self {
         Self::build_inner(df, None, None, None, Some(cat_labels))
     }
 
