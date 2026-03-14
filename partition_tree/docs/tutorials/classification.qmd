@@ -1,0 +1,123 @@
+---
+title: "Tutorial: Classification"
+subtitle: "Class probability estimation with Partition Trees"
+---
+
+Partition Trees model the **conditional distribution** $p(y \mid x)$ as a
+piecewise-constant density over the outcome space. Depending on the dataset
+and hyperparameters, this can yield not only a better probabilitistic 
+classification but also improved accuracy.
+
+## Setup
+
+We use the UCI letter recognition dataset — a well-known classification benchmark with 26 classes. We initially use a simple train-test split for clarity, but the same code works with cross-validation and pipelines.
+
+```{python}
+from ucimlrepo import fetch_ucirepo
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, log_loss
+import pandas as pd
+
+# fetch dataset
+letter_recognition = fetch_ucirepo(id=59)
+
+# data (as pandas dataframes)
+X = letter_recognition.data.features
+y = letter_recognition.data.targets
+y = pd.DataFrame(data=pd.Categorical(y["lettr"]), columns=["lettr"])
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.15, random_state=42
+)
+X_train.shape, X_test.shape
+```
+
+
+## Partition Tree Classifier
+
+```{python}
+from partition_tree.sklearn import PartitionTreeClassifier
+
+
+pt = PartitionTreeClassifier(
+    random_state=42,
+    min_samples_split=2,
+    min_samples_x=1,
+    min_samples_y=1,
+    min_volume_fraction=0,
+    loss=None,
+)
+
+pt.fit(X_train, y_train)
+```
+
+
+```{python}
+y_pred_pt = pt.predict(X_test)
+y_proba_pt = pt.predict_proba(X_test)
+
+logloss_pt = log_loss(y_test, y_proba_pt)
+acc_pt = accuracy_score(y_test, y_pred_pt)
+
+logloss_pt, acc_pt
+```
+
+```{python}
+from sklearn.tree import DecisionTreeClassifier
+
+cart = DecisionTreeClassifier(random_state=42)
+cart.fit(X_train, y_train)
+```
+
+```{python}
+y_pred_cart = cart.predict(X_test)
+y_proba_cart = cart.predict_proba(X_test)
+logloss_cart = log_loss(y_test, y_proba_cart)
+acc_cart = accuracy_score(y_test, y_pred_cart)
+
+logloss_cart, acc_cart
+```
+
+```{python}
+from partition_tree.sklearn import PartitionForestClassifier
+
+pf = PartitionForestClassifier(
+    n_estimators=50,
+    random_state=42,
+    max_samples=1,
+    max_features=1,
+    min_samples_x=1,
+    max_leaves=10000,
+)
+
+pf.fit(X_train, y_train)
+```
+
+```{python}
+y_pred_pf = pf.predict(X_test)
+y_proba_pf = pf.predict_proba(X_test)
+
+logloss_pf = log_loss(y_test, y_proba_pf)
+acc_pf = accuracy_score(y_test, y_pred_pf)
+logloss_pf, acc_pf
+```
+
+```{python}
+from sklearn.ensemble import RandomForestClassifier
+
+random_forest = RandomForestClassifier(
+    n_estimators=50,
+    random_state=42,
+)
+random_forest.fit(X_train, y_train)
+
+```
+
+
+```{python}
+y_pred_rf = random_forest.predict(X_test)
+y_proba_rf = random_forest.predict_proba(X_test)
+
+logloss_rf = log_loss(y_test, y_proba_rf)
+acc_rf = accuracy_score(y_test, y_pred_rf)
+logloss_rf, acc_rf
+```

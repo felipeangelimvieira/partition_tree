@@ -25,7 +25,6 @@ distribution defined over disjoint intervals.
 ### 1.1 Fit and Predict
 
 ```{python}
-#| eval: false
 import pandas as pd
 from sklearn.datasets import fetch_california_housing
 from sklearn.model_selection import train_test_split
@@ -59,7 +58,6 @@ print(y_pred.head())
 `predict_proba` returns an `IntervalDistribution` object:
 
 ```{python}
-#| eval: false
 dist = pt.predict_proba(X_test)
 print(type(dist))
 # <class 'partition_tree.skpro.distribution.IntervalDistribution'>
@@ -68,7 +66,6 @@ print(type(dist))
 From this distribution you can extract:
 
 ```{python}
-#| eval: false
 # Posterior mean
 mean = dist.mean()
 
@@ -96,7 +93,6 @@ One of the key advantages of probabilistic predictions is the ability to constru
 **prediction intervals** at any confidence level.
 
 ```{python}
-#| eval: false
 import numpy as np
 
 # 80% prediction interval: [10th percentile, 90th percentile]
@@ -117,7 +113,6 @@ The `IntervalDistribution` has a built-in `plot` method that draws the
 piecewise-constant density as histogram-like bars:
 
 ```{python}
-#| eval: false
 import matplotlib.pyplot as plt
 
 # Plot the predictive PDF for a single test sample
@@ -128,7 +123,7 @@ fig, ax = plt.subplots(figsize=(8, 3))
 dist_single.plot(ax=ax, alpha=0.7)
 ax.axvline(y_test.loc[idx], color="red", linestyle="--",
            label=f"Actual = {y_test.loc[idx]:.2f}")
-ax.set_xlabel("MedHouseVal (×$100k)")
+ax.set_xlabel("MedHouseVal")
 ax.set_ylabel("PDF")
 ax.set_title("Predictive PDF — Single Test Sample")
 ax.legend()

@@ -39,14 +39,14 @@ class PartitionTreeRegressor(BaseProbaRegressor):
 
     def __init__(
         self,
-        max_leaves=101,
+        max_leaves=None,
         boundaries_expansion_factor=0.1,
         min_samples_xy=1.0,
         min_samples_x=1.0,
         min_samples_y=1.0,
         min_gain=0.0,
-        min_volume_fraction=0.0,
-        max_depth=5,
+        min_volume_fraction=0.1,
+        max_depth=None,
         min_samples_split=2.0,
         loss=None,
     ):
@@ -62,16 +62,24 @@ class PartitionTreeRegressor(BaseProbaRegressor):
         self.loss = loss
         super().__init__()
 
+    @property
+    def _max_leaves(self):
+        return self.max_leaves if self.max_leaves is not None else int(1e6)
+
+    @property
+    def _max_depth(self):
+        return self.max_depth if self.max_depth is not None else int(1e6)
+
     def _fit(self, X, y):
         self.partition_tree_ = PyPartitionTree(
-            max_leaves=self.max_leaves,
+            max_leaves=self._max_leaves,
             boundaries_expansion_factor=self.boundaries_expansion_factor,
             min_samples_xy=self.min_samples_xy,
             min_samples_x=self.min_samples_x,
             min_samples_y=self.min_samples_y,
             min_gain=self.min_gain,
             min_volume_fraction=self.min_volume_fraction,
-            max_depth=self.max_depth,
+            max_depth=self._max_depth,
             min_samples_split=self.min_samples_split,
             loss=self.loss,
         )
@@ -194,17 +202,17 @@ class PartitionForestRegressor(BaseProbaRegressor):
     def __init__(
         self,
         n_estimators=100,
-        max_leaves=101,
+        max_leaves=None,
         boundaries_expansion_factor=0.1,
         min_samples_xy=1.0,
         min_samples_x=1.0,
         min_samples_y=1.0,
         min_gain=0.0,
-        min_volume_fraction=0.0,
-        max_depth=5,
+        min_volume_fraction=0.1,
+        max_depth=None,
         min_samples_split=2.0,
-        max_samples=0.8,
-        max_features=0.8,
+        max_samples=1.0,
+        max_features=1.0,
         loss=None,
         random_state=42,
         output_distribution="merged",
@@ -242,17 +250,25 @@ class PartitionForestRegressor(BaseProbaRegressor):
         self.output_distribution = output_distribution
         super().__init__()
 
+    @property
+    def _max_leaves(self):
+        return self.max_leaves if self.max_leaves is not None else int(1e6)
+
+    @property
+    def _max_depth(self):
+        return self.max_depth if self.max_depth is not None else int(1e6)
+
     def _fit(self, X, y):
         self.partition_forest_ = PyPartitionForest(
             n_estimators=self.n_estimators,
-            max_leaves=self.max_leaves,
+            max_leaves=self._max_leaves,
             boundaries_expansion_factor=self.boundaries_expansion_factor,
             min_samples_xy=self.min_samples_xy,
             min_samples_x=self.min_samples_x,
             min_samples_y=self.min_samples_y,
             min_gain=self.min_gain,
             min_volume_fraction=self.min_volume_fraction,
-            max_depth=self.max_depth,
+            max_depth=self._max_depth,
             min_samples_split=self.min_samples_split,
             max_features=self.max_features,
             max_samples=self.max_samples,

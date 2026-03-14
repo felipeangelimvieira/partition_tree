@@ -15,7 +15,7 @@ body-classes: landing-page
 [Tree-based conditional density estimation over general outcome spaces — classification, regression, and full predictive distributions in one unified framework.]{.hero-subtitle}
 
 ::: {.hero-buttons}
-[Get Started](tutorials/sklearn.qmd){.hero-btn .hero-btn-primary}
+[Get Started](tutorials/classification.qmd){.hero-btn .hero-btn-primary}
 [Read the Theory](theory.qmd){.hero-btn .hero-btn-secondary}
 [GitHub ↗](https://github.com/felipeangelimvieira/partition_tree){.hero-btn .hero-btn-secondary}
 :::
