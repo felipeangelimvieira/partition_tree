@@ -1185,9 +1185,10 @@ mod tests {
             .expect("target_label must be present");
 
         // Both cat_A (0) and cat_B (1) are in the leaf; cat_C (2) is not.
+        // With indicator/volume normalization, each active category gets 1/2 = 0.5
         assert_eq!(probs.len(), 3);
-        assert!((probs[0] - 1.0).abs() < 1e-10, "cat_A prob = {}", probs[0]);
-        assert!((probs[1] - 1.0).abs() < 1e-10, "cat_B prob = {}", probs[1]);
+        assert!((probs[0] - 0.5).abs() < 1e-10, "cat_A prob = {}", probs[0]);
+        assert!((probs[1] - 0.5).abs() < 1e-10, "cat_B prob = {}", probs[1]);
         assert!(probs[2] < 1e-10, "cat_C prob = {}", probs[2]);
 
         // `predict_mean` must resolve the tie to a real domain label.

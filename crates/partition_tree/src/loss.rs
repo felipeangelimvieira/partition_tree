@@ -324,11 +324,12 @@ mod tests {
     #[test]
     fn balanced_log_loss_basic() {
         let loss = BalancedLogLoss;
-        // ratio = 50 / (100 * 50) = 0.01
-        // cell_loss = -50 * ln(0.01) / 100
+        // With dataset_size=100:
+        // ratio = (w_xy/D) / ((w_x/D) * (w_y/D)) = (50/100) / ((100/100)*(50/100)) = 1.0
+        // cell_loss = -w_xy * ln(ratio) / D = -50 * ln(1.0) / 100 = 0.0
         let stats = CellStats::new(50.0, 100.0, 50.0, 2.0);
         let result = loss.cell_loss(&stats, 100.0);
-        let expected = -50.0 * (0.01_f64).ln() / 100.0;
+        let expected = 0.0_f64;
         assert!(
             approx_eq(result, expected, 1e-10),
             "got {result}, expected {expected}"

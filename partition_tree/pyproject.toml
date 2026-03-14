@@ -36,6 +36,9 @@ where = ["src"]
 include = ["partition_tree*"]
 
 [dependency-groups]
+dev = [
+    "ucimlrepo>=0.0.7",
+]
 docs = [
     "quarto>=0.1.0",
 ]

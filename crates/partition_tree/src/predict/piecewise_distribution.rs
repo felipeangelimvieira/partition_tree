@@ -411,9 +411,10 @@ mod tests {
 
         let probs = &mean["target__color"];
         assert_eq!(probs.len(), 3);
-        // weighted: (3/4)*[1,1,0] + (1/4)*[0,0,1] = [0.75, 0.75, 0.25]
-        assert!((probs[0] - 0.75).abs() < 1e-10);
-        assert!((probs[1] - 0.75).abs() < 1e-10);
+        // With indicator/volume: cell1 mean=[0.5,0.5,0], cell2 mean=[0,0,1]
+        // weighted: (3/4)*[0.5,0.5,0] + (1/4)*[0,0,1] = [0.375, 0.375, 0.25]
+        assert!((probs[0] - 0.375).abs() < 1e-10);
+        assert!((probs[1] - 0.375).abs() < 1e-10);
         assert!((probs[2] - 0.25).abs() < 1e-10);
     }
 

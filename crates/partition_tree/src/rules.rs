@@ -327,11 +327,15 @@ impl<T: RuleValue> Rule<T> for BelongsToGeneric<T> {
     }
 
     fn mean(&self) -> Vec<f64> {
+        let vol = self.values.len() as f64;
+        if vol <= 0.0 {
+            return vec![0.0; self.domain.len()];
+        }
         self.domain
             .iter()
             .map(|value| {
                 if self.values.contains(value) {
-                    1.0
+                    1.0 / vol
                 } else {
                     0.0
                 }
