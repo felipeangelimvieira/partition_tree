@@ -27,8 +27,8 @@
 //! [`Cell`] + weights are kept in the [`FittedNode`](super::tree::FittedNode).
 use std::collections::HashMap;
 
-use rand::Rng;
 use rand::rngs::StdRng;
+use rand::Rng;
 
 use crate::cell::Cell;
 use crate::dataset_view::DatasetView;
@@ -154,11 +154,16 @@ impl Node {
         }
     }
 
-    /// Create the root node with bootstrap sampling (with replacement).
+    /// Create the root node with bootstrap sampling.
     ///
     /// Instead of using all rows, a fraction `max_samples` of the dataset's
-    /// rows is sampled **with replacement**. Each row index may appear more
-    /// than once in the sorted-index lists, effectively up-weighting it.
+    /// rows is sampled. When `replace` is `true`, sampling is done **with
+    /// replacement** (each row may appear more than once). When `replace` is
+    /// `false`, sampling is done **without replacement** (each row appears at
+    /// most once).
+    ///
+    /// As a short-circuit, if `replace` is `true` and the number of draws
+    /// equals the dataset size, the original dataset is returned unchanged.
     ///
     /// The presorted order within each column is preserved: for every column
     /// we walk the global sorted order and repeat each index according to its
@@ -167,16 +172,39 @@ impl Node {
         dataset: &dyn DatasetView,
         cell: Cell,
         max_samples: f64,
+        replace: bool,
         rng: &mut StdRng,
     ) -> Self {
         let n = dataset.n_rows();
         let n_bootstrap = (n as f64 * max_samples).floor().max(1.0) as usize;
 
-        // Sample with replacement: count how many times each row is drawn.
+        // Short-circuit: replace=true with full sample returns original dataset.
+        if replace && n_bootstrap >= n {
+            return Self::root(dataset, cell);
+        }
+
         let mut counts: HashMap<u32, u32> = HashMap::new();
-        for _ in 0..n_bootstrap {
-            let idx = rng.random_range(0..n as u32);
-            *counts.entry(idx).or_insert(0) += 1;
+
+        if replace {
+            // Sample with replacement: count how many times each row is drawn.
+            for _ in 0..n_bootstrap {
+                let idx = rng.random_range(0..n as u32);
+                *counts.entry(idx).or_insert(0) += 1;
+            }
+        } else {
+            // Sample without replacement via partial Fisher-Yates shuffle.
+            let k = n_bootstrap.min(n);
+            if k >= n {
+                return Self::root(dataset, cell);
+            }
+            let mut pool: Vec<u32> = (0..n as u32).collect();
+            for i in 0..k {
+                let j = rng.random_range(i as u32..n as u32) as usize;
+                pool.swap(i, j);
+            }
+            for &idx in &pool[..k] {
+                counts.insert(idx, 1);
+            }
         }
 
         let col_names = dataset.column_names();
@@ -633,7 +661,7 @@ mod tests {
         let cell = make_root_cell();
         let mut rng = StdRng::seed_from_u64(42);
 
-        let root = Node::root_bootstrap(&view, cell, 0.6, &mut rng);
+        let root = Node::root_bootstrap(&view, cell, 0.6, true, &mut rng);
 
         // floor(5 * 0.6) = 3 bootstrap draws
         assert_eq!(
@@ -659,10 +687,10 @@ mod tests {
 
         let (_df, view) = make_simple_dataset();
         let cell = make_root_cell();
-        // max_samples=1.0 draws n=5 samples with replacement from 5 rows.
-        // With a fixed seed, some indices will repeat.
+        // max_samples=0.8 draws floor(5*0.8)=4 samples with replacement from 5 rows.
+        // With a fixed seed, some indices may repeat.
         let mut rng = StdRng::seed_from_u64(123);
-        let root = Node::root_bootstrap(&view, cell, 1.0, &mut rng);
+        let root = Node::root_bootstrap(&view, cell, 0.8, true, &mut rng);
 
         // Count occurrences in the sorted_xy list of any column
         let any_sorted = root.sorted.sorted_xy.values().next().unwrap();
@@ -671,12 +699,12 @@ mod tests {
             *counts.entry(idx).or_insert(0) += 1;
         }
 
-        // With replacement, there should be fewer unique indices than total draws
-        // (or at the very least, the total length equals n)
-        assert_eq!(any_sorted.len(), 5, "should draw exactly n samples");
+        // With replacement, the total length equals n_bootstrap
+        assert_eq!(any_sorted.len(), 4, "should draw exactly 4 samples");
+        // Some indices may repeat (fewer unique than total draws)
         assert!(
-            counts.len() < 5 || any_sorted.iter().any(|_| true),
-            "bootstrap with replacement: expected some repeated indices"
+            counts.len() <= 4,
+            "bootstrap with replacement: unique count should be <= draw count"
         );
     }
 
@@ -689,7 +717,7 @@ mod tests {
         let cell = make_root_cell();
         let mut rng = StdRng::seed_from_u64(99);
 
-        let root = Node::root_bootstrap(&view, cell, 1.0, &mut rng);
+        let root = Node::root_bootstrap(&view, cell, 1.0, true, &mut rng);
 
         // For column x1, the bootstrap indices should preserve the
         // ascending-by-value order from the dataset's global sort.
@@ -719,7 +747,7 @@ mod tests {
         let cell = make_root_cell();
         let mut rng = StdRng::seed_from_u64(7);
 
-        let root = Node::root_bootstrap(&view, cell, 1.0, &mut rng);
+        let root = Node::root_bootstrap(&view, cell, 1.0, true, &mut rng);
 
         // floor(5 * 1.0) = 5 draws
         assert_eq!(root.sorted.n_xy(), 5);

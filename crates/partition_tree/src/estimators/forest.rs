@@ -85,9 +85,12 @@ pub struct PartitionForest {
     pub seed: Option<usize>,
 
     // ── Stochastic tree parameters ────────────────────────────────────
-    /// Fraction of rows to bootstrap-sample (with replacement) per tree.
+    /// Fraction of rows to bootstrap-sample per tree.
     /// `None` means use all rows.
     pub max_samples: Option<f64>,
+    /// Whether bootstrap sampling is done with replacement (`true`, default)
+    /// or without replacement (`false`).
+    pub replace: bool,
     /// Fraction of feature columns to consider at each split.
     /// `None` means use all features.
     pub max_features: Option<f64>,
@@ -97,8 +100,10 @@ pub struct PartitionForest {
     pub trees: Option<Vec<Tree>>,
     /// Schema of the XY DataFrame used for fitting.
     #[serde(with = "schema_serde")]
-    pub schema: Option<Schema>,    /// Category label mappings from training (col_name → sorted labels).
-    pub cat_labels: Option<HashMap<String, Vec<String>>>,}
+    pub schema: Option<Schema>,
+    /// Category label mappings from training (col_name → sorted labels).
+    pub cat_labels: Option<HashMap<String, Vec<String>>>,
+}
 
 impl PartitionForest {
     /// Create a new forest estimator with full control over parameters.
@@ -115,6 +120,7 @@ impl PartitionForest {
         max_depth: usize,
         min_samples_split: f64,
         max_samples: Option<f64>,
+        replace: bool,
         max_features: Option<f64>,
         loss: Option<Box<dyn LossFunc>>,
         seed: Option<usize>,
@@ -131,6 +137,7 @@ impl PartitionForest {
             max_depth: max_depth,
             min_samples_split: min_samples_split,
             max_samples: max_samples,
+            replace: replace,
             max_features: max_features,
             loss: loss,
             seed: seed,
@@ -155,6 +162,7 @@ impl PartitionForest {
             max_depth: usize::MAX,
             min_samples_split: 2.0,
             max_samples: None,
+            replace: true,
             max_features: None,
             loss: None,
             trees: None,
@@ -297,6 +305,7 @@ impl PartitionForest {
                 min_samples_split: self.min_samples_split,
             },
             max_samples: self.max_samples,
+            replace: self.replace,
             max_features: self.max_features,
             seed: None, // seed is set per-tree in _fit_impl
         }
@@ -392,6 +401,7 @@ impl Estimator for PartitionForest {
                     boundaries_expansion_factor: config_template.boundaries_expansion_factor,
                     restrictions: config_template.restrictions.clone(),
                     max_samples: config_template.max_samples,
+                    replace: config_template.replace,
                     max_features: config_template.max_features,
                     seed: Some((base_seed + idx) as u64),
                 };
@@ -419,6 +429,7 @@ impl Estimator for PartitionForest {
             max_depth: self.max_depth,
             min_samples_split: self.min_samples_split,
             max_samples: self.max_samples,
+            replace: self.replace,
             max_features: self.max_features,
             loss: Some(loss_factory),
             trees: self.trees.take(),

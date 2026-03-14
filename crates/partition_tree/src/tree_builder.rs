@@ -47,9 +47,12 @@ pub struct TreeBuilderConfig {
     pub boundaries_expansion_factor: f64,
     /// Split restrictions (min samples, max depth, etc.).
     pub restrictions: SplitRestrictions,
-    /// Fraction of rows to bootstrap-sample (with replacement) for the root
-    /// node. `None` means use all rows (default).
+    /// Fraction of rows to bootstrap-sample for the root node.
+    /// `None` means use all rows (default).
     pub max_samples: Option<f64>,
+    /// Whether bootstrap sampling is done with replacement (`true`, default)
+    /// or without replacement (`false`).
+    pub replace: bool,
     /// Fraction of *feature* columns to consider at each split. `None` means
     /// use all features (default). Target columns are always included.
     pub max_features: Option<f64>,
@@ -65,6 +68,7 @@ impl Default for TreeBuilderConfig {
             boundaries_expansion_factor: 0.1,
             restrictions: SplitRestrictions::default(),
             max_samples: None,
+            replace: true,
             max_features: None,
             seed: None,
         }
@@ -120,7 +124,7 @@ impl TreeBuilder {
 
         // 2. Create root node (with optional bootstrap sampling)
         let root_node = if let Some(max_samples) = self.config.max_samples {
-            Node::root_bootstrap(dataset, root_cell, max_samples, &mut rng)
+            Node::root_bootstrap(dataset, root_cell, max_samples, self.config.replace, &mut rng)
         } else {
             Node::root(dataset, root_cell)
         };
@@ -501,6 +505,7 @@ mod tests {
             boundaries_expansion_factor: 0.1,
             restrictions: SplitRestrictions::default(),
             max_samples: Some(0.5),
+            replace: true,
             max_features: None,
             seed: Some(42),
         };
@@ -531,6 +536,7 @@ mod tests {
             boundaries_expansion_factor: 0.1,
             restrictions: SplitRestrictions::default(),
             max_samples: None,
+            replace: true,
             max_features: Some(0.5),
             seed: Some(42),
         };
@@ -557,6 +563,7 @@ mod tests {
                 boundaries_expansion_factor: 0.1,
                 restrictions: SplitRestrictions::default(),
                 max_samples: Some(0.7),
+                replace: true,
                 max_features: Some(0.5),
                 seed: Some(seed),
             };
@@ -594,6 +601,7 @@ mod tests {
                 boundaries_expansion_factor: 0.1,
                 restrictions: SplitRestrictions::default(),
                 max_samples: Some(0.5),
+                replace: true,
                 max_features: Some(0.5),
                 seed: Some(seed),
             };
