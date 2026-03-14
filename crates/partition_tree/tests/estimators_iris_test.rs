@@ -291,6 +291,7 @@ mod forest_tests {
             /* max_depth */ usize::MAX,
             /* min_samples_split */ 2.0,
             /* max_samples */ None,
+            /* replace */ true,
             /* max_features */ None,
             /* loss */ None,
             /* seed */ Some(42),

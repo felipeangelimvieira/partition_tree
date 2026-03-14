@@ -72,9 +72,12 @@ pub struct PartitionTree {
     pub max_depth: usize,
     /// Minimum total samples in a parent to attempt a split.
     pub min_samples_split: f64,
-    /// Fraction of rows to bootstrap-sample (with replacement).
+    /// Fraction of rows to bootstrap-sample.
     /// `None` means use all rows.
     pub max_samples: Option<f64>,
+    /// Whether bootstrap sampling is done with replacement (`true`, default)
+    /// or without replacement (`false`).
+    pub replace: bool,
     /// Fraction of feature columns to consider at each split.
     /// `None` means use all features.
     pub max_features: Option<f64>,
@@ -108,6 +111,7 @@ impl PartitionTree {
         max_depth: usize,
         min_samples_split: f64,
         max_samples: Option<f64>,
+        replace: bool,
         max_features: Option<f64>,
         loss: Option<Box<dyn LossFunc>>,
         seed: Option<u64>,
@@ -123,6 +127,7 @@ impl PartitionTree {
             max_depth,
             min_samples_split,
             max_samples,
+            replace,
             max_features,
             loss,
             seed,
@@ -145,6 +150,7 @@ impl PartitionTree {
             max_depth: usize::MAX,
             min_samples_split: 2.0,
             max_samples: None,
+            replace: true,
             max_features: None,
             loss: None,
             seed: None,
@@ -267,6 +273,7 @@ impl PartitionTree {
                 min_samples_split: self.min_samples_split,
             },
             max_samples: self.max_samples,
+            replace: self.replace,
             max_features: self.max_features,
             seed: self.seed,
         }
@@ -343,6 +350,7 @@ impl Estimator for PartitionTree {
             max_depth: self.max_depth,
             min_samples_split: self.min_samples_split,
             max_samples: self.max_samples,
+            replace: self.replace,
             max_features: self.max_features,
             loss: Some(loss),
             seed: self.seed,
@@ -414,7 +422,7 @@ mod tests {
     fn fit_and_predict_roundtrip() {
         let (x, y) = make_xy();
         let mut model = PartitionTree::new(
-            13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, None, None, None,
+            13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, true, None, None, None,
         );
         let fitted = model.fit(&x, &y, None).expect("fit should succeed");
         let preds = fitted.predict(&x).expect("predict should succeed");
@@ -430,7 +438,7 @@ mod tests {
     fn predict_proba_returns_distributions() {
         let (x, y) = make_xy();
         let mut model = PartitionTree::new(
-            13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, None, None, None,
+            13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, true, None, None, None,
         );
         let fitted = model.fit(&x, &y, None).unwrap();
         let dists = fitted
@@ -450,7 +458,7 @@ mod tests {
     fn feature_importances_are_nonempty() {
         let (x, y) = make_xy();
         let mut model = PartitionTree::new(
-            13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, None, None, None,
+            13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, true, None, None, None,
         );
         let fitted = model.fit(&x, &y, None).unwrap();
         let imp = fitted.feature_importances(true).unwrap();
@@ -468,7 +476,7 @@ mod tests {
     fn apply_returns_leaf_indices() {
         let (x, y) = make_xy();
         let mut model = PartitionTree::new(
-            13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, None, None, None,
+            13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, true, None, None, None,
         );
         let fitted = model.fit(&x, &y, None).unwrap();
         let leaf_indices = fitted.apply(&x).unwrap();
@@ -487,7 +495,7 @@ mod tests {
     fn leaves_info_matches_tree() {
         let (x, y) = make_xy();
         let mut model = PartitionTree::new(
-            13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, None, None, None,
+            13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, true, None, None, None,
         );
         let fitted = model.fit(&x, &y, None).unwrap();
         let infos = fitted.leaves_info().unwrap();
@@ -522,7 +530,7 @@ mod tests {
         // y = 2*x1, so for x1=1 → y=2, x1=2 → y=4
         let (x, y) = make_xy();
         let mut model = PartitionTree::new(
-            13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, None, None, None,
+            13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, true, None, None, None,
         );
         let fitted = model.fit(&x, &y, None).unwrap();
         let preds = fitted.predict(&x).unwrap();
@@ -545,7 +553,7 @@ mod tests {
     fn serde_roundtrip_bincode() {
         let (x, y) = make_xy();
         let mut model = PartitionTree::new(
-            13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, None, None, None,
+            13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, true, None, None, None,
         );
         let fitted = model.fit(&x, &y, None).unwrap();
 

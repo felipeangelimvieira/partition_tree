@@ -812,7 +812,7 @@ mod tests {
 
         // Fit tree — enough leaves to learn the 3-way split
         let mut model = PartitionTree::new(
-            10, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10, 2.0, None, None, None, None,
+            10, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10, 2.0, None, true, None, None, None,
         );
         let fitted = model
             .fit(&x_train, &y_train, None)
