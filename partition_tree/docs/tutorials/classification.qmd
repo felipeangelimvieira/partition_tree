@@ -44,6 +44,7 @@ from partition_tree.sklearn import PartitionTreeClassifier
 pt = PartitionTreeClassifier(
     random_state=42,
     min_samples_split=2,
+    min_samples_xy=1,
     min_samples_x=1,
     min_samples_y=1,
     min_volume_fraction=0,
@@ -57,11 +58,13 @@ pt.fit(X_train, y_train)
 ```{python}
 y_pred_pt = pt.predict(X_test)
 y_proba_pt = pt.predict_proba(X_test)
+y_pred_train_pt = pt.predict(X_train)
+y_proba_train_pt = pt.predict_proba(X_train)
 
 logloss_pt = log_loss(y_test, y_proba_pt)
 acc_pt = accuracy_score(y_test, y_pred_pt)
 
-logloss_pt, acc_pt
+logloss_pt, acc_pt, log_loss(y_train, y_proba_train_pt), accuracy_score(y_train, y_pred_train_pt)
 ```
 
 ```{python}
@@ -74,10 +77,12 @@ cart.fit(X_train, y_train)
 ```{python}
 y_pred_cart = cart.predict(X_test)
 y_proba_cart = cart.predict_proba(X_test)
+y_pred_train_cart = cart.predict(X_train)
+y_proba_train_cart = cart.predict_proba(X_train)
 logloss_cart = log_loss(y_test, y_proba_cart)
 acc_cart = accuracy_score(y_test, y_pred_cart)
 
-logloss_cart, acc_cart
+logloss_cart, acc_cart, log_loss(y_train, y_proba_train_cart), accuracy_score(y_train, y_pred_train_cart)
 ```
 
 ```{python}
@@ -88,6 +93,7 @@ pf = PartitionForestClassifier(
     random_state=42,
     max_samples=1,
     max_features=1,
+    min_samples_xy=0,
     max_leaves=10000,
     max_depth=10000,
 )
@@ -110,12 +116,9 @@ logloss_pf, acc_pf, log_loss(y_train, y_proba_train_pf), accuracy_score(y_train,
 from sklearn.ensemble import RandomForestClassifier
 
 random_forest = RandomForestClassifier(
-    n_estimators=50,
-    random_state=42,
-    max_depth=50
+    n_estimators=50, random_state=42, max_depth=50, min_samples_leaf=1, bootstrap=False
 )
 random_forest.fit(X_train, y_train)
-
 ```
 
 

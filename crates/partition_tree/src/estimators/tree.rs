@@ -456,10 +456,17 @@ mod tests {
 
     #[test]
     fn feature_importances_are_nonempty() {
-        let (x, y) = make_xy();
-        let mut model = PartitionTree::new(
-            13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, true, None, None, None,
-        );
+        // Data where x1 < 5.0 correlates with low y, x1 >= 5.0 with high y,
+        // producing children with different densities and positive gain.
+        let x1: Vec<Option<f64>> = (0..100).map(|i| Some(i as f64 / 10.0)).collect();
+        let y_vals: Vec<Option<f64>> = (0..100)
+            .map(|i| Some(if i < 50 { 1.0 } else { 9.0 }))
+            .collect();
+
+        let x = DataFrame::new(vec![Column::new(PlSmallStr::from_static("x1"), x1)]).unwrap();
+        let y = DataFrame::new(vec![Column::new(PlSmallStr::from_static("y"), y_vals)]).unwrap();
+
+        let mut model = PartitionTree::with_defaults();
         let fitted = model.fit(&x, &y, None).unwrap();
         let imp = fitted.feature_importances(true).unwrap();
 

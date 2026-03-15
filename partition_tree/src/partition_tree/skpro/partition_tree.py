@@ -212,6 +212,7 @@ class PartitionForestRegressor(BaseProbaRegressor):
         max_depth=None,
         min_samples_split=2.0,
         max_samples=1.0,
+        replace=True,
         max_features=1.0,
         loss=None,
         random_state=42,
@@ -244,6 +245,7 @@ class PartitionForestRegressor(BaseProbaRegressor):
         self.max_depth = max_depth
         self.min_samples_split = min_samples_split
         self.max_samples = max_samples
+        self.replace = replace
         self.max_features = max_features
         self.loss = loss
         self.random_state = random_state
@@ -272,6 +274,7 @@ class PartitionForestRegressor(BaseProbaRegressor):
             min_samples_split=self.min_samples_split,
             max_features=self.max_features,
             max_samples=self.max_samples,
+            replace=self.replace,
             loss=self.loss,
             seed=self.random_state,
         )

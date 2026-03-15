@@ -124,7 +124,13 @@ impl TreeBuilder {
 
         // 2. Create root node (with optional bootstrap sampling)
         let root_node = if let Some(max_samples) = self.config.max_samples {
-            Node::root_bootstrap(dataset, root_cell, max_samples, self.config.replace, &mut rng)
+            Node::root_bootstrap(
+                dataset,
+                root_cell,
+                max_samples,
+                self.config.replace,
+                &mut rng,
+            )
         } else {
             Node::root(dataset, root_cell)
         };

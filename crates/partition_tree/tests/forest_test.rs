@@ -118,7 +118,25 @@ fn ensemble_distribution_has_multiple_cells() {
 
 #[test]
 fn feature_importances_are_nonempty() {
-    let (fitted, _x) = fit_forest(5);
+    // Use data where x1 creates children with different densities.
+    let x1: Vec<Option<f64>> = (0..100).map(|i| Some(i as f64 / 10.0)).collect();
+    let y_vals: Vec<Option<f64>> = (0..100)
+        .map(|i| Some(if i < 50 { 1.0 } else { 9.0 }))
+        .collect();
+    let x = DataFrame::new(vec![
+        Column::new(PlSmallStr::from_static("x1"), x1),
+    ])
+    .unwrap();
+    let y = DataFrame::new(vec![
+        Column::new(PlSmallStr::from_static("y"), y_vals),
+    ])
+    .unwrap();
+
+    let mut model = PartitionForest::new(
+        5, 13, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 6, 2.0,
+        None, true, None, None, Some(42),
+    );
+    let fitted = model.fit(&x, &y, None).unwrap();
     let imp = fitted.feature_importances(true).unwrap();
 
     assert!(!imp.is_empty());

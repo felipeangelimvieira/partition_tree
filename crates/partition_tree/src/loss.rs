@@ -154,19 +154,6 @@ impl LossFunc for ConditionalLogLoss {
         -w_xy * density.ln() / dataset_size
     }
 
-    /// Gain computed using the v1-compatible formula:
-    ///
-    /// $$\text{gain} = \frac{N_{xy}}{D}\left[
-    ///   \frac{w_{xy}^L}{N_{xy}} \ln\frac{w_{xy}^L}{w_x^L \cdot V_L}
-    /// + \frac{w_{xy}^R}{N_{xy}} \ln\frac{w_{xy}^R}{w_x^R \cdot V_R}
-    /// - \ln\frac{N_{xy}}{N_x \cdot V}\right]$$
-    ///
-    /// where $N_{xy} = w_{xy}^L + w_{xy}^R$, $N_x = w_x^L + w_x^R$,
-    /// $V$ is the parent volume.
-    ///
-    /// This differs from the naïve `parent_loss − sum(child_losses)` for
-    /// target splits, where both children carry the full X-measure and
-    /// $N_x = 2 \times w_x^{\text{parent}}$.
     fn gain(
         &self,
         parent: &CellStats,
@@ -174,13 +161,6 @@ impl LossFunc for ConditionalLogLoss {
         right: &CellStats,
         dataset_size: f64,
     ) -> f64 {
-        let total_xy = left.w_xy + right.w_xy;
-        let total_x = left.w_x + right.w_x;
-
-        if total_xy <= 0.0 || total_x <= 0.0 || parent.volume <= 0.0 {
-            return 0.0;
-        }
-
         self.cell_loss(parent, dataset_size)
             - (self.cell_loss(left, dataset_size) + self.cell_loss(right, dataset_size))
     }
@@ -218,13 +198,6 @@ impl LossFunc for MeanIntegratedSquaredError {
         right: &CellStats,
         dataset_size: f64,
     ) -> f64 {
-        let total_xy = left.w_xy + right.w_xy;
-        let total_x = left.w_x + right.w_x;
-
-        if total_xy <= 0.0 || total_x <= 0.0 || parent.volume <= 0.0 {
-            return 0.0;
-        }
-
         self.cell_loss(parent, dataset_size)
             - (self.cell_loss(left, dataset_size) + self.cell_loss(right, dataset_size))
     }
@@ -264,10 +237,6 @@ impl LossFunc for BalancedLogLoss {
         -w_xy * ratio.ln() / dataset_size
     }
 
-    /// Gain using the v1-compatible formula with $w_y$ replacing volume.
-    ///
-    /// Analogous to [`ConditionalLogLoss::gain`] but uses
-    /// $\text{total}_y = w_y^L + w_y^R$ instead of geometric volumes.
     fn gain(
         &self,
         parent: &CellStats,
@@ -275,14 +244,6 @@ impl LossFunc for BalancedLogLoss {
         right: &CellStats,
         dataset_size: f64,
     ) -> f64 {
-        let total_xy = left.w_xy + right.w_xy;
-        let total_x = left.w_x + right.w_x;
-        let total_y = left.w_y + right.w_y;
-
-        if total_xy <= 0.0 || total_x <= 0.0 || total_y <= 0.0 {
-            return 0.0;
-        }
-
         self.cell_loss(parent, dataset_size)
             - (self.cell_loss(left, dataset_size) + self.cell_loss(right, dataset_size))
     }
@@ -366,7 +327,9 @@ mod tests {
         let right = CellStats::new(100.0, 200.0, 100.0, 1.0);
 
         let gain = loss.gain(&parent, &left, &right, 200.0);
-        let expected = 0.0; // ln(2) ≈ 0.693147
+        // For a target split both children have the same w_x as parent,
+        // so cell_loss(parent) == cell_loss(left) + cell_loss(right) and gain is 0.
+        let expected = 0.0;
         assert!(
             approx_eq(gain, expected, 1e-6),
             "got {gain}, expected {expected}"

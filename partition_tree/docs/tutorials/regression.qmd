@@ -114,7 +114,8 @@ from partition_tree.sklearn import PartitionForestRegressor
 forest_reg = PartitionForestRegressor(
     n_estimators=50,
     random_state=42,
-    min_volume_fraction=0.05,
+    min_volume_fraction=0.1,
+    min_samples_xy=0,
 )
 forest_reg.fit(X_train, y_train)
 y_pred_forest = forest_reg.predict(X_test)

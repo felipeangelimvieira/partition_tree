@@ -27,8 +27,8 @@
 //! [`Cell`] + weights are kept in the [`FittedNode`](super::tree::FittedNode).
 use std::collections::HashMap;
 
-use rand::rngs::StdRng;
 use rand::Rng;
+use rand::rngs::StdRng;
 
 use crate::cell::Cell;
 use crate::dataset_view::DatasetView;
@@ -162,9 +162,6 @@ impl Node {
     /// `false`, sampling is done **without replacement** (each row appears at
     /// most once).
     ///
-    /// As a short-circuit, if `replace` is `true` and the number of draws
-    /// equals the dataset size, the original dataset is returned unchanged.
-    ///
     /// The presorted order within each column is preserved: for every column
     /// we walk the global sorted order and repeat each index according to its
     /// bootstrap count.
@@ -177,11 +174,6 @@ impl Node {
     ) -> Self {
         let n = dataset.n_rows();
         let n_bootstrap = (n as f64 * max_samples).floor().max(1.0) as usize;
-
-        // Short-circuit: replace=true with full sample returns original dataset.
-        if replace && n_bootstrap >= n {
-            return Self::root(dataset, cell);
-        }
 
         let mut counts: HashMap<u32, u32> = HashMap::new();
 

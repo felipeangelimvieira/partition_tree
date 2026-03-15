@@ -11,8 +11,8 @@
 //! 4. Returns the split with the highest gain across all columns.
 use std::sync::Arc;
 
-use rand::rngs::StdRng;
 use rand::prelude::SliceRandom;
+use rand::rngs::StdRng;
 use rayon::prelude::*;
 
 use crate::dataset_view::DatasetView;
@@ -62,14 +62,10 @@ impl SplitSearcher {
         let search_tasks: Vec<(&dyn crate::dataset_view::ColumnView, SplitKind)> =
             if let Some(max_f) = max_features {
                 // Separate features and targets
-                let mut features: Vec<(
-                    &dyn crate::dataset_view::ColumnView,
-                    SplitKind,
-                )> = Vec::new();
-                let mut targets: Vec<(
-                    &dyn crate::dataset_view::ColumnView,
-                    SplitKind,
-                )> = Vec::new();
+                let mut features: Vec<(&dyn crate::dataset_view::ColumnView, SplitKind)> =
+                    Vec::new();
+                let mut targets: Vec<(&dyn crate::dataset_view::ColumnView, SplitKind)> =
+                    Vec::new();
 
                 for col in &columns {
                     if col.is_target() {
@@ -135,11 +131,11 @@ impl SplitSearcher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rules::ContinuousInterval;
     use crate::cell::Cell;
     use crate::dataset_view::PolarsDatasetView;
     use crate::loss::ConditionalLogLoss;
     use crate::rule::DynRule;
+    use crate::rules::ContinuousInterval;
     use polars::prelude::*;
 
     fn make_test_setup() -> (PolarsDatasetView, Node, SplitSearcher) {
@@ -191,7 +187,8 @@ mod tests {
         let restrictions = SplitRestrictions::default();
         let mut rng = StdRng::seed_from_u64(42);
 
-        let result = searcher.find_best_split(&node, &dataset, &loss, &restrictions, None, &mut rng, 5.0);
+        let result =
+            searcher.find_best_split(&node, &dataset, &loss, &restrictions, None, &mut rng, 5.0);
 
         assert!(result.is_some(), "should find a valid split");
         let split = result.unwrap();
@@ -211,10 +208,19 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
 
         let result = searcher.find_best_split(
-            &node, &dataset, &loss, &restrictions, Some(1), &mut rng, 5.0,
+            &node,
+            &dataset,
+            &loss,
+            &restrictions,
+            Some(1),
+            &mut rng,
+            5.0,
         );
 
-        assert!(result.is_some(), "should find a split even with max_features=1");
+        assert!(
+            result.is_some(),
+            "should find a split even with max_features=1"
+        );
         assert!(result.unwrap().gain > 0.0);
     }
 
@@ -237,21 +243,34 @@ mod tests {
             .with_rule(
                 "x1",
                 Box::new(ContinuousInterval::new(
-                    f64::NEG_INFINITY, f64::INFINITY, true, true,
-                    Some((f64::NEG_INFINITY, f64::INFINITY)), true,
+                    f64::NEG_INFINITY,
+                    f64::INFINITY,
+                    true,
+                    true,
+                    Some((f64::NEG_INFINITY, f64::INFINITY)),
+                    true,
                 )) as Box<dyn DynRule>,
             )
             .with_rule(
                 "x2",
                 Box::new(ContinuousInterval::new(
-                    f64::NEG_INFINITY, f64::INFINITY, true, true,
-                    Some((f64::NEG_INFINITY, f64::INFINITY)), true,
+                    f64::NEG_INFINITY,
+                    f64::INFINITY,
+                    true,
+                    true,
+                    Some((f64::NEG_INFINITY, f64::INFINITY)),
+                    true,
                 )) as Box<dyn DynRule>,
             )
             .with_rule(
                 "target__y1",
                 Box::new(ContinuousInterval::new(
-                    0.0, 60.0, true, true, Some((0.0, 60.0)), true,
+                    0.0,
+                    60.0,
+                    true,
+                    true,
+                    Some((0.0, 60.0)),
+                    true,
                 )) as Box<dyn DynRule>,
             );
 
@@ -268,7 +287,13 @@ mod tests {
         for seed in 0..50 {
             let mut rng = StdRng::seed_from_u64(seed);
             if let Some(split) = searcher.find_best_split(
-                &node, &dataset, &loss, &restrictions, Some(1), &mut rng, 5.0,
+                &node,
+                &dataset,
+                &loss,
+                &restrictions,
+                Some(1),
+                &mut rng,
+                5.0,
             ) {
                 if split.split_kind == SplitKind::YSplit {
                     saw_ysplit = true;
