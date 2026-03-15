@@ -110,8 +110,12 @@ impl ColumnSplitSearcher for CategoricalColumnSplitSearcher {
             return None;
         }
 
-        // 1) Sort by r_c ascending
-        cats.sort_by(|a, b| a.3.partial_cmp(&b.3).unwrap_or(std::cmp::Ordering::Equal));
+        // 1) Sort by r_c ascending, breaking ties by category index
+        cats.sort_by(|a, b| {
+            a.3.partial_cmp(&b.3)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.0.cmp(&b.0))
+        });
 
         // 2) Prefix sums
         let a_pref = cumsum(&cats.iter().map(|c| c.1).collect::<Vec<_>>());

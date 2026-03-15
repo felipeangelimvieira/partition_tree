@@ -88,9 +88,10 @@ impl ConditionedCell {
     /// For categorical targets this is the one-hot indicator over the
     /// sorted domain (length `|domain|`).
     pub fn mean_map(&self) -> HashMap<String, Vec<f64>> {
-        self.target_rules
-            .iter()
-            .map(|(k, r)| (k.clone(), r.mean()))
+        let mut keys: Vec<&String> = self.target_rules.keys().collect();
+        keys.sort();
+        keys.into_iter()
+            .map(|k| (k.clone(), self.target_rules[k].mean()))
             .collect()
     }
 

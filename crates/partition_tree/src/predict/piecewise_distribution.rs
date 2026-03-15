@@ -215,8 +215,10 @@ impl PiecewiseConstantDistribution {
         let mut segments = Vec::with_capacity(self.cells.len());
 
         for cell in &self.cells {
-            // Find the first continuous target rule
-            for (_, rule) in &cell.target_rules {
+            // Find the first continuous target rule (sorted for determinism)
+            let mut sorted_rules: Vec<_> = cell.target_rules.iter().collect();
+            sorted_rules.sort_by_key(|(k, _)| k.clone());
+            for (_, rule) in sorted_rules {
                 if let Some(ci) = rule.as_any().downcast_ref::<ContinuousInterval>() {
                     let vol = ci.volume();
                     if vol <= 0.0 {

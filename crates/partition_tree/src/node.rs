@@ -339,7 +339,8 @@ impl Node {
         //   partitioned.  sorted_y is inherited **unchanged** by both
         //   children because a feature split does not restrict the
         //   target-space measure.
-        let col_names: Vec<String> = self.sorted.sorted_xy.keys().cloned().collect();
+        let mut col_names: Vec<String> = self.sorted.sorted_xy.keys().cloned().collect();
+        col_names.sort();
         let n_cols = col_names.len();
 
         let mut left_sorted = SortedIndices::new();

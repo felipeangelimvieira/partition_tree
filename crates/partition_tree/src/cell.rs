@@ -219,9 +219,10 @@ impl Cell {
 
     /// Per-column mean vector, concatenated. Used for prediction decoding.
     pub fn mean_map(&self) -> HashMap<String, Vec<f64>> {
-        self.rules
-            .iter()
-            .map(|(k, r)| (k.clone(), r.mean()))
+        let mut keys: Vec<&String> = self.rules.keys().collect();
+        keys.sort();
+        keys.into_iter()
+            .map(|k| (k.clone(), self.rules[k].mean()))
             .collect()
     }
 }

@@ -433,6 +433,7 @@ impl Ord for CandidateSplit {
         self.gain()
             .partial_cmp(&other.gain())
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| other.node_index.cmp(&self.node_index))
     }
 }
 
@@ -510,5 +511,34 @@ mod tests {
         let a = make(1.0);
         let b = make(2.0);
         assert!(b > a);
+    }
+
+    #[test]
+    fn candidate_split_tiebreak_by_node_index() {
+        // Two candidates with equal gain but different node_index.
+        // The ordering must be deterministic (lower node_index wins as tiebreaker).
+        let make = |gain: f64, node_index: usize| CandidateSplit {
+            node_index,
+            split: SplitPoint {
+                col_name: "x".into(),
+                split_kind: SplitKind::XSplit,
+                none_to_left: true,
+                gain,
+                left_stats: CellStats::new(0.0, 0.0, 0.0, 0.0),
+                right_stats: CellStats::new(0.0, 0.0, 0.0, 0.0),
+                op: Box::new(ContinuousSplitOp {
+                    threshold: 0.0,
+                    k_candidate: 0,
+                    p_xy: 0,
+                }),
+            },
+        };
+
+        let a = make(5.0, 3);
+        let b = make(5.0, 7);
+        // With equal gain, lower node_index should come later in ordering
+        // (so that BinaryHeap pops it first → deterministic).
+        // The key invariant: cmp must NOT return Equal for different node_indices.
+        assert_ne!(a.cmp(&b), std::cmp::Ordering::Equal);
     }
 }
