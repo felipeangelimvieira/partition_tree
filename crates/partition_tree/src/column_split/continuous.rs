@@ -96,6 +96,7 @@ impl ColumnSplitSearcher for ContinuousColumnSplitSearcher {
 
         let mut best: Option<SplitPoint> = None;
         let mut best_gain = f64::NEG_INFINITY;
+        let tie_break_start = (candidates.len() - 1) / 2;
 
         // Try both none_to_left options
         for &none_to_left in &[true, false] {
@@ -175,7 +176,9 @@ impl ColumnSplitSearcher for ContinuousColumnSplitSearcher {
                     continue;
                 }
 
-                if gain > best_gain {
+                if gain > best_gain
+                    || ((gain - best_gain).abs() < f64::EPSILON && k < tie_break_start)
+                {
                     best_gain = gain;
                     best = Some(SplitPoint {
                         col_name: col_name.to_string(),
