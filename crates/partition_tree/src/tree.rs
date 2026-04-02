@@ -67,6 +67,10 @@ pub struct FittedNode {
     pub right_child: Option<usize>,
     /// Whether this is a leaf node.
     pub is_leaf: bool,
+    /// Column on which this node was split (`None` for leaves).
+    pub split_col: Option<String>,
+    /// Whether the split refines X or Y (`None` for leaves).
+    pub split_kind: Option<SplitKind>,
 }
 
 impl FittedNode {
@@ -330,46 +334,91 @@ impl Tree {
     }
 
     /// Match all leaf node indices whose feature constraints contain row `row_idx`.
+    ///
+    /// Uses an iterative root-to-leaf walk instead of scanning every leaf.
+    /// At each internal node the split column is checked:
+    ///
+    /// - **Column present** in `columns` → evaluate the left child's rule for
+    ///   that column and descend left or right accordingly.
+    /// - **Column absent** (target split, or feature not in the query) →
+    ///   descend into **both** children.
+    ///
+    /// Complexity: O(depth) when all split columns are present; degrades
+    /// towards O(n_nodes) only when many splits are on absent columns.
     fn match_leaves_given_features(
         &self,
         row_idx: usize,
         feature_columns: &[&dyn ColumnView],
     ) -> Vec<usize> {
-        self.leaves
-            .iter()
-            .copied()
-            .filter(|&leaf_idx| {
-                self.evaluate_feature_row_membership(
-                    &self.nodes[leaf_idx],
-                    row_idx,
-                    feature_columns,
-                )
-            })
-            .collect()
+        // Build O(1) lookup from column name → ColumnView
+        let col_map: HashMap<&str, &dyn ColumnView> =
+            feature_columns.iter().map(|c| (c.name(), *c)).collect();
+
+        self.walk_leaves(row_idx, &col_map)
     }
 
-    /// Check if `row_idx` satisfies only the feature rules of `node.cell`.
-    fn evaluate_feature_row_membership(
+    /// Iterative DFS walk collecting all reachable leaves for a single row.
+    ///
+    /// `col_map` maps column names to their [`ColumnView`]s.  When the split
+    /// column of an internal node is absent from `col_map`, both children are
+    /// explored.  When it is present, only the matching child is visited.
+    fn walk_leaves(&self, row_idx: usize, col_map: &HashMap<&str, &dyn ColumnView>) -> Vec<usize> {
+        let mut result = Vec::new();
+        let mut stack = Vec::with_capacity(self.depth() + 1);
+        stack.push(0_usize); // root
+
+        while let Some(node_idx) = stack.pop() {
+            let node = &self.nodes[node_idx];
+
+            if node.is_leaf {
+                result.push(node_idx);
+                continue;
+            }
+
+            let left_idx = node.left_child.unwrap();
+            let right_idx = node.right_child.unwrap();
+
+            match node.split_col.as_deref() {
+                Some(split_col) if col_map.contains_key(split_col) => {
+                    // Column is available — evaluate left child's rule for this
+                    // single column and route deterministically.
+                    let left_node = &self.nodes[left_idx];
+                    if self.evaluate_split_column(left_node, row_idx, split_col, col_map) {
+                        stack.push(left_idx);
+                    } else {
+                        stack.push(right_idx);
+                    }
+                }
+                _ => {
+                    // Split column absent (target split or missing feature) —
+                    // explore both subtrees.
+                    stack.push(right_idx);
+                    stack.push(left_idx);
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Check whether `row_idx` satisfies the rule for `split_col` in `node`'s cell.
+    fn evaluate_split_column(
         &self,
         node: &FittedNode,
         row_idx: usize,
-        feature_columns: &[&dyn ColumnView],
+        split_col: &str,
+        col_map: &HashMap<&str, &dyn ColumnView>,
     ) -> bool {
-        for (col_name, rule) in node.cell.feature_rules() {
-            let col = match feature_columns
-                .iter()
-                .find(|c| c.name() == col_name.as_str())
-            {
-                Some(c) => c,
-                None => continue,
-            };
-
-            let value = col.get_dyn_value(row_idx);
-            if !rule.contains(value.as_ref()) {
-                return false;
-            }
-        }
-        true
+        let rule = match node.cell.get_rule(split_col) {
+            Some(r) => r,
+            None => return true, // no rule ⇒ unconstrained
+        };
+        let col = match col_map.get(split_col) {
+            Some(c) => *c,
+            None => return true, // column absent ⇒ unconstrained
+        };
+        let value = col.get_dyn_value(row_idx);
+        rule.contains(value.as_ref())
     }
 
     /// Predict mean vectors for all rows.
@@ -659,6 +708,8 @@ mod tests {
             left_child: Some(1),
             right_child: Some(2),
             is_leaf: false,
+            split_col: Some("x".to_string()),
+            split_kind: Some(SplitKind::XSplit),
         };
 
         let left = FittedNode {
@@ -671,6 +722,8 @@ mod tests {
             left_child: None,
             right_child: None,
             is_leaf: true,
+            split_col: None,
+            split_kind: None,
         };
 
         let right = FittedNode {
@@ -683,6 +736,8 @@ mod tests {
             left_child: None,
             right_child: None,
             is_leaf: true,
+            split_col: None,
+            split_kind: None,
         };
 
         Tree {
@@ -811,6 +866,8 @@ mod tests {
             left_child: Some(1),
             right_child: Some(2),
             is_leaf: false,
+            split_col: Some("target_y".to_string()),
+            split_kind: Some(SplitKind::YSplit),
         };
 
         // Internal nodes after target split
@@ -826,6 +883,8 @@ mod tests {
             left_child: Some(3),
             right_child: Some(4),
             is_leaf: false,
+            split_col: Some("x".to_string()),
+            split_kind: Some(SplitKind::XSplit),
         };
         let target_right = FittedNode {
             cell: Cell::new()
@@ -839,6 +898,8 @@ mod tests {
             left_child: Some(5),
             right_child: Some(6),
             is_leaf: false,
+            split_col: Some("x".to_string()),
+            split_kind: Some(SplitKind::XSplit),
         };
 
         // Leaves
@@ -854,6 +915,8 @@ mod tests {
             left_child: None,
             right_child: None,
             is_leaf: true,
+            split_col: None,
+            split_kind: None,
         };
         let lr = FittedNode {
             cell: Cell::new()
@@ -867,6 +930,8 @@ mod tests {
             left_child: None,
             right_child: None,
             is_leaf: true,
+            split_col: None,
+            split_kind: None,
         };
         let rl = FittedNode {
             cell: Cell::new()
@@ -880,6 +945,8 @@ mod tests {
             left_child: None,
             right_child: None,
             is_leaf: true,
+            split_col: None,
+            split_kind: None,
         };
         let rr = FittedNode {
             cell: Cell::new()
@@ -893,6 +960,8 @@ mod tests {
             left_child: None,
             right_child: None,
             is_leaf: true,
+            split_col: None,
+            split_kind: None,
         };
 
         Tree {
@@ -998,6 +1067,8 @@ mod tests {
             left_child: Some(1),
             right_child: Some(2),
             is_leaf: false,
+            split_col: Some("x".to_string()),
+            split_kind: Some(SplitKind::XSplit),
         };
         let left = FittedNode {
             cell: Cell::new()
@@ -1011,6 +1082,8 @@ mod tests {
             left_child: None,
             right_child: None,
             is_leaf: true,
+            split_col: None,
+            split_kind: None,
         };
         let right = FittedNode {
             cell: Cell::new()
@@ -1024,6 +1097,8 @@ mod tests {
             left_child: None,
             right_child: None,
             is_leaf: true,
+            split_col: None,
+            split_kind: None,
         };
 
         Tree {
@@ -1164,6 +1239,8 @@ mod tests {
             left_child: None,
             right_child: None,
             is_leaf: true,
+            split_col: None,
+            split_kind: None,
         };
 
         let tree = Tree {
@@ -1227,5 +1304,249 @@ mod tests {
             (y0 - y1).abs() > 1e-12,
             "means should differ between x=2 and x=8 ({y0} vs {y1})"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // walk_leaves / match_leaves_given_features tests
+    // -----------------------------------------------------------------------
+
+    /// Build a tree with two feature columns (x1, x2) and one target column.
+    ///
+    /// Structure (depth 2):
+    ///
+    /// ```text
+    ///         root (split x1 at 5)
+    ///         /                \
+    ///   node1 (split x2 at 3)   node2 (split target_y at 5)
+    ///    /       \               /        \
+    ///  leaf0    leaf1         leaf2      leaf3
+    /// ```
+    ///
+    /// - `leaf0`: x1<5, x2<3
+    /// - `leaf1`: x1<5, x2≥3
+    /// - `leaf2`: x1≥5, y<5
+    /// - `leaf3`: x1≥5, y≥5
+    fn make_two_feature_tree() -> Tree {
+        let ci = |lo, hi, inc_lo, inc_hi| {
+            Box::new(ContinuousInterval::new(
+                lo,
+                hi,
+                inc_lo,
+                inc_hi,
+                Some((0.0, 10.0)),
+                false,
+            )) as Box<dyn DynRule>
+        };
+
+        let root = FittedNode {
+            cell: Cell::new()
+                .with_rule("x1", ci(0.0, 10.0, true, true))
+                .with_rule("x2", ci(0.0, 10.0, true, true))
+                .with_rule("target__y", ci(0.0, 10.0, true, true)),
+            w_xy: 100.0,
+            w_x: 100.0,
+            w_y: 100.0,
+            depth: 0,
+            parent: None,
+            left_child: Some(1),
+            right_child: Some(2),
+            is_leaf: false,
+            split_col: Some("x1".to_string()),
+            split_kind: Some(SplitKind::XSplit),
+        };
+        // node1: x1 < 5, split on x2
+        let node1 = FittedNode {
+            cell: Cell::new()
+                .with_rule("x1", ci(0.0, 5.0, true, false))
+                .with_rule("x2", ci(0.0, 10.0, true, true))
+                .with_rule("target__y", ci(0.0, 10.0, true, true)),
+            w_xy: 50.0,
+            w_x: 50.0,
+            w_y: 100.0,
+            depth: 1,
+            parent: Some(0),
+            left_child: Some(3),
+            right_child: Some(4),
+            is_leaf: false,
+            split_col: Some("x2".to_string()),
+            split_kind: Some(SplitKind::XSplit),
+        };
+        // node2: x1 >= 5, split on target__y
+        let node2 = FittedNode {
+            cell: Cell::new()
+                .with_rule("x1", ci(5.0, 10.0, true, true))
+                .with_rule("x2", ci(0.0, 10.0, true, true))
+                .with_rule("target__y", ci(0.0, 10.0, true, true)),
+            w_xy: 50.0,
+            w_x: 50.0,
+            w_y: 100.0,
+            depth: 1,
+            parent: Some(0),
+            left_child: Some(5),
+            right_child: Some(6),
+            is_leaf: false,
+            split_col: Some("target__y".to_string()),
+            split_kind: Some(SplitKind::YSplit),
+        };
+        // leaf0: x1<5, x2<3
+        let leaf0 = FittedNode {
+            cell: Cell::new()
+                .with_rule("x1", ci(0.0, 5.0, true, false))
+                .with_rule("x2", ci(0.0, 3.0, true, false))
+                .with_rule("target__y", ci(0.0, 10.0, true, true)),
+            w_xy: 20.0,
+            w_x: 20.0,
+            w_y: 100.0,
+            depth: 2,
+            parent: Some(1),
+            left_child: None,
+            right_child: None,
+            is_leaf: true,
+            split_col: None,
+            split_kind: None,
+        };
+        // leaf1: x1<5, x2>=3
+        let leaf1 = FittedNode {
+            cell: Cell::new()
+                .with_rule("x1", ci(0.0, 5.0, true, false))
+                .with_rule("x2", ci(3.0, 10.0, true, true))
+                .with_rule("target__y", ci(0.0, 10.0, true, true)),
+            w_xy: 30.0,
+            w_x: 30.0,
+            w_y: 100.0,
+            depth: 2,
+            parent: Some(1),
+            left_child: None,
+            right_child: None,
+            is_leaf: true,
+            split_col: None,
+            split_kind: None,
+        };
+        // leaf2: x1>=5, y<5
+        let leaf2 = FittedNode {
+            cell: Cell::new()
+                .with_rule("x1", ci(5.0, 10.0, true, true))
+                .with_rule("x2", ci(0.0, 10.0, true, true))
+                .with_rule("target__y", ci(0.0, 5.0, true, false)),
+            w_xy: 25.0,
+            w_x: 50.0,
+            w_y: 50.0,
+            depth: 2,
+            parent: Some(2),
+            left_child: None,
+            right_child: None,
+            is_leaf: true,
+            split_col: None,
+            split_kind: None,
+        };
+        // leaf3: x1>=5, y>=5
+        let leaf3 = FittedNode {
+            cell: Cell::new()
+                .with_rule("x1", ci(5.0, 10.0, true, true))
+                .with_rule("x2", ci(0.0, 10.0, true, true))
+                .with_rule("target__y", ci(5.0, 10.0, true, true)),
+            w_xy: 25.0,
+            w_x: 50.0,
+            w_y: 50.0,
+            depth: 2,
+            parent: Some(2),
+            left_child: None,
+            right_child: None,
+            is_leaf: true,
+            split_col: None,
+            split_kind: None,
+        };
+
+        Tree {
+            nodes: vec![root, node1, node2, leaf0, leaf1, leaf2, leaf3],
+            leaves: vec![3, 4, 5, 6],
+            split_history: vec![],
+        }
+    }
+
+    #[test]
+    fn walk_with_all_features_routes_to_single_leaf() {
+        let tree = make_two_feature_tree();
+
+        // x1=2, x2=1 → left on x1 (<5), left on x2 (<3) → leaf0 (index 3)
+        let df = DataFrame::new(vec![
+            Column::new(PlSmallStr::from_static("x1"), vec![2.0_f64]),
+            Column::new(PlSmallStr::from_static("x2"), vec![1.0_f64]),
+        ])
+        .unwrap();
+        let dataset = PolarsDatasetView::new(&df);
+        let cols = dataset.feature_columns();
+        let matched = tree.match_leaves_given_features(0, &cols);
+        // Target split at node2 is unreachable (x1 < 5 goes left), so 1 leaf.
+        assert_eq!(matched, vec![3]);
+    }
+
+    #[test]
+    fn walk_with_all_features_explores_y_split_both_sides() {
+        let tree = make_two_feature_tree();
+
+        // x1=7, x2=5 → right on x1 (≥5), then target split → both leaf2, leaf3
+        let df = DataFrame::new(vec![
+            Column::new(PlSmallStr::from_static("x1"), vec![7.0_f64]),
+            Column::new(PlSmallStr::from_static("x2"), vec![5.0_f64]),
+        ])
+        .unwrap();
+        let dataset = PolarsDatasetView::new(&df);
+        let cols = dataset.feature_columns();
+        let mut matched = tree.match_leaves_given_features(0, &cols);
+        matched.sort();
+        assert_eq!(
+            matched,
+            vec![5, 6],
+            "both target-split children must be reached"
+        );
+    }
+
+    #[test]
+    fn walk_with_partial_features_explores_missing_feature_splits() {
+        let tree = make_two_feature_tree();
+
+        // Only x1=2, no x2. x1<5 → go left to node1 (split on x2).
+        // x2 absent → both children of node1 explored → leaf0 + leaf1.
+        let df = DataFrame::new(vec![Column::new(
+            PlSmallStr::from_static("x1"),
+            vec![2.0_f64],
+        )])
+        .unwrap();
+        let dataset = PolarsDatasetView::new(&df);
+        let cols = dataset.feature_columns();
+        let mut matched = tree.match_leaves_given_features(0, &cols);
+        matched.sort();
+        assert_eq!(matched, vec![3, 4], "missing x2 → both x2-split children");
+    }
+
+    #[test]
+    fn walk_with_no_features_returns_all_leaves() {
+        let tree = make_two_feature_tree();
+
+        // No columns at all → every split is on an absent column → all leaves.
+        let cols: Vec<&dyn ColumnView> = vec![];
+        let mut matched = tree.match_leaves_given_features(0, &cols);
+        matched.sort();
+        assert_eq!(matched, vec![3, 4, 5, 6], "no columns → all leaves");
+    }
+
+    #[test]
+    fn walk_with_only_x2_explores_x1_splits_both_sides() {
+        let tree = make_two_feature_tree();
+
+        // Only x2=1 provided, no x1 → root split on x1 absent → both children.
+        // node1 split on x2: present, x2=1 < 3 → left → leaf0 (3)
+        // node2 split on target__y: absent → both → leaf2 (5) + leaf3 (6)
+        let df = DataFrame::new(vec![Column::new(
+            PlSmallStr::from_static("x2"),
+            vec![1.0_f64],
+        )])
+        .unwrap();
+        let dataset = PolarsDatasetView::new(&df);
+        let cols = dataset.feature_columns();
+        let mut matched = tree.match_leaves_given_features(0, &cols);
+        matched.sort();
+        assert_eq!(matched, vec![3, 5, 6]);
     }
 }

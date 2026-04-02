@@ -158,6 +158,8 @@ impl TreeBuilder {
             left_child: None,
             right_child: None,
             is_leaf: true,
+            split_col: None,
+            split_kind: None,
         };
         nodes.push(root_fitted);
         build_nodes.push(Some(root_node));
@@ -234,6 +236,8 @@ impl TreeBuilder {
                 left_child: None,
                 right_child: None,
                 is_leaf: true,
+                split_col: None,
+                split_kind: None,
             };
             let right_fitted = FittedNode {
                 cell: right_build.cell.clone(),
@@ -245,6 +249,8 @@ impl TreeBuilder {
                 left_child: None,
                 right_child: None,
                 is_leaf: true,
+                split_col: None,
+                split_kind: None,
             };
 
             nodes.push(left_fitted);
@@ -254,6 +260,8 @@ impl TreeBuilder {
             nodes[parent_idx].left_child = Some(left_idx);
             nodes[parent_idx].right_child = Some(right_idx);
             nodes[parent_idx].is_leaf = false;
+            nodes[parent_idx].split_col = Some(split.col_name.clone());
+            nodes[parent_idx].split_kind = Some(split.split_kind);
 
             // Record the split
             split_history.push(SplitRecord {

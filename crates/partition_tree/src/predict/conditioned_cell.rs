@@ -127,9 +127,9 @@ impl ConditionedCell {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rules::ContinuousInterval;
     use crate::cell::Cell;
     use crate::rule::DynRule;
+    use crate::rules::ContinuousInterval;
     use crate::tree::FittedNode;
 
     fn make_fitted_node_with_target() -> FittedNode {
@@ -167,6 +167,8 @@ mod tests {
             left_child: None,
             right_child: None,
             is_leaf: true,
+            split_col: None,
+            split_kind: None,
         }
     }
 
