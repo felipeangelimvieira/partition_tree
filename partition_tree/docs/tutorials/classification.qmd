@@ -26,7 +26,7 @@ letter_recognition = fetch_ucirepo(id=59)
 X = letter_recognition.data.features
 y = letter_recognition.data.targets
 
-X, y= load_digits(return_X_y=True)  # --- IGNORE ---
+X, y = load_digits(return_X_y=True)  # --- IGNORE ---
 
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.3, random_state=42
@@ -48,7 +48,6 @@ pt = PartitionTreeClassifier(
     min_samples_x=1,
     min_samples_y=1,
     min_volume_fraction=0,
-    loss=None,
 )
 
 pt.fit(X_train, y_train)
@@ -70,7 +69,7 @@ logloss_pt, acc_pt, log_loss(y_train, y_proba_train_pt), accuracy_score(y_train,
 ```{python}
 from sklearn.tree import DecisionTreeClassifier
 
-cart = DecisionTreeClassifier(random_state=42)
+cart = DecisionTreeClassifier(random_state=42, criterion="log_loss")
 cart.fit(X_train, y_train)
 ```
 
@@ -116,7 +115,12 @@ logloss_pf, acc_pf, log_loss(y_train, y_proba_train_pf), accuracy_score(y_train,
 from sklearn.ensemble import RandomForestClassifier
 
 random_forest = RandomForestClassifier(
-    n_estimators=50, random_state=42, max_depth=50, min_samples_leaf=1, bootstrap=False
+    n_estimators=50,
+    random_state=42,
+    max_depth=50,
+    min_samples_leaf=1,
+    bootstrap=False,
+    criterion="log_loss",
 )
 random_forest.fit(X_train, y_train)
 ```
@@ -131,4 +135,16 @@ y_proba_train_rf = random_forest.predict_proba(X_train)
 logloss_rf = log_loss(y_test, y_proba_rf)
 acc_rf = accuracy_score(y_test, y_pred_rf)
 logloss_rf, acc_rf, log_loss(y_train, y_proba_train_rf), accuracy_score(y_train, y_pred_train_rf)
+```
+
+
+```{python}
+
+comparison_df = pd.DataFrame({
+    "Model": ["PartitionTree", "PartitionForest", "DecisionTree (CART)", "RandomForest"],
+    "Log Loss": [logloss_pt, logloss_pf, logloss_cart, logloss_rf],
+    "Accuracy": [acc_pt, acc_pf, acc_cart, acc_rf],
+})
+
+comparison_df.sort_values("Log Loss")
 ```
