@@ -7,12 +7,12 @@
 use std::sync::Arc;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use polars::prelude::*;
 use polars::datatypes::FrozenCategories;
+use polars::prelude::*;
 
 use partition_tree::{
-    ConditionalLogLoss, DTypeRegistry, PartitionForest, PolarsDatasetView,
-    TreeBuilder, TreeBuilderConfig,
+    ConditionalLogLoss, DTypeRegistry, PartitionForest, PolarsDatasetView, TreeBuilder,
+    TreeBuilderConfig,
 };
 
 // ---------------------------------------------------------------------------
@@ -109,28 +109,23 @@ fn bench_single_tree_build(c: &mut Criterion) {
             .rename(["y"], ["target__y"], true)
             .collect()
             .unwrap();
-        let xy =
-            polars::functions::concat_df_horizontal(&[x.clone(), y_prefixed.clone()], true)
-                .unwrap();
+        let xy = polars::functions::concat_df_horizontal(&[x.clone(), y_prefixed.clone()], true)
+            .unwrap();
         let dataset = PolarsDatasetView::new(&xy);
 
-        group.bench_with_input(
-            BenchmarkId::new("regression", n_rows),
-            &n_rows,
-            |b, _| {
-                b.iter(|| {
-                    let config = TreeBuilderConfig {
-                        max_leaves: 31,
-                        seed: Some(42),
-                        ..Default::default()
-                    };
-                    let loss: Box<dyn partition_tree::LossFunc> = Box::new(ConditionalLogLoss);
-                    let registry = Arc::new(DTypeRegistry::default());
-                    let builder = TreeBuilder::new(config, loss, registry);
-                    builder.build(&dataset)
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("regression", n_rows), &n_rows, |b, _| {
+            b.iter(|| {
+                let config = TreeBuilderConfig {
+                    max_leaves: 31,
+                    seed: Some(42),
+                    ..Default::default()
+                };
+                let loss: Box<dyn partition_tree::LossFunc> = Box::new(ConditionalLogLoss);
+                let registry = Arc::new(DTypeRegistry::default());
+                let builder = TreeBuilder::new(config, loss, registry);
+                builder.build(&dataset)
+            });
+        });
     }
 
     group.finish();
@@ -181,13 +176,9 @@ fn bench_forest_predict(c: &mut Criterion) {
         use estimators::api::Estimator;
         let fitted = forest.fit(&x_train, &y_train, None).unwrap();
 
-        group.bench_with_input(
-            BenchmarkId::new("predict", n_trees),
-            &n_trees,
-            |b, _| {
-                b.iter(|| fitted.predict(&x_test).unwrap());
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("predict", n_trees), &n_trees, |b, _| {
+            b.iter(|| fitted.predict(&x_test).unwrap());
+        });
 
         group.bench_with_input(
             BenchmarkId::new("predict_proba", n_trees),
@@ -218,13 +209,9 @@ fn bench_forest_predict_classification(c: &mut Criterion) {
         use estimators::api::Estimator;
         let fitted = forest.fit(&x_train, &y_train, None).unwrap();
 
-        group.bench_with_input(
-            BenchmarkId::new("predict", n_trees),
-            &n_trees,
-            |b, _| {
-                b.iter(|| fitted.predict(&x_test).unwrap());
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("predict", n_trees), &n_trees, |b, _| {
+            b.iter(|| fitted.predict(&x_test).unwrap());
+        });
 
         group.bench_with_input(
             BenchmarkId::new("predict_proba", n_trees),

@@ -27,6 +27,7 @@ use std::collections::HashMap;
 use std::fmt;
 
 use polars::prelude::*;
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::rules::{BelongsTo, ContinuousInterval, IntegerInterval};
@@ -289,9 +290,10 @@ impl Tree {
 
     /// Predict conditional distributions for all rows in a dataset.
     ///
-    /// 1. Routes each row to its leaf via [`predict_leaves`](Tree::predict_leaves).
-    /// 2. Builds a [`ConditionedCell`] from each unique leaf (deduplication).
-    /// 3. Wraps each in a [`PiecewiseConstantDistribution`].
+    /// 1. Pre-builds a column lookup map and all leaf [`ConditionedCell`]s once.
+    /// 2. Matches each row to leaves whose feature constraints contain it via
+    ///    [`walk_leaves`](Tree::walk_leaves) (rows processed in parallel).
+    /// 3. Wraps matched cells in a [`PiecewiseConstantDistribution`].
     ///
     /// Returns a `Vec` of length `dataset.n_rows()`.
     pub fn predict_distributions(
@@ -301,14 +303,23 @@ impl Tree {
         let feature_columns = dataset.feature_columns();
         let all_columns = dataset.columns();
 
-        // Build `ConditionedCell` once per unique leaf
-        let mut cache: HashMap<usize, ConditionedCell> = HashMap::new();
+        // Build column lookup once — reused for every row.
+        let col_map: HashMap<&str, &dyn ColumnView> =
+            feature_columns.iter().map(|c| (c.name(), *c)).collect();
+
+        // Pre-build ConditionedCell for every leaf once — no per-row allocation.
+        let leaf_cells: HashMap<usize, ConditionedCell> = self
+            .leaves
+            .iter()
+            .map(|&idx| (idx, ConditionedCell::from_fitted_node(&self.nodes[idx])))
+            .collect();
 
         (0..dataset.n_rows())
+            .into_par_iter()
             .map(|row_idx| {
                 // Conditional prediction P(Y|X=x): match *all* leaves whose
                 // feature-space constraints contain x (ignoring target rules).
-                let mut matched = self.match_leaves_given_features(row_idx, &feature_columns);
+                let mut matched = self.walk_leaves(row_idx, &col_map);
 
                 // Defensive fallback: if no leaf matched by features, fall back
                 // to deterministic traversal over all columns.
@@ -318,14 +329,7 @@ impl Tree {
 
                 let cells = matched
                     .into_iter()
-                    .map(|leaf_idx| {
-                        cache
-                            .entry(leaf_idx)
-                            .or_insert_with(|| {
-                                ConditionedCell::from_fitted_node(&self.nodes[leaf_idx])
-                            })
-                            .clone()
-                    })
+                    .map(|leaf_idx| leaf_cells[&leaf_idx].clone())
                     .collect();
 
                 PiecewiseConstantDistribution::from_cells(cells)
@@ -345,6 +349,7 @@ impl Tree {
     ///
     /// Complexity: O(depth) when all split columns are present; degrades
     /// towards O(n_nodes) only when many splits are on absent columns.
+    #[cfg_attr(not(test), allow(dead_code))]
     fn match_leaves_given_features(
         &self,
         row_idx: usize,
