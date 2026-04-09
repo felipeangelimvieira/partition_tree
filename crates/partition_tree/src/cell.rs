@@ -121,6 +121,88 @@ impl Cell {
             .max(1.0)
     }
 
+    /// Whether the cell has any continuous target rules.
+    pub fn has_continuous_target(&self) -> bool {
+        self.target_rules().any(|(_, r)| r.is_continuous())
+    }
+
+    /// Target volume considering only continuous coordinates.
+    ///
+    /// Returns `None` when no continuous target rules exist.
+    pub fn target_continuous_volume(&self) -> Option<f64> {
+        if !self.has_continuous_target() {
+            return None;
+        }
+        Some(
+            self.target_rules()
+                .filter(|(_, r)| r.is_continuous())
+                .map(|(_, r)| r.volume())
+                .product::<f64>(),
+        )
+    }
+
+    /// Domain volume of the target space considering only continuous coordinates.
+    ///
+    /// Returns `None` when no continuous target rules exist.
+    pub fn target_continuous_domain_volume(&self) -> Option<f64> {
+        if !self.has_continuous_target() {
+            return None;
+        }
+        Some(
+            self.target_rules()
+                .filter(|(_, r)| r.is_continuous())
+                .map(|(_, r)| r.domain_volume())
+                .product::<f64>(),
+        )
+    }
+
+    /// Compute child **continuous target volumes** for a hypothetical split.
+    ///
+    /// Like [`child_target_volumes`](Self::child_target_volumes) but only
+    /// considers continuous target coordinates for the volume fraction
+    /// criterion. Returns `None` when no continuous target rules exist.
+    pub fn child_target_continuous_volumes(
+        &self,
+        col: &str,
+        op: &dyn SplitOp,
+        none_to_left: bool,
+    ) -> Option<(f64, f64)> {
+        if !self.has_continuous_target() {
+            return None;
+        }
+
+        if !col.starts_with(TARGET_PREFIX) {
+            let v = self.target_continuous_volume().unwrap();
+            return Some((v, v));
+        }
+
+        let parent_rule = self.rules.get(col).expect("column not found");
+
+        // If the split column is not continuous, the continuous volume is unchanged.
+        if !parent_rule.is_continuous() {
+            let v = self.target_continuous_volume().unwrap();
+            return Some((v, v));
+        }
+
+        let (left_vol, right_vol) = op.child_volumes(parent_rule.as_ref(), none_to_left);
+
+        let compute_vol = |replacement_vol: f64| -> f64 {
+            self.target_rules()
+                .filter(|(_, r)| r.is_continuous())
+                .map(|(k, r)| {
+                    if k.as_str() == col {
+                        replacement_vol
+                    } else {
+                        r.volume()
+                    }
+                })
+                .product::<f64>()
+                .max(f64::MIN_POSITIVE)
+        };
+
+        Some((compute_vol(left_vol), compute_vol(right_vol)))
+    }
+
     /// Target-only phi-volume.
     pub fn target_phi_volume(&self) -> f64 {
         self.target_rules()

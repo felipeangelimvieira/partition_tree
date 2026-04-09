@@ -34,7 +34,7 @@ from partition_tree.skpro import PartitionTreeRegressor
 # Load data as DataFrames (skpro estimators work best with pandas)
 housing = fetch_california_housing(as_frame=True)
 X = housing.data
-y = housing.target.rename("MedHouseVal")
+y = housing.target.rename("MedHouseVal").to_frame()
 
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42
@@ -43,8 +43,9 @@ X_train, X_test, y_train, y_test = train_test_split(
 # Fit
 pt = PartitionTreeRegressor(
     max_leaves=200,
-    max_depth=10,
-    min_samples_split=5.0,
+    min_samples_x=100,
+    min_samples_y=100,
+    random_state=42,
 )
 pt.fit(X_train, y_train)
 
@@ -81,8 +82,8 @@ upper_90 = dist.ppf(0.95)
 samples = dist.sample(n_samples=100)
 
 # PDF / CDF evaluated at specific points
-pdf_vals = dist.pdf(y_test.to_frame())
-cdf_vals = dist.cdf(y_test.to_frame())
+pdf_vals = dist.pdf(y_test)
+cdf_vals = dist.cdf(y_test)
 ```
 
 ---
@@ -117,12 +118,16 @@ import matplotlib.pyplot as plt
 
 # Plot the predictive PDF for a single test sample
 idx = y_test.index[0]
-dist_single = dist.loc[idx:idx]
+dist_single = dist.loc[idx]
 
 fig, ax = plt.subplots(figsize=(8, 3))
 dist_single.plot(ax=ax, alpha=0.7)
-ax.axvline(y_test.loc[idx], color="red", linestyle="--",
-           label=f"Actual = {y_test.loc[idx]:.2f}")
+ax.axvline(
+    y_test.loc[idx].item(),
+    color="red",
+    linestyle="--",
+    label=f"Actual = {y_test.loc[idx].item():.2f}",
+)
 ax.set_xlabel("MedHouseVal")
 ax.set_ylabel("PDF")
 ax.set_title("Predictive PDF — Single Test Sample")
@@ -138,9 +143,9 @@ plt.show()
 fig, axes = plt.subplots(1, 4, figsize=(16, 3))
 for ax, i in zip(axes, range(4)):
     row_idx = y_test.index[i]
-    dist_single = dist.loc[row_idx:row_idx]
+    dist_single = dist.loc[row_idx]
     dist_single.plot(ax=ax, alpha=0.7)
-    ax.axvline(y_test.iloc[i], color="red", linestyle="--", linewidth=1.5)
+    ax.axvline(y_test.iloc[i].item(), color="red", linestyle="--", linewidth=1.5)
     ax.set_title(f"Sample {i}")
     ax.set_xlabel("y")
 
@@ -157,15 +162,15 @@ plt.show()
 producing smoother and better-calibrated distributions.
 
 ```{python}
-#| eval: false
+# | eval: false
 from partition_tree.skpro import PartitionForestRegressor
 
 pf = PartitionForestRegressor(
     n_estimators=50,
-    max_leaves=100,
-    max_depth=8,
-    min_samples_split=5.0,
-    seed=42,
+    random_state=42,
+    min_samples_x=100,
+    min_samples_y=100,
+    output_distribution="merged",
 )
 pf.fit(X_train, y_train)
 
@@ -249,7 +254,7 @@ for feat, imp in importances.items():
 Inspect the partition structure:
 
 ```{python}
-#| eval: false
+# | eval: false
 leaves = pt.get_leaves_info()
 print(f"Number of leaves: {len(leaves)}")
 print(f"Keys per leaf: {list(leaves[0].keys())}")

@@ -163,7 +163,8 @@ impl ColumnSplitSearcher for IntegerColumnSplitSearcher {
                     &left_stats,
                     &right_stats,
                     node.depth,
-                    cell.target_domain_volume(),
+                    cell.target_continuous_domain_volume(),
+                    cell.child_target_continuous_volumes(col_name, &int_op, none_to_left),
                 ) {
                     continue;
                 }

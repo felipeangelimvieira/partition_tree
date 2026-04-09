@@ -92,6 +92,9 @@ pub trait DynRule: Send + Sync + fmt::Debug + fmt::Display {
     /// Downcast helper — returns `self` as `&dyn Any` for rare cases
     /// where concrete access is needed (e.g., display of split thresholds).
     fn as_any(&self) -> &dyn std::any::Any;
+
+    /// Whether this rule represents a continuous coordinate.
+    fn is_continuous(&self) -> bool;
 }
 
 impl Clone for Box<dyn DynRule> {
@@ -146,6 +149,10 @@ impl DynRule for ContinuousInterval {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
+
+    fn is_continuous(&self) -> bool {
+        true
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -193,6 +200,10 @@ impl DynRule for BelongsTo {
 
     fn as_any(&self) -> &dyn std::any::Any {
         self
+    }
+
+    fn is_continuous(&self) -> bool {
+        false
     }
 }
 
@@ -242,6 +253,10 @@ impl DynRule for IntegerInterval {
 
     fn as_any(&self) -> &dyn std::any::Any {
         self
+    }
+
+    fn is_continuous(&self) -> bool {
+        false
     }
 }
 

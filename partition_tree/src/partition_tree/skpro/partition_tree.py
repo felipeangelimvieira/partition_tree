@@ -17,25 +17,10 @@ from partition_tree.skpro.distribution import (
 
 
 class PartitionTreeRegressor(BaseProbaRegressor):
-    _task = "regression"
 
     _tags = {
         "authors": ["felipeangelimvieira"],
     }
-
-    @classmethod
-    def get_test_params(cls, parameter_set="default"):
-        """Return testing parameter settings for the estimator."""
-        params1 = {
-            "max_leaves": 10,
-            "max_depth": 3,
-        }
-        params2 = {
-            "max_leaves": 20,
-            "max_depth": 5,
-            "min_samples_split": 5.0,
-        }
-        return [params1, params2]
 
     def __init__(
         self,
@@ -49,6 +34,7 @@ class PartitionTreeRegressor(BaseProbaRegressor):
         max_depth=None,
         min_samples_split=2.0,
         loss=None,
+        random_state=42,
     ):
         self.max_leaves = max_leaves
         self.boundaries_expansion_factor = boundaries_expansion_factor
@@ -60,6 +46,7 @@ class PartitionTreeRegressor(BaseProbaRegressor):
         self.max_depth = max_depth
         self.min_samples_split = min_samples_split
         self.loss = loss
+        self.random_state = random_state
         super().__init__()
 
     @property
@@ -82,6 +69,7 @@ class PartitionTreeRegressor(BaseProbaRegressor):
             max_depth=self._max_depth,
             min_samples_split=self.min_samples_split,
             loss=self.loss,
+            seed=self.random_state,
         )
 
         if isinstance(y, pd.Series):
@@ -152,7 +140,6 @@ class PartitionTreeRegressor(BaseProbaRegressor):
         )
 
     def apply(self, X):
-        check_is_fitted(self)
         X_proc = _ensure_numeric_float64(_preprocess_X(X))
         X_pol = pl.DataFrame(X_proc)
         X_pol = _convert_string_columns_to_categorical(
@@ -162,49 +149,39 @@ class PartitionTreeRegressor(BaseProbaRegressor):
         return self.partition_tree_.apply(X_pol)
 
     def get_leaves_info(self):
-        check_is_fitted(self)
         return self.partition_tree_.get_leaves_info()
 
     def get_feature_importances(self, normalize: bool = True) -> dict:
-        check_is_fitted(self)
         importances = self.partition_tree_.get_feature_importances(normalize)
         return dict(sorted(importances.items(), key=lambda x: x[1], reverse=True))
-
-    def __sklearn_tags__(self):
-        tags = super().__sklearn_tags__()
-        tags.input_tags.allow_nan = True
-        return tags
-
-
-class PartitionForestRegressor(BaseProbaRegressor):
-    _task = "regression"
-
-    _tags = {
-        "authors": ["felipeangelimvieira"],
-    }
 
     @classmethod
     def get_test_params(cls, parameter_set="default"):
         """Return testing parameter settings for the estimator."""
         params1 = {
-            "n_estimators": 5,
             "max_leaves": 10,
             "max_depth": 3,
         }
         params2 = {
-            "n_estimators": 3,
             "max_leaves": 20,
             "max_depth": 5,
             "min_samples_split": 5.0,
         }
         return [params1, params2]
 
+
+class PartitionForestRegressor(BaseProbaRegressor):
+
+    _tags = {
+        "authors": ["felipeangelimvieira"],
+    }
+
     def __init__(
         self,
         n_estimators=100,
         max_leaves=None,
         boundaries_expansion_factor=0.1,
-        min_samples_xy=1.0,
+        min_samples_xy=0,
         min_samples_x=1.0,
         min_samples_y=1.0,
         min_gain=0.0,
@@ -215,8 +192,8 @@ class PartitionForestRegressor(BaseProbaRegressor):
         replace=True,
         max_features=1.0,
         loss=None,
-        random_state=42,
         output_distribution="merged",
+        random_state=42,
     ):
         """
         Parameters
@@ -303,7 +280,7 @@ class PartitionForestRegressor(BaseProbaRegressor):
         return self
 
     def _predict(self, X):
-        check_is_fitted(self)
+
         X_proc = _ensure_numeric_float64(_preprocess_X(X))
         X_pol = pl.DataFrame(X_proc)
         X_pol = _convert_string_columns_to_categorical(
@@ -326,7 +303,7 @@ class PartitionForestRegressor(BaseProbaRegressor):
         list of IntervalDistribution
             One ``IntervalDistribution`` per tree in the forest, in tree order.
         """
-        check_is_fitted(self)
+
         X_proc = _ensure_numeric_float64(_preprocess_X(X))
         X_pol = pl.DataFrame(X_proc)
         X_pol = _convert_string_columns_to_categorical(
@@ -382,7 +359,7 @@ class PartitionForestRegressor(BaseProbaRegressor):
                 index=X_proc.index,
                 columns=self._y_columns,
             )
-        # default: "merged"
+
         return IntervalDistribution.from_mixture(
             distributions=interval_dists,
             weights=weights,
@@ -390,7 +367,18 @@ class PartitionForestRegressor(BaseProbaRegressor):
             columns=self._y_columns,
         )
 
-    def __sklearn_tags__(self):
-        tags = super().__sklearn_tags__()
-        tags.input_tags.allow_nan = True
-        return tags
+    @classmethod
+    def get_test_params(cls, parameter_set="default"):
+        """Return testing parameter settings for the estimator."""
+        params1 = {
+            "n_estimators": 5,
+            "max_leaves": 10,
+            "max_depth": 3,
+        }
+        params2 = {
+            "n_estimators": 3,
+            "max_leaves": 20,
+            "max_depth": 5,
+            "min_samples_split": 5.0,
+        }
+        return [params1, params2]

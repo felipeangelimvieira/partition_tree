@@ -322,9 +322,10 @@ pub struct SplitRestrictions {
     /// Minimum information gain.
     pub min_gain: f64,
     /// Minimum target volume in each child, expressed as a fraction `[0.0, 1.0]`
-    /// of the **total target domain volume** (`cell.target_domain_volume()`). A
-    /// split is rejected when either child's target volume is less than
-    /// `min_volume_fraction * target_domain_volume`.
+    /// of the **continuous target domain volume**. A split is rejected when
+    /// either child's continuous target volume is less than
+    /// `min_volume_fraction * continuous_target_domain_volume`. Skipped when
+    /// there are no continuous target coordinates.
     pub min_volume_fraction: f64,
     /// Maximum tree depth (inclusive).
     pub max_depth: usize,
@@ -354,16 +355,19 @@ impl SplitRestrictions {
 
     /// Validate that both children satisfy all restrictions.
     ///
-    /// `target_domain_volume` is the full domain volume of the target space
-    /// (obtained from [`Cell::target_domain_volume`](super::cell::Cell::target_domain_volume)).
-    /// It is used to convert [`min_volume_fraction`](Self::min_volume_fraction) into
-    /// an absolute threshold: `min_vol = min_volume_fraction * target_domain_volume`.
+    /// The volume fraction criterion is applied only to continuous target
+    /// coordinates. `continuous_target_domain_volume` is the domain volume
+    /// of the continuous target dimensions, and `continuous_child_volumes`
+    /// holds the `(left, right)` continuous target volumes of the children.
+    /// When either is `None` (no continuous target coordinates), the volume
+    /// fraction check is skipped.
     pub fn is_valid_children(
         &self,
         left: &CellStats,
         right: &CellStats,
         depth: usize,
-        target_domain_volume: f64,
+        continuous_target_domain_volume: Option<f64>,
+        continuous_child_volumes: Option<(f64, f64)>,
     ) -> bool {
         if depth >= self.max_depth {
             return false;
@@ -381,10 +385,17 @@ impl SplitRestrictions {
         }
 
         // Volume constraint: each child must hold at least `min_volume_fraction`
-        // of the total target domain volume.
-        let min_vol = self.min_volume_fraction * target_domain_volume;
-        if left.volume < min_vol || right.volume < min_vol {
-            return false;
+        // of the continuous target domain volume. Skipped when there are no
+        // continuous target coordinates.
+        if self.min_volume_fraction > 0.0 {
+            if let (Some(domain_vol), Some((cv_left, cv_right))) =
+                (continuous_target_domain_volume, continuous_child_volumes)
+            {
+                let min_vol = self.min_volume_fraction * domain_vol;
+                if cv_left < min_vol || cv_right < min_vol {
+                    return false;
+                }
+            }
         }
 
         true
@@ -473,20 +484,20 @@ mod tests {
             max_depth: 10,
             ..Default::default()
         };
-        let target_domain_volume = 10.0_f64;
+        let cont_domain_vol = Some(10.0_f64);
 
         // child volumes of 2.0 each satisfy min_vol = 0.1 * 10.0 = 1.0.
         let left = CellStats::new(10.0, 20.0, 15.0, 2.0);
         let right = CellStats::new(10.0, 20.0, 15.0, 2.0);
-        assert!(r.is_valid_children(&left, &right, 0, target_domain_volume));
+        assert!(r.is_valid_children(&left, &right, 0, cont_domain_vol, Some((2.0, 2.0))));
 
         // Fail on min_samples_xy
         let bad = CellStats::new(2.0, 20.0, 15.0, 2.0);
-        assert!(!r.is_valid_children(&left, &bad, 0, target_domain_volume));
+        assert!(!r.is_valid_children(&left, &bad, 0, cont_domain_vol, Some((2.0, 2.0))));
 
         // Fail on min_volume_fraction: 0.05 < 0.1 * 10.0 = 1.0
         let low_vol = CellStats::new(10.0, 20.0, 15.0, 0.05);
-        assert!(!r.is_valid_children(&left, &low_vol, 0, target_domain_volume));
+        assert!(!r.is_valid_children(&left, &low_vol, 0, cont_domain_vol, Some((2.0, 0.05))));
     }
 
     #[test]

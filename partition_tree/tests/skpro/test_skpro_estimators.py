@@ -273,7 +273,7 @@ class TestBetterThanRandom:
 
 
 # ---------------------------------------------------------------------------
-# min_volume (min target volume) constraint tests
+# min_volume_fraction (min target volume) constraint tests
 # ---------------------------------------------------------------------------
 
 
@@ -308,7 +308,7 @@ def _y_split_leaf_volumes(model, root_y_volume, tol=1e-6):
     """Return target_volumes for leaves narrower than the root Y range.
 
     Leaves whose ``target_volume < root_y_volume`` were produced by at
-    least one Y-split, so they must satisfy ``target_volume >= min_volume``.
+    least one Y-split, so they must satisfy ``target_volume >= min_volume_fraction``.
     """
     return [
         leaf["target_volume"]
@@ -318,15 +318,17 @@ def _y_split_leaf_volumes(model, root_y_volume, tol=1e-6):
 
 
 class TestMinVolume:
-    """Verify that the ``min_volume`` (minimum target interval volume) constraint
+    """Verify that the ``min_volume_fraction`` (minimum target interval volume) constraint
     is respected by both the tree and the forest estimators."""
 
-    def test_tree_leaf_target_volumes_respect_min_volume(self, wide_target_data):
-        """Every leaf produced by a Y-split must have target_volume >= min_volume.
+    def test_tree_leaf_target_volumes_respect_min_volume_fraction(
+        self, wide_target_data
+    ):
+        """Every leaf produced by a Y-split must have target_volume >= min_volume_fraction.
 
         Leaves with ``target_volume < root_y_volume`` are narrower than the
         initial Y bounding box, meaning a Y-split created them.  The
-        ``min_volume`` parameter must ensure none of those volumes falls
+        ``min_volume_fraction`` parameter must ensure none of those volumes falls
         below the threshold.
         """
         X_train, _, y_train, _ = wide_target_data
@@ -336,7 +338,7 @@ class TestMinVolume:
         model = PartitionTreeRegressor(
             max_leaves=50,
             max_depth=10,
-            min_volume=min_vol,
+            min_volume_fraction=min_vol,
             boundaries_expansion_factor=0.0,
         )
         model.fit(X_train, y_train)
@@ -344,15 +346,15 @@ class TestMinVolume:
         for vol in _y_split_leaf_volumes(model, root_y_volume):
             assert (
                 vol >= min_vol
-            ), f"Leaf has target_volume {vol:.4f} < min_volume={min_vol}"
+            ), f"Leaf has target_volume {vol:.4f} < min_volume_fraction={min_vol}"
 
-    def test_tree_prohibitively_large_min_volume_prevents_y_splits(
+    def test_tree_prohibitively_large_min_volume_fraction_prevents_y_splits(
         self, wide_target_data
     ):
-        """When min_volume exceeds the full target range, no Y-splits can occur.
+        """When min_volume_fraction exceeds the full target range, no Y-splits can occur.
 
         Any Y-split of the root interval (width ≈ 100) would produce at
-        least one child with width < 100 < min_volume=200, so all Y-splits
+        least one child with width < 100 < min_volume_fraction=200, so all Y-splits
         must be rejected, leaving no leaf narrower than the root interval.
         """
         X_train, _, y_train, _ = wide_target_data
@@ -361,7 +363,8 @@ class TestMinVolume:
         model = PartitionTreeRegressor(
             max_leaves=50,
             max_depth=10,
-            min_volume=root_y_volume * 2,  # impossible to satisfy for any Y-split
+            min_volume_fraction=root_y_volume
+            * 2,  # impossible to satisfy for any Y-split
             boundaries_expansion_factor=0.0,
         )
         model.fit(X_train, y_train)
@@ -372,13 +375,15 @@ class TestMinVolume:
             f"with volumes {y_split_vols}"
         )
 
-    def test_tree_predicted_intervals_respect_min_volume(self, wide_target_data):
-        """Every predicted distribution interval must have width >= min_volume.
+    def test_tree_predicted_intervals_respect_min_volume_fraction(
+        self, wide_target_data
+    ):
+        """Every predicted distribution interval must have width >= min_volume_fraction.
 
         ``predict_proba`` returns a piecewise distribution whose segments
         correspond to the Y-intervals of the matched leaf.  Because the
-        ``min_volume`` constraint ensures each Y-split child has
-        ``target_volume >= min_volume``, no segment width should fall below
+        ``min_volume_fraction`` constraint ensures each Y-split child has
+        ``target_volume >= min_volume_fraction``, no segment width should fall below
         the threshold.
         """
         X_train, X_test, y_train, _ = wide_target_data
@@ -387,7 +392,7 @@ class TestMinVolume:
         model = PartitionTreeRegressor(
             max_leaves=50,
             max_depth=10,
-            min_volume=min_vol,
+            min_volume_fraction=min_vol,
             boundaries_expansion_factor=0.0,
         )
         model.fit(X_train, y_train)
@@ -396,13 +401,15 @@ class TestMinVolume:
         for width in _interval_widths(dist):
             assert (
                 width >= min_vol
-            ), f"Predicted interval width {width:.4f} < min_volume={min_vol}"
+            ), f"Predicted interval width {width:.4f} < min_volume_fraction={min_vol}"
 
-    def test_tighter_min_volume_widens_minimum_interval(self, wide_target_data):
-        """A stricter min_volume must raise the minimum predicted interval width.
+    def test_tighter_min_volume_fraction_widens_minimum_interval(
+        self, wide_target_data
+    ):
+        """A stricter min_volume_fraction must raise the minimum predicted interval width.
 
-        With ``min_volume=0.0`` the tree is free to produce arbitrarily
-        narrow Y-intervals.  With ``min_volume=strict`` every interval must
+        With ``min_volume_fraction=0.0`` the tree is free to produce arbitrarily
+        narrow Y-intervals.  With ``min_volume_fraction=strict`` every interval must
         be at least ``strict`` wide.  We verify both that the constrained
         model meets the threshold AND that the unconstrained model would
         violate it — proving the constraint is genuinely restrictive.
@@ -411,14 +418,17 @@ class TestMinVolume:
         min_vol_strict = 30.0
 
         model_free = PartitionTreeRegressor(
-            max_leaves=50, max_depth=10, min_volume=0.0, boundaries_expansion_factor=0.0
+            max_leaves=50,
+            max_depth=10,
+            min_volume_fraction=0.0,
+            boundaries_expansion_factor=0.0,
         )
         model_free.fit(X_train, y_train)
 
         model_constrained = PartitionTreeRegressor(
             max_leaves=50,
             max_depth=10,
-            min_volume=min_vol_strict,
+            min_volume_fraction=min_vol_strict,
             boundaries_expansion_factor=0.0,
         )
         model_constrained.fit(X_train, y_train)
@@ -430,8 +440,8 @@ class TestMinVolume:
         min_width_free = min(widths_free)
 
         assert min_width_constrained >= min_vol_strict, (
-            f"Constrained model (min_volume={min_vol_strict}) has interval "
-            f"width {min_width_constrained:.4f} < min_volume"
+            f"Constrained model (min_volume_fraction={min_vol_strict}) has interval "
+            f"width {min_width_constrained:.4f} < min_volume_fraction"
         )
         # The unconstrained model must produce at least one narrower interval,
         # otherwise the constraint test above would be vacuous.
@@ -440,10 +450,12 @@ class TestMinVolume:
             f"the constraint test is vacuous (min free width = {min_width_free:.4f})"
         )
 
-    def test_forest_predicted_intervals_respect_min_volume(self, wide_target_data):
-        """Forest: every predicted interval width must be >= min_volume.
+    def test_forest_predicted_intervals_respect_min_volume_fraction(
+        self, wide_target_data
+    ):
+        """Forest: every predicted interval width must be >= min_volume_fraction.
 
-        Each tree in the forest individually respects ``min_volume``, so
+        Each tree in the forest individually respects ``min_volume_fraction``, so
         every segment in the mixture distribution returned by
         ``predict_proba`` must also satisfy the width constraint.
         """
@@ -454,7 +466,7 @@ class TestMinVolume:
             n_estimators=5,
             max_leaves=50,
             max_depth=10,
-            min_volume=min_vol,
+            min_volume_fraction=min_vol,
             boundaries_expansion_factor=0.0,
         )
         model.fit(X_train, y_train)
@@ -463,7 +475,7 @@ class TestMinVolume:
         for width in _interval_widths(dist):
             assert (
                 width >= min_vol
-            ), f"Forest predicted interval width {width:.4f} < min_volume={min_vol}"
+            ), f"Forest predicted interval width {width:.4f} < min_volume_fraction={min_vol}"
 
 
 # ---------------------------------------------------------------------------
@@ -488,7 +500,7 @@ class TestForestDiversity:
             n_estimators=n_estimators,
             max_leaves=30,
             max_depth=5,
-            seed=42,
+            random_state=42,
         )
         model.fit(X_train, y_train)
 
@@ -516,7 +528,9 @@ class TestForestDiversity:
         X_train, X_test, y_train, _ = regression_data
 
         for n in [3, 7]:
-            model = PartitionForestRegressor(n_estimators=n, max_leaves=20, max_depth=4)
+            model = PartitionForestRegressor(
+                n_estimators=n, max_leaves=20, max_depth=4, random_state=42
+            )
             model.fit(X_train, y_train)
             dists = model.predict_proba_per_tree(X_test)
             assert (

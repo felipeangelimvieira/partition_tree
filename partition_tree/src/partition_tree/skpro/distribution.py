@@ -69,12 +69,8 @@ def _uniform_cross_energy(a: float, b: float, c: float, d: float) -> float:
         return 0.0
 
     def _H(x: float) -> float:
-        # Antiderivative of G(x) = int_c^d |x - y| dy
-        if x <= c:
-            return ((d - x) ** 3 - (c - x) ** 3) / 6.0
-        if x >= d:
-            return ((x - c) ** 3 - (x - d) ** 3) / 6.0
-        return ((x - c) ** 3 + (d - x) ** 3) / 6.0
+        # Antiderivative of G(x) = int_c^d |x - y| dy.
+        return (abs(x - c) ** 3 - abs(x - d) ** 3) / 6.0
 
     return (_H(b) - _H(a)) / (wa * wb)
 
@@ -141,36 +137,7 @@ class IntervalDistribution(BaseDistribution):
         "broadcast_init": "off",
     }
 
-    @classmethod
-    def get_test_params(cls, parameter_set="default"):
-        """Return testing parameter settings for the estimator."""
-        params1 = {
-            "intervals": [
-                [(0.0, 1.0), (1.0, 2.0), (2.0, 3.0)],
-                [(0.0, 1.5), (1.5, 3.0)],
-            ],
-            "pdf_values": [
-                [0.2, 0.5, 0.3],
-                [0.6, 0.4],
-            ],
-            "index": pd.RangeIndex(2),
-            "columns": pd.Index([0]),
-        }
-        params2 = {
-            "intervals": [
-                [(0.0, 2.0), (2.0, 5.0)],
-            ],
-            "pdf_values": [
-                [0.4, 0.2],
-            ],
-            "index": pd.RangeIndex(1),
-            "columns": pd.Index([0]),
-        }
-        return [params1, params2]
-
-    def __init__(self, intervals, pdf_values=None, index=None, columns=None):
-        if pdf_values is None:
-            raise ValueError("pdf_values must be provided")
+    def __init__(self, intervals, pdf_values, index=None, columns=None):
 
         self.intervals = intervals
         self.pdf_values = pdf_values
@@ -306,6 +273,12 @@ class IntervalDistribution(BaseDistribution):
         return pd.DataFrame(ppf_vals, index=self.index, columns=self.columns)
 
     def _mean(self):
+        """
+        Exact mean for piecewise uniform distribution.
+
+        Computes :math:`1/Z \sum_j \int_{a_j}^{b_j}x f_j dx` where
+        :math:`Z = \\sum_j f_j (b_j - a_j)`.
+        """
         n_instances = len(self.index)
         means = np.zeros(n_instances, dtype=float)
 
@@ -325,6 +298,12 @@ class IntervalDistribution(BaseDistribution):
         return pd.DataFrame(means, index=self.index, columns=self.columns)
 
     def _var(self):
+        """
+        Exact variance for piecewise uniform distribution.
+
+        Computes :math:`Var[X] = E[X^2] - E[X]^2` where
+        :math:`E[X^2] = 1/Z \\sum_j \\int_{a_j}^{b_j} x^2 f_j dx`.
+        """
         n_instances = len(self.index)
         variances = np.zeros(n_instances, dtype=float)
         means = self._mean().to_numpy().reshape(-1)
@@ -575,6 +554,33 @@ class IntervalDistribution(BaseDistribution):
             columns=columns,
         )
 
+    @classmethod
+    def get_test_params(cls, parameter_set="default"):
+        """Return testing parameter settings for the estimator."""
+        params1 = {
+            "intervals": [
+                [(0.0, 1.0), (1.0, 2.0), (2.0, 3.0)],
+                [(0.0, 1.5), (1.5, 3.0)],
+            ],
+            "pdf_values": [
+                [0.2, 0.5, 0.3],
+                [0.6, 0.4],
+            ],
+            "index": pd.RangeIndex(2),
+            "columns": pd.Index([0]),
+        }
+        params2 = {
+            "intervals": [
+                [(0.0, 2.0), (2.0, 5.0)],
+            ],
+            "pdf_values": [
+                [0.4, 0.2],
+            ],
+            "index": pd.RangeIndex(1),
+            "columns": pd.Index([0]),
+        }
+        return [params1, params2]
+
 
 class MixtureIntervalDistribution(BaseDistribution):
     """Mixture of :class:`IntervalDistribution` objects computed without merging.
@@ -624,25 +630,6 @@ class MixtureIntervalDistribution(BaseDistribution):
         "broadcast_init": "off",
     }
 
-    @classmethod
-    def get_test_params(cls, parameter_set="default"):
-        """Return testing parameter settings for the estimator."""
-        d1 = IntervalDistribution(
-            intervals=[[(0.0, 1.0), (1.0, 2.0), (2.0, 3.0)]],
-            pdf_values=[[0.2, 0.5, 0.3]],
-            index=pd.RangeIndex(1),
-            columns=pd.Index([0]),
-        )
-        d2 = IntervalDistribution(
-            intervals=[[(0.5, 1.5), (1.5, 2.5)]],
-            pdf_values=[[0.4, 0.6]],
-            index=pd.RangeIndex(1),
-            columns=pd.Index([0]),
-        )
-        params1 = {"distributions": [d1, d2], "weights": [0.6, 0.4]}
-        params2 = {"distributions": [d1]}
-        return [params1, params2]
-
     def __init__(
         self,
         distributions: List["IntervalDistribution"],
@@ -676,57 +663,6 @@ class MixtureIntervalDistribution(BaseDistribution):
             columns = distributions[0].columns
 
         super().__init__(index=index, columns=columns)
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
-    def _union_breakpoints(self, instance_idx: int):
-        """Return sorted boundary points over all components for one instance."""
-        boundaries = set()
-        for d in self.distributions:
-            for iv in d._intervals[instance_idx]:
-                boundaries.add(iv.low)
-                boundaries.add(iv.high)
-        return sorted(boundaries)
-
-    def _mixture_pdf_at(self, instance_idx: int, x: float) -> float:
-        """Evaluate the mixture PDF at a scalar *x* for one instance."""
-        val = 0.0
-        for w, d in zip(self._weights, self.distributions):
-            ivs = d._intervals[instance_idx]
-            dens = d.pdf_values[instance_idx]
-            norm = d._normalization_factor[instance_idx]
-            for k, iv in enumerate(ivs):
-                if iv.contains(x):
-                    val += w * dens[k] / norm
-                    break
-        return val
-
-    def _mixture_cdf_at(self, instance_idx: int, x: float) -> float:
-        """Evaluate the mixture CDF at a scalar *x* for one instance."""
-        val = 0.0
-        for w, d in zip(self._weights, self.distributions):
-            ivs = d._intervals[instance_idx]
-            dens = d.pdf_values[instance_idx]
-            norm = d._normalization_factor[instance_idx]
-            if norm <= 0:
-                continue
-            cdf_k = 0.0
-            for k, iv in enumerate(ivs):
-                if x < iv.low:
-                    break
-                elif iv.contains(x):
-                    cdf_k += dens[k] * (x - iv.low)
-                    break
-                else:
-                    cdf_k += dens[k] * iv.measure()
-            val += w * cdf_k / norm
-        return val
-
-    # ------------------------------------------------------------------
-    # Core distribution methods
-    # ------------------------------------------------------------------
 
     def _pdf(self, x):
         x = np.asarray(x)
@@ -826,44 +762,6 @@ class MixtureIntervalDistribution(BaseDistribution):
             energy += w * e_m
         return energy.reshape(-1, 1)
 
-    def _cross_energy(
-        self,
-        instance_idx: int,
-        intervals_a,
-        masses_a: np.ndarray,
-        intervals_b,
-        masses_b: np.ndarray,
-    ) -> float:
-        """Compute E[|X_a - X_b|] for two independent piecewise uniform RVs.
-
-        Uses the analytic formula for two intervals:
-        E[|X_a - X_b|] where X_a ~ Uniform(a_low, a_high),
-                               X_b ~ Uniform(b_low, b_high).
-
-        For disjoint or overlapping uniform intervals, the closed form is:
-        E[|U - V|] for U ~ Uniform(a,b), V ~ Uniform(c,d) is computed as the
-        integral of |x-y| over the product measure.
-        """
-        total_a = masses_a.sum()
-        total_b = masses_b.sum()
-        if total_a <= 0 or total_b <= 0:
-            return 0.0
-
-        result = 0.0
-        for ia, iv_a in enumerate(intervals_a):
-            pa = masses_a[ia] / total_a
-            if pa <= 0:
-                continue
-            a, b = iv_a.low, iv_a.high
-            for ib, iv_b in enumerate(intervals_b):
-                pb = masses_b[ib] / total_b
-                if pb <= 0:
-                    continue
-                c, d = iv_b.low, iv_b.high
-                # E[|U - V|] for U ~ Uniform(a,b), V ~ Uniform(c,d)
-                result += pa * pb * _uniform_cross_energy(a, b, c, d)
-        return result
-
     def _energy_self(self):
         """E_mix[|X - X'|] = Σ_{m,n} w_m w_n E[|X_m - X_n|]."""
         n = len(self.index)
@@ -923,49 +821,102 @@ class MixtureIntervalDistribution(BaseDistribution):
             )
         return {"distributions": subset_dists, "weights": self.weights}
 
+    def _union_breakpoints(self, instance_idx: int):
+        """Return sorted boundary points over all components for one instance."""
+        boundaries = set()
+        for d in self.distributions:
+            for iv in d._intervals[instance_idx]:
+                boundaries.add(iv.low)
+                boundaries.add(iv.high)
+        return sorted(boundaries)
 
-# ---------------------------------------------------------------------------
-# Module-level helper: analytic E[|U - V|] for two independent uniforms
-# ---------------------------------------------------------------------------
+    def _mixture_pdf_at(self, instance_idx: int, x: float) -> float:
+        """Evaluate the mixture PDF at a scalar *x* for one instance."""
+        val = 0.0
+        for w, d in zip(self._weights, self.distributions):
+            ivs = d._intervals[instance_idx]
+            dens = d.pdf_values[instance_idx]
+            norm = d._normalization_factor[instance_idx]
+            for k, iv in enumerate(ivs):
+                if iv.contains(x):
+                    val += w * dens[k] / norm
+                    break
+        return val
 
+    def _mixture_cdf_at(self, instance_idx: int, x: float) -> float:
+        """Evaluate the mixture CDF at a scalar *x* for one instance."""
+        val = 0.0
+        for w, d in zip(self._weights, self.distributions):
+            ivs = d._intervals[instance_idx]
+            dens = d.pdf_values[instance_idx]
+            norm = d._normalization_factor[instance_idx]
+            if norm <= 0:
+                continue
+            cdf_k = 0.0
+            for k, iv in enumerate(ivs):
+                if x < iv.low:
+                    break
+                elif iv.contains(x):
+                    cdf_k += dens[k] * (x - iv.low)
+                    break
+                else:
+                    cdf_k += dens[k] * iv.measure()
+            val += w * cdf_k / norm
+        return val
 
-def _uniform_cross_energy(a: float, b: float, c: float, d: float) -> float:
-    """E[|U - V|] where U ~ Uniform(a, b) and V ~ Uniform(c, d).
+    def _cross_energy(
+        self,
+        instance_idx: int,
+        intervals_a,
+        masses_a: np.ndarray,
+        intervals_b,
+        masses_b: np.ndarray,
+    ) -> float:
+        """Compute E[|X_a - X_b|] for two independent piecewise uniform RVs.
 
-    Derived by integrating :math:`\\int_a^b G(x)\\,dx` where
+        Uses the analytic formula for two intervals:
+        E[|X_a - X_b|] where X_a ~ Uniform(a_low, a_high),
+                               X_b ~ Uniform(b_low, b_high).
 
-    .. math::
-        G(x) = \\int_c^d |x - y|\\,dy =
-        \\begin{cases}
-            -(d-x)^3/6 + (c-x)^3/6 & x \\le c \\\\
-            (x-c)^3/6 - (d-x)^3/6  & c \\le x \\le d \\\\
-            (x-c)^3/6 - (x-d)^3/6  & x \\ge d
-        \\end{cases}
+        For disjoint or overlapping uniform intervals, the closed form is:
+        E[|U - V|] for U ~ Uniform(a,b), V ~ Uniform(c,d) is computed as the
+        integral of |x-y| over the product measure.
+        """
+        total_a = masses_a.sum()
+        total_b = masses_b.sum()
+        if total_a <= 0 or total_b <= 0:
+            return 0.0
 
-    whose anti-derivative (used for the outer integral) is:
+        result = 0.0
+        for ia, iv_a in enumerate(intervals_a):
+            pa = masses_a[ia] / total_a
+            if pa <= 0:
+                continue
+            a, b = iv_a.low, iv_a.high
+            for ib, iv_b in enumerate(intervals_b):
+                pb = masses_b[ib] / total_b
+                if pb <= 0:
+                    continue
+                c, d = iv_b.low, iv_b.high
+                # E[|U - V|] for U ~ Uniform(a,b), V ~ Uniform(c,d)
+                result += pa * pb * _uniform_cross_energy(a, b, c, d)
+        return result
 
-    .. math::
-        H(x) =
-        \\begin{cases}
-            -(d-x)^3/6 + (c-x)^3/6 & x \\le c \\\\
-            (x-c)^3/6 - (d-x)^3/6  & c \\le x \\le d \\\\
-            (x-c)^3/6 - (x-d)^3/6  & x \\ge d
-        \\end{cases}
-
-    and the result is :math:`(H(b) - H(a)) / ((b-a)(d-c))`.
-    """
-    wa = b - a
-    wb = d - c
-    if wa <= 0 or wb <= 0:
-        return 0.0
-
-    def _H(x: float) -> float:
-        """Anti-derivative of the inner integral G(x) = int_c^d |x-y| dy."""
-        if x <= c:
-            return -((d - x) ** 3) / 6.0 + (c - x) ** 3 / 6.0
-        elif x >= d:
-            return (x - c) ** 3 / 6.0 - (x - d) ** 3 / 6.0
-        else:
-            return (x - c) ** 3 / 6.0 - (d - x) ** 3 / 6.0
-
-    return (_H(b) - _H(a)) / (wa * wb)
+    @classmethod
+    def get_test_params(cls, parameter_set="default"):
+        """Return testing parameter settings for the estimator."""
+        d1 = IntervalDistribution(
+            intervals=[[(0.0, 1.0), (1.0, 2.0), (2.0, 3.0)]],
+            pdf_values=[[0.2, 0.5, 0.3]],
+            index=pd.RangeIndex(1),
+            columns=pd.Index([0]),
+        )
+        d2 = IntervalDistribution(
+            intervals=[[(0.5, 1.5), (1.5, 2.5)]],
+            pdf_values=[[0.4, 0.6]],
+            index=pd.RangeIndex(1),
+            columns=pd.Index([0]),
+        )
+        params1 = {"distributions": [d1, d2], "weights": [0.6, 0.4]}
+        params2 = {"distributions": [d1]}
+        return [params1, params2]
