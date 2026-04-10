@@ -78,7 +78,9 @@ pub mod tree_builder;
 // ── Re-exports for convenience ──────────────────────────────────────────────
 
 /// Loss function trait and built-in implementations.
-pub use loss::{BalancedLogLoss, CellStats, ConditionalLogLoss, LossFunc, MeanIntegratedSquaredError};
+pub use loss::{
+    BalancedLogLoss, CellStats, ConditionalLogLoss, LossFunc, MeanIntegratedSquaredError,
+};
 
 /// Multi-dimensional partition constraint.
 pub use cell::Cell;

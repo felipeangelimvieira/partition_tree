@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 use crate::conf::TARGET_PREFIX;
 use crate::serde::schema as schema_serde;
 
-use crate::dataset_view::{DatasetView, PolarsDatasetView};
+use crate::dataset_view::PolarsDatasetView;
 use crate::dtype_plugin::DTypeRegistry;
 use crate::loss::{ConditionalLogLoss, LossFunc};
 use crate::predict::piecewise_distribution::{MeanVector, PiecewiseConstantDistribution};
@@ -53,6 +53,7 @@ use crate::tree_builder::{TreeBuilder, TreeBuilderConfig};
 /// | `predict_trees_proba` | `Vec<Vec<PiecewiseConstantDistribution>>`      |
 /// | `predict_mean_vectors`| `Vec<MeanVector>`                              |
 /// | `feature_importances` | `HashMap<String, f64>`                         |
+/// | `apply`               | `Vec<Vec<usize>>` (leaf indices per tree/row)  |
 #[derive(Serialize, Deserialize)]
 pub struct PartitionForest {
     // ── Forest-level parameters ───────────────────────────────────────
@@ -248,6 +249,21 @@ impl PartitionForest {
         }
 
         Ok(importances)
+    }
+
+    /// Apply each tree, returning leaf node indices for every row.
+    ///
+    /// Returns `Vec<Vec<usize>>` where the outer index is the tree and
+    /// the inner index is the row.
+    pub fn apply(&self, x: &DataFrame) -> Result<Vec<Vec<usize>>, PredictError> {
+        let trees = self.fitted_trees()?;
+        let xy = self.expand_with_schema(x)?;
+        let dataset = self.build_prediction_dataset(&xy);
+
+        let per_tree_leaf_indices: Vec<Vec<usize>> =
+            trees.par_iter().map(|tree| tree.apply(&dataset)).collect();
+
+        Ok(per_tree_leaf_indices)
     }
 
     /// Number of fitted trees (0 if not fitted).

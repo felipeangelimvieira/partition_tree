@@ -10,8 +10,8 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::rules::{BelongsTo, ContinuousInterval, IntegerInterval, RuleType};
 use crate::rule::DynRule;
+use crate::rules::{BelongsTo, ContinuousInterval, IntegerInterval, RuleType};
 
 /// Convert a `&dyn DynRule` into a serializable `RuleType`.
 fn to_variant(rule: &dyn DynRule) -> RuleType {
@@ -53,9 +53,7 @@ where
     variants.serialize(serializer)
 }
 
-pub fn deserialize<'de, D>(
-    deserializer: D,
-) -> Result<HashMap<String, Box<dyn DynRule>>, D::Error>
+pub fn deserialize<'de, D>(deserializer: D) -> Result<HashMap<String, Box<dyn DynRule>>, D::Error>
 where
     D: Deserializer<'de>,
 {
