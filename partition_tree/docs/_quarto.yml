@@ -5,6 +5,7 @@ project:
 website:
   title: "Partition Tree"
   description: "Conditional Density Estimation over General Outcome Spaces"
+  site-url: https://partitiontree.com
   repo-url: https://github.com/felipeangelimvieira/partition_tree
   repo-actions: [issue, source]
   navbar:
@@ -15,12 +16,16 @@ website:
         href: theory.qmd
       - text: "Tutorials"
         menu:
+          - text: "sklearn Interface"
+            href: tutorials/sklearn.qmd
           - text: "Classification"
             href: tutorials/classification.qmd
           - text: "Regression"
             href: tutorials/regression.qmd
           - text: "Probabilistic Regression"
             href: tutorials/probabilistic_regression.qmd
+          - text: "skpro Interface"
+            href: tutorials/skpro.qmd
       - text: "API Reference"
         href: api.qmd
     right:
@@ -39,6 +44,4 @@ format:
     code-copy: true
     code-overflow: wrap
     highlight-style: github
-
-
 
