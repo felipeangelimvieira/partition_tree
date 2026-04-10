@@ -5,6 +5,7 @@ project:
 website:
   title: "Partition Tree"
   description: "Conditional Density Estimation over General Outcome Spaces"
+  site-url: https://partitiontree.com
   repo-url: https://github.com/felipeangelimvieira/partition_tree
   repo-actions: [issue, source]
   navbar:
@@ -39,6 +40,5 @@ format:
     code-copy: true
     code-overflow: wrap
     highlight-style: github
-
 
 

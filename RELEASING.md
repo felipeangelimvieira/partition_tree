@@ -7,6 +7,13 @@ This repository publishes four distinct artifacts with an explicit order:
 3. `pyo3_partition_tree` wheels/sdist to PyPI via the `pyo3-v*` tag.
 4. `partition_tree` Python package to PyPI via the `partition_tree-py-v*` tag.
 
+The Python package workflow also updates the documentation website:
+
+- Pull requests from the main repository publish preview docs to `previews/pr-<number>/`.
+- Pushes to `main` publish the development docs to `dev/`.
+- Published `partition_tree-py-v*` GitHub releases publish versioned docs to `/<version>/`,
+  refresh `latest/`, and update the production root for `partitiontree.com`.
+
 ## Why this order
 
 The binding crate depends on the Rust core crate, and the high-level Python
