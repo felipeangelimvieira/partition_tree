@@ -6,6 +6,12 @@ on:
   release:
     types: [published]
   pull_request:
+    paths:
+      - .github/workflows/python-package-ci.yml
+      - partition_tree/docs/**
+      - partition_tree/src/**
+      - partition_tree/pyproject.toml
+      - partition_tree/uv.lock
   workflow_dispatch:
 
 concurrency:
