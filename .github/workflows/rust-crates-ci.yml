@@ -41,18 +41,16 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            crates/estimators/target
-          key: ${{ runner.os }}-cargo-estimators-${{ hashFiles('crates/estimators/Cargo.lock') }}
+            target
+          key: ${{ runner.os }}-cargo-estimators-${{ hashFiles('Cargo.toml', 'crates/**/Cargo.toml', 'pyo3_partition_tree/Cargo.toml') }}
           restore-keys: |
             ${{ runner.os }}-cargo-estimators-
 
       - name: Build estimators
-        working-directory: crates/estimators
-        run: cargo build --release
+        run: cargo build --release -p estimators
 
       - name: Test estimators
-        working-directory: crates/estimators
-        run: cargo test --release
+        run: cargo test --release -p estimators
 
   test-partition-tree:
     name: Test partition_tree crate
@@ -75,18 +73,16 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            crates/partition_tree/target
-          key: ${{ runner.os }}-cargo-partition-tree-${{ hashFiles('crates/partition_tree/Cargo.lock') }}
+            target
+          key: ${{ runner.os }}-cargo-partition-tree-${{ hashFiles('Cargo.toml', 'crates/**/Cargo.toml', 'pyo3_partition_tree/Cargo.toml') }}
           restore-keys: |
             ${{ runner.os }}-cargo-partition-tree-
 
       - name: Build partition_tree
-        working-directory: crates/partition_tree
-        run: cargo build --release
+        run: cargo build --release -p partition_tree
 
       - name: Test partition_tree
-        working-directory: crates/partition_tree
-        run: cargo test --release
+        run: cargo test --release -p partition_tree
 
   publish-estimators:
     name: Publish estimators to crates.io
@@ -103,8 +99,7 @@ jobs:
           rustup default stable
 
       - name: Publish estimators
-        working-directory: crates/estimators
-        run: cargo publish --token ${{ secrets.CRATES_IO_TOKEN }}
+        run: cargo publish -p estimators --token ${{ secrets.CRATES_IO_TOKEN }}
 
   publish-partition-tree:
     name: Publish partition_tree to crates.io
@@ -121,5 +116,4 @@ jobs:
           rustup default stable
 
       - name: Publish partition_tree
-        working-directory: crates/partition_tree
-        run: cargo publish --token ${{ secrets.CRATES_IO_TOKEN }}
+        run: cargo publish -p partition_tree --token ${{ secrets.CRATES_IO_TOKEN }}

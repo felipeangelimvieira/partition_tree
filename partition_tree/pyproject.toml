@@ -1,6 +1,6 @@
 [project]
 name = "partition_tree"
-version = "0.0.2"
+version = "0.0.3"
 description = "Partition Trees for Probabilistic Tasks"
 authors = [ {name = "felipeangelimvieira", email = "felipeangelim@gmail.com"} ]
 readme = "README.md"
@@ -11,11 +11,13 @@ dependencies = [
     "skpro>=2.9.0,<3.0.0",
     "tqdm>=4.67.1,<5.0.0",
     "snakeviz>=2.2.2,<3.0.0",
-    "maturin>=1.9.3,<2.0.0",
     "polars>=1.33.1,<2.0.0",
     "pyarrow>=21.0.0",
-    "pyo3-partition-tree",
+    "pyo3-partition-tree>=0.0.3,<0.0.4",
 ]
+
+[project.urls]
+Repository = "https://github.com/felipeangelimvieira/partition_tree"
 
 [project.optional-dependencies]
 dev = [
@@ -42,9 +44,6 @@ dev = [
 docs = [
     "quarto>=0.1.0",
 ]
-
-[tool.uv.sources]
-pyo3-partition-tree = { path = "../pyo3_partition_tree", editable = true }
 
 [tool.setuptools]
 # Console scripts intentionally removed (fastbench CLI removed per request)

@@ -1,0 +1,10 @@
+[workspace]
+members = [
+    "crates/estimators",
+    "crates/partition_tree",
+    "pyo3_partition_tree",
+]
+resolver = "3"
+
+[profile.release]
+debug = true

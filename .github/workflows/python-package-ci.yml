@@ -1,0 +1,53 @@
+name: Python Package CI
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/partition_tree-py-v') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install build frontend
+        run: python -m pip install --upgrade build
+      - name: Build wheel and sdist
+        working-directory: partition_tree
+        run: python -m build --outdir dist
+      - name: Upload distributions
+        uses: actions/upload-artifact@v5
+        with:
+          name: python-package-dist
+          path: partition_tree/dist
+
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    if: ${{ startsWith(github.ref, 'refs/tags/partition_tree-py-v') || github.event_name == 'workflow_dispatch' }}
+    needs: [build]
+    permissions:
+      id-token: write
+      contents: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v6
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: 'python-package-dist/*'
+      - name: Install uv
+        if: ${{ startsWith(github.ref, 'refs/tags/partition_tree-py-v') }}
+        uses: astral-sh/setup-uv@v7
+      - name: Publish to PyPI
+        if: ${{ startsWith(github.ref, 'refs/tags/partition_tree-py-v') }}
+        run: uv publish 'python-package-dist/*'
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
