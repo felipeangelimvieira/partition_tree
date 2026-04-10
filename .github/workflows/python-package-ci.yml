@@ -75,7 +75,8 @@ jobs:
       - name: Install documentation dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install --no-deps -e ./partition_tree
+          python -m pip install "pyo3-partition-tree>=0.0.3,<0.0.4"
+          python -m pip install -e "./partition_tree[docs]"
 
       - name: Set PYTHONPATH
         run: echo "PYTHONPATH=$GITHUB_WORKSPACE/partition_tree/src" >> "$GITHUB_ENV"

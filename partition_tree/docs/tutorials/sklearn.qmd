@@ -1,0 +1,45 @@
+---
+title: "Tutorial: sklearn Interface"
+subtitle: "scikit-learn compatible classification and regression"
+---
+
+The `partition_tree.sklearn` module provides estimators that follow the familiar
+scikit-learn API: `fit`, `predict`, `predict_proba`, cross-validation, and
+pipeline compatibility.
+
+## Available estimators
+
+- `PartitionTreeClassifier`
+- `PartitionForestClassifier`
+- `PartitionTreeRegressor`
+- `PartitionForestRegressor`
+
+## Choose a tutorial
+
+Use the task-specific walkthroughs for concrete examples and metrics:
+
+- [Classification](classification.qmd)
+- [Regression](regression.qmd)
+
+## Minimal example
+
+```{python}
+from sklearn.datasets import load_iris
+from sklearn.model_selection import train_test_split
+
+from partition_tree.sklearn import PartitionTreeClassifier
+
+X, y = load_iris(return_X_y=True)
+X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=42)
+
+clf = PartitionTreeClassifier(max_leaves=20, random_state=42)
+clf.fit(X_train, y_train)
+clf.predict(X_test[:5])
+```
+
+## Notes
+
+- Use the classifier variants for discrete targets.
+- Use the regressor variants for numeric targets.
+- For full predictive distributions, switch to the
+  [skpro tutorial](skpro.qmd).
