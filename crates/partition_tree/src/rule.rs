@@ -218,7 +218,11 @@ impl DynRule for IntegerInterval {
 
     fn domain_volume(&self) -> f64 {
         let (lo, hi) = self.domain;
-        if hi < lo { 0.0 } else { (hi as f64) - (lo as f64) + 1.0 }
+        if hi < lo {
+            0.0
+        } else {
+            (hi as f64) - (lo as f64) + 1.0
+        }
     }
 
     fn relative_volume(&self) -> f64 {

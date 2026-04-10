@@ -17,8 +17,8 @@
 //!   — per-category probability for categorical targets.
 use std::collections::HashMap;
 
-use crate::rules::{BelongsTo, ContinuousInterval, Rule};
 use crate::dataset_view::ColumnView;
+use crate::rules::{BelongsTo, ContinuousInterval, Rule};
 
 use super::conditioned_cell::ConditionedCell;
 
@@ -282,8 +282,8 @@ impl PiecewiseConstantDistribution {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rules::ContinuousInterval;
     use crate::rule::DynRule;
+    use crate::rules::ContinuousInterval;
     use std::collections::HashSet;
     use std::sync::Arc;
 

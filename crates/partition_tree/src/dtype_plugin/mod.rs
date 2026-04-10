@@ -64,7 +64,11 @@ pub trait DTypePlugin: Send + Sync {
     /// - **Continuous targets**: interval spanning `[min, max]` of observed
     ///   values, expanded by `boundaries_expansion_factor`.
     /// - **Categorical**: a `BelongsTo` rule covering all observed category codes.
-    fn default_rule(&self, col: &dyn ColumnView, boundaries_expansion_factor: f64) -> Box<dyn DynRule>;
+    fn default_rule(
+        &self,
+        col: &dyn ColumnView,
+        boundaries_expansion_factor: f64,
+    ) -> Box<dyn DynRule>;
 
     /// The column-level split searcher for this dtype.
     fn split_searcher(&self) -> &dyn ColumnSplitSearcher;

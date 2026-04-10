@@ -556,11 +556,7 @@ impl Rule<i64> for IntegerInterval {
     }
 
     fn phi_length(u: f64) -> f64 {
-        if u <= 0.0 {
-            0.0
-        } else {
-            u / (1.0 + u)
-        }
+        if u <= 0.0 { 0.0 } else { u / (1.0 + u) }
     }
 }
 
