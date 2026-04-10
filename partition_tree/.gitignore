@@ -1,0 +1,4 @@
+dist/
+build/
+docs/_site
+docs/.quarto

@@ -1,0 +1,215 @@
+---
+pagetitle: "Partition Tree — Conditional Density Estimation"
+page-layout: full
+toc: false
+body-classes: landing-page
+---
+
+<!-- ════════════ HERO ════════════ -->
+::: {.hero-banner}
+
+[🌲 Open-source · Rust-powered · pip install partition-tree]{.hero-badge}
+
+[Partition Tree]{.hero-title}
+
+[Tree-based conditional density estimation over general outcome spaces — classification, regression, and full predictive distributions in one unified framework.]{.hero-subtitle}
+
+::: {.hero-buttons}
+[Get Started](tutorials/classification.qmd){.hero-btn .hero-btn-primary}
+[Read the Theory](theory.qmd){.hero-btn .hero-btn-secondary}
+[GitHub ↗](https://github.com/felipeangelimvieira/partition_tree){.hero-btn .hero-btn-secondary}
+:::
+
+:::
+
+
+<!-- ════════════ FEATURES ════════════ -->
+::: {style="text-align:center;"}
+[Why Partition Tree?]{.section-label}
+
+[A new take on tree-based learning]{.section-heading}
+
+[Unlike classical decision trees that produce point predictions, Partition Trees model the full conditional distribution as a piecewise-constant density.]{.section-desc}
+:::
+
+::: {.features-grid}
+
+::: {.feature-card}
+[📊]{.feature-icon}
+
+### Nonparametric
+No distributional assumptions on the target variable — the density is learned directly from the data.
+:::
+
+::: {.feature-card}
+[🔗]{.feature-icon}
+
+### Unified Framework
+Classification and regression are both special cases of conditional density estimation. One algorithm, any outcome type.
+:::
+
+::: {.feature-card}
+[📈]{.feature-icon}
+
+### Full Distributions
+Access the complete predictive distribution: PDF, CDF, quantiles, prediction intervals, and sampling — not just point estimates.
+:::
+
+::: {.feature-card}
+[⚡]{.feature-icon}
+
+### Rust-Powered
+Core tree construction runs in Rust via PyO3 with $O(d\,N\log N)$ complexity per split.
+:::
+
+::: {.feature-card}
+[🌳]{.feature-icon}
+
+### Partition Forests
+Ensemble extension that averages conditional densities across trees for improved stability and calibration.
+:::
+
+::: {.feature-card}
+[🧩]{.feature-icon}
+
+### Native Integrations
+Drop-in estimators for **scikit-learn** (classification & regression) and **skpro** (probabilistic regression).
+:::
+
+:::
+
+
+<!-- ════════════ INTERFACES ════════════ -->
+::: {style="text-align:center;"}
+[Interfaces]{.section-label}
+
+[Choose the right API for your task]{.section-heading}
+:::
+
+::: {.interface-grid}
+
+::: {.interface-card}
+::: {.interface-card-header}
+### sklearn Interface
+Built on `BaseEstimator` · Classification & Regression
+:::
+::: {.interface-card-body}
+- `PartitionTreeClassifier` / `PartitionForestClassifier`
+- `PartitionTreeRegressor` / `PartitionForestRegressor`
+- `predict()` and `predict_proba()` compatible
+- Cross-validation & pipeline ready
+
+[View tutorial →](tutorials/sklearn.qmd){.interface-link}
+:::
+:::
+
+::: {.interface-card}
+::: {.interface-card-header}
+### skpro Interface
+Built on `BaseProbaRegressor` · Probabilistic Regression
+:::
+::: {.interface-card-body}
+- Returns `IntervalDistribution` objects
+- Quantiles, prediction intervals, PDF, CDF
+- Sampling and energy scores
+- Per-tree distributions in forests
+
+[View tutorial →](tutorials/skpro.qmd){.interface-link}
+:::
+:::
+
+:::
+
+
+<!-- ════════════ CODE SHOWCASE ════════════ -->
+::: {style="text-align:center;"}
+[Quick Start]{.section-label}
+
+[Up and running in seconds]{.section-heading}
+:::
+
+::: {.code-showcase}
+
+::: {.panel-tabset}
+
+## Classification
+
+```python
+from partition_tree.sklearn import PartitionTreeClassifier
+from sklearn.datasets import load_iris
+from sklearn.model_selection import train_test_split
+
+X, y = load_iris(return_X_y=True)
+X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=42)
+
+clf = PartitionTreeClassifier(max_leaves=20, max_depth=5)
+clf.fit(X_train, y_train)
+
+print("Accuracy:", (clf.predict(X_test) == y_test).mean())
+print("Class probabilities shape:", clf.predict_proba(X_test).shape)
+```
+
+## Regression
+
+```python
+from partition_tree.sklearn import PartitionForestRegressor
+from sklearn.datasets import fetch_california_housing
+from sklearn.model_selection import train_test_split
+
+X, y = fetch_california_housing(return_X_y=True)
+X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=42)
+
+forest = PartitionForestRegressor(n_estimators=50, max_leaves=200)
+forest.fit(X_train, y_train)
+print("Predictions:", forest.predict(X_test)[:5])
+```
+
+## Probabilistic
+
+```python
+from partition_tree.skpro import PartitionForestRegressor
+from sklearn.datasets import fetch_california_housing
+from sklearn.model_selection import train_test_split
+
+X, y = fetch_california_housing(return_X_y=True, as_frame=True)
+X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=42)
+
+forest = PartitionForestRegressor(n_estimators=50, max_leaves=200)
+forest.fit(X_train, y_train)
+
+dist = forest.predict_proba(X_test)        # IntervalDistribution
+lower = dist.ppf(0.05)                     # 5th percentile
+upper = dist.ppf(0.95)                     # 95th percentile
+samples = dist.sample(1000)                # 1 000 Monte Carlo draws
+```
+
+:::
+:::
+
+
+<!-- ════════════ INSTALL ════════════ -->
+::: {.install-strip}
+## Ready to try it?
+
+Install from PyPI and start modelling full predictive distributions today.
+
+[pip install partition-tree]{.install-cmd}
+:::
+
+
+<!-- ════════════ CITATION ════════════ -->
+::: {.citation-card}
+
+### 📄 Cite this work
+
+```bibtex
+@article{angelim2026partition,
+  title   = {Partition Trees: Conditional Density Estimation
+             over General Outcome Spaces},
+  author  = {Angelim, Felipe and Leite, Alessandro},
+  journal = {arXiv preprint arXiv:2602.04042},
+  year    = {2026}
+}
+```
+:::
+

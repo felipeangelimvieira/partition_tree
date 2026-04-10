@@ -1,0 +1,44 @@
+project:
+  type: website
+  output-dir: _site
+
+website:
+  title: "Partition Tree"
+  description: "Conditional Density Estimation over General Outcome Spaces"
+  repo-url: https://github.com/felipeangelimvieira/partition_tree
+  repo-actions: [issue, source]
+  navbar:
+    left:
+      - text: "Get Started"
+        href: index.qmd
+      - text: "Theory"
+        href: theory.qmd
+      - text: "Tutorials"
+        menu:
+          - text: "Classification"
+            href: tutorials/classification.qmd
+          - text: "Regression"
+            href: tutorials/regression.qmd
+          - text: "Probabilistic Regression"
+            href: tutorials/probabilistic_regression.qmd
+      - text: "API Reference"
+        href: api.qmd
+    right:
+      - icon: github
+        href: https://github.com/felipeangelimvieira/partition_tree
+
+  page-footer:
+    center: "Built with [Quarto](https://quarto.org/)"
+
+format:
+  html:
+    theme: cosmo
+    css: styles.css
+    toc: true
+    toc-depth: 3
+    code-copy: true
+    code-overflow: wrap
+    highlight-style: github
+
+
+

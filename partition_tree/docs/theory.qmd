@@ -1,0 +1,188 @@
+---
+title: "Theory"
+subtitle: "How Partition Trees Work"
+---
+
+This page gives an accessible overview of the Partition Tree algorithm.
+For the full formal treatment, proofs, and experimental results, see
+[Angelim & Leite (2026)](https://arxiv.org/abs/2602.04042).
+
+## 1. Motivation
+
+Classical decision trees (CART) are designed for **point prediction**: they output a single value (regression) or class probabilities (classification) at each leaf.
+However, many applications benefit from a full **conditional density estimate** $\hat{f}(y \mid x)$ — for example, to quantify uncertainty, construct prediction intervals, or model heteroscedastic noise.
+
+Partition Trees reframe tree-based learning as **conditional density estimation**: each leaf defines a piecewise-constant density over the outcome space $\mathcal{Y}$, rather than a single point.
+
+## 2. Setting
+
+Let $(X, Y)$ be a random pair with covariates $X \in \mathcal{X}$ and outcome $Y \in \mathcal{Y}$.
+We observe a dataset $\mathcal{D} = \{(x_i, y_i)\}_{i=1}^N$ of i.i.d. draws from the joint distribution $\mathbb{P}_{XY}$.
+
+Both $\mathcal{X}$ and $\mathcal{Y}$ may contain a **mixture of continuous and categorical** coordinates:
+
+$$
+X = (X^{(c)}, X^{(k)}) \in \mathcal{X}^{(c)} \times \mathcal{X}^{(k)}, \qquad
+Y = (Y^{(c)}, Y^{(k)}) \in \mathcal{Y}^{(c)} \times \mathcal{Y}^{(k)}
+$$
+
+This unified representation allows the same algorithm to handle both classification ($\mathcal{Y}$ categorical) and regression ($\mathcal{Y} \subseteq \mathbb{R}^d$).
+
+## 3. Partitioning the Joint Space
+
+Unlike CART, which only partitions the covariate space $\mathcal{X}$, a Partition Tree partitions the **joint space** $\mathcal{Z} = \mathcal{X} \times \mathcal{Y}$.
+
+Each leaf $A$ is a product cell:
+
+$$
+A = A_X \times A_Y
+$$
+
+where $A_X \subseteq \mathcal{X}$ is a region of the covariate space and $A_Y \subseteq \mathcal{Y}$ is a region (bin) of the outcome space.
+
+::: {.callout-tip}
+## Intuition
+For a fixed query $x$, the leaves whose $X$-projection contains $x$ form a **histogram** over $\mathcal{Y}$: the $A_Y$ intervals are the histogram bins, and the density is constant within each bin.
+:::
+
+## 4. Conditional Density Estimation
+
+### 4.1 The Density Estimator
+
+Let $\mu_Y$ be a reference measure on $\mathcal{Y}$ (Lebesgue measure for continuous outcomes, counting measure for discrete ones).
+
+Given a partition $\pi$ of the joint space, the piecewise-constant conditional density estimator on a cell $A = A_X \times A_Y$ is:
+
+$$
+\hat{f}_{\pi}(x, y) = \frac{n_{XY}(A)}{n_X(A) \cdot \mu_Y(A_Y)}
+$$
+
+where:
+
+- $n_{XY}(A) = \sum_{i=1}^N \mathbf{1}\{(x_i, y_i) \in A\}$ — number of samples in cell $A$
+- $n_X(A) = \sum_{i=1}^N \mathbf{1}\{x_i \in A_X\}$ — number of samples whose covariates fall in $A_X$
+- $\mu_Y(A_Y)$ — the "volume" of the outcome bin (interval width for continuous, category count for discrete)
+
+This is the empirical version of the Radon–Nikodym derivative $d\mathbb{P}_{XY} / d(\mathbb{P}_X \otimes \mu_Y)$.
+
+### 4.2 Normalization
+
+For a fixed $x$, the map $y \mapsto \hat{f}_\pi(x, y)$ is piecewise constant over the $Y$-intervals of the matching leaves.
+When a proper conditional density is required, the estimator is normalized:
+
+$$
+\bar{f}_\pi(x, y) = \frac{\hat{f}_\pi(x, y)}{\int_{\bar{\mathcal{Y}}_N} \hat{f}_\pi(x, y') \, d\mu_Y(y')}
+$$
+
+### 4.3 Bounded Outcome Domain
+
+When the outcome space is unbounded (e.g. $\mathcal{Y} \subseteq \mathbb{R}$), we restrict the estimator to a data-dependent bounding box:
+
+$$
+\bar{\mathcal{Y}}_N^{(c)} = \prod_{j=1}^{d_{y,c}} \bigl[\min_i y_{i,j} - \delta_N, \; \max_i y_{i,j} + \delta_N\bigr]
+$$
+
+The padding $\delta_N > 0$ (controlled by `boundaries_expansion_factor`) avoids boundary effects.
+
+## 5. Tree Construction
+
+### 5.1 Split Criterion — Log-Loss
+
+The tree is grown by greedily splitting leaves to minimize the **conditional negative log-likelihood**:
+
+$$
+\mathcal{L}(\pi) = -\sum_{A \in \pi} \frac{n_{XY}(A)}{N} \log \frac{n_{XY}(A)}{n_X(A) \cdot \mu_Y(A_Y)}
+$$
+
+When splitting a leaf $A$ into children $A_l$ and $A_r$, the empirical **gain** is:
+
+$$
+\hat{G} = \frac{n_{XY}(A_l)}{N} \log \frac{n_{XY}(A_l)}{n_X(A_l) \cdot \mu_Y(A_{l,Y})}
++ \frac{n_{XY}(A_r)}{N} \log \frac{n_{XY}(A_r)}{n_X(A_r) \cdot \mu_Y(A_{r,Y})}
+- \frac{n_{XY}(A)}{N} \log \frac{n_{XY}(A)}{n_X(A) \cdot \mu_Y(A_Y)}
+$$
+
+This gain is always non-negative (it is a Jensen gap) and equals zero only when the split does not improve the density estimate.
+
+### 5.2 Types of Splits
+
+Because the tree partitions the **joint** space $\mathcal{Z} = \mathcal{X} \times \mathcal{Y}$, there are two types of splits:
+
+| Split type | Effect |
+|---|---|
+| **X-split** (on a covariate) | Refines the covariate region: $A_X \to A_{l,X} \cup A_{r,X}$, while $A_Y$ stays the same |
+| **Y-split** (on the outcome) | Refines the outcome bin: $A_Y \to A_{l,Y} \cup A_{r,Y}$, while $A_X$ stays the same |
+
+For continuous coordinates, threshold splits ($z \leq t$ vs. $z > t$) are used.
+For categorical coordinates, subset splits ($z \in S$ vs. $z \notin S$) are used.
+
+::: {.callout-note}
+## Why split on $Y$?
+Y-splits create finer histogram bins for the conditional density. This is how the model captures **heteroscedastic** noise and multi-modal target distributions — something a CART tree cannot do.
+:::
+
+### 5.3 Best-First Growth
+
+The tree is grown **best-first**: at each step, the leaf–split pair with the highest gain is selected from a priority queue. Growth stops when the split budget (`max_leaves`) or depth limit (`max_depth`) is reached, or no admissible split exists.
+
+### 5.4 Complexity
+
+The split search is efficient:
+
+- Continuous coordinates: sort samples, scan thresholds with prefix sums — $O(n \log n)$ per coordinate per leaf.
+- Categorical coordinates: sort-and-scan over single-category splits — $O(n)$ per coordinate per leaf.
+
+Overall complexity: $O(d \, N \log N)$ with global pre-sorting, matching CART.
+
+## 6. Hyperparameters
+
+| Parameter | Default | Description |
+|---|---|---|
+| `max_leaves` | 101 | Maximum number of leaves (split budget + 1) |
+| `max_depth` | 5 | Maximum tree depth |
+| `min_samples_split` | 2.0 | Minimum samples in a leaf to attempt a split |
+| `min_samples_xy` | 1.0 | Minimum samples in the joint cell |
+| `min_samples_x` | 1.0 | Minimum samples in the $X$-projection |
+| `min_samples_y` | 1.0 | Minimum samples in the $Y$-projection |
+| `min_gain` | 0.0 | Minimum gain required to accept a split |
+| `min_volume_fraction` | 0.0 | Minimum fraction of the root $Y$-volume for a leaf |
+| `boundaries_expansion_factor` | 0.1 | Padding factor $\delta_N$ for the outcome bounding box |
+
+## 7. Partition Forests
+
+To improve predictive stability and log-loss, **Partition Forests** average conditional densities from multiple trees:
+
+$$
+\hat{f}_{\pi_N}^{\text{Forest}}(x, y) = \frac{1}{B} \sum_{b=1}^{B} \hat{f}_{\pi_N}^{(b)}(x, y)
+$$
+
+Each tree is trained on a bootstrap sample with optional random feature subsampling (as in Random Forests).
+The averaged density is then normalized as in §4.2.
+
+### Forest-specific parameters
+
+| Parameter | Default | Description |
+|---|---|---|
+| `n_estimators` | 100 | Number of trees in the forest |
+| `max_samples` | 0.8 | Fraction of samples per bootstrap |
+| `max_features` | 0.8 | Fraction of features considered per split |
+| `seed` / `random_state` | 42 | Random seed for reproducibility |
+
+## 8. Consistency
+
+Under mild regularity conditions, the Partition Tree estimator is **$L^1(\nu)$-consistent**: the density estimate converges to the true conditional density as $N \to \infty$.
+
+The key conditions are:
+
+1. The partition complexity grows sublinearly: $m(\mathcal{A}_N) / N \to 0$
+2. The growth function of the partition class is controlled: $\log \Delta_N^*(\mathcal{A}_N) / N \to 0$
+3. Cell diameters shrink: $\text{diam}(\pi_N[z]) \to 0$ in probability
+4. The number of distinct $X$-projections is controlled: $m_X(\mathcal{A}_N) \log N / N \to 0$
+
+The formal statement and proof are given in [Theorem 3.1 of the paper](https://arxiv.org/abs/2602.04042).
+
+## References
+
+- Angelim, F. & Leite, A. (2026). *Partition Trees: Conditional Density Estimation over General Outcome Spaces*. [arXiv:2602.04042](https://arxiv.org/abs/2602.04042).
+- Breiman, L. et al. (2017). *Classification and Regression Trees*. Routledge.
+- Breiman, L. (2001). *Random Forests*. Machine Learning, 45(1), 5–32.

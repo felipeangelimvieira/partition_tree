@@ -1,3 +1,7 @@
 {
     "debugpy.debugJustMyCode": false,
+    "chat.tools.terminal.autoApprove": {
+        "cargo test": true,
+        "cargo build": true
+    },
 }

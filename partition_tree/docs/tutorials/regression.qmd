@@ -1,0 +1,210 @@
+---
+title: "Tutorial: Regression"
+subtitle: "Point predictions from conditional density estimation"
+---
+
+Partition Trees estimate the **conditional density** $p(y \mid x)$ as a
+piecewise-constant function.
+For regression, the **point prediction** is the **posterior mean** of that
+density — equivalent to the conditional expectation $\mathbb{E}[y \mid x]$.
+
+::: {.callout-note}
+## Want full predictive distributions?
+If you need prediction intervals, quantiles, or the full PDF/CDF, see the
+[Probabilistic Regression](probabilistic_regression.qmd) tutorial which uses
+the `partition_tree.skpro` interface.
+:::
+
+## Setup
+
+```{python}
+from sklearn.datasets import fetch_california_housing
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_error, r2_score
+import numpy as np
+
+X, y = fetch_california_housing(return_X_y=True)
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42
+)
+```
+
+---
+
+## 1. Baselines — Decision Tree & Random Forest
+
+```{python}
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.ensemble import RandomForestRegressor
+
+cart = DecisionTreeRegressor(random_state=42)
+cart.fit(X_train, y_train)
+y_pred_cart = cart.predict(X_test)
+
+print("=== DecisionTreeRegressor ===")
+print(f"MAE  : {mean_absolute_error(y_test, y_pred_cart):.4f}")
+print(f"RMSE : {np.sqrt(((y_test - y_pred_cart) ** 2).mean()):.4f}")
+print(f"R²   : {r2_score(y_test, y_pred_cart):.4f}")
+```
+
+```{python}
+rf = RandomForestRegressor(n_estimators=50, random_state=42)
+rf.fit(X_train, y_train)
+y_pred_rf = rf.predict(X_test)
+
+print("=== RandomForestRegressor ===")
+print(f"MAE  : {mean_absolute_error(y_test, y_pred_rf):.4f}")
+print(f"RMSE : {np.sqrt(((y_test - y_pred_rf) ** 2).mean()):.4f}")
+print(f"R²   : {r2_score(y_test, y_pred_rf):.4f}")
+```
+
+---
+
+## 2. Single Partition Tree
+
+```{python}
+from partition_tree.sklearn import PartitionTreeRegressor
+
+reg = PartitionTreeRegressor(random_state=42)
+reg.fit(X_train, y_train)
+y_pred_reg = reg.predict(X_test)
+
+print("=== PartitionTreeRegressor ===")
+print(f"MAE  : {mean_absolute_error(y_test, y_pred_reg):.4f}")
+print(f"RMSE : {np.sqrt(((y_test - y_pred_reg) ** 2).mean()):.4f}")
+print(f"R²   : {r2_score(y_test, y_pred_reg):.4f}")
+```
+
+### Comparison with Baselines
+
+```{python}
+import pandas as pd
+
+pd.DataFrame({
+    "Model": ["DecisionTree (CART)", "RandomForest", "PartitionTree"],
+    "MAE": [
+        mean_absolute_error(y_test, y_pred_cart),
+        mean_absolute_error(y_test, y_pred_rf),
+        mean_absolute_error(y_test, y_pred_reg),
+    ],
+    "RMSE": [
+        np.sqrt(((y_test - y_pred_cart) ** 2).mean()),
+        np.sqrt(((y_test - y_pred_rf) ** 2).mean()),
+        np.sqrt(((y_test - y_pred_reg) ** 2).mean()),
+    ],
+    "R²": [
+        r2_score(y_test, y_pred_cart),
+        r2_score(y_test, y_pred_rf),
+        r2_score(y_test, y_pred_reg),
+    ],
+}).round(4)
+```
+
+---
+
+## 3. Partition Forest (Ensemble)
+
+`PartitionForestRegressor` averages the conditional densities of multiple trees,
+then reports the posterior mean — similar in spirit to a Random Forest but built
+on the Partition Tree density framework.
+
+```{python}
+from partition_tree.sklearn import PartitionForestRegressor
+
+forest_reg = PartitionForestRegressor(
+    n_estimators=50,
+    random_state=42,
+    min_volume_fraction=0.1,
+    min_samples_xy=0,
+)
+forest_reg.fit(X_train, y_train)
+y_pred_forest = forest_reg.predict(X_test)
+
+print("=== PartitionForestRegressor ===")
+print(f"MAE  : {mean_absolute_error(y_test, y_pred_forest):.4f}")
+print(f"RMSE : {np.sqrt(((y_test - y_pred_forest) ** 2).mean()):.4f}")
+print(f"R²   : {r2_score(y_test, y_pred_forest):.4f}")
+```
+
+### Full Comparison
+
+```{python}
+pd.DataFrame({
+    "Model": ["DecisionTree (CART)", "RandomForest", "PartitionTree", "PartitionForest"],
+    "MAE": [
+        mean_absolute_error(y_test, y_pred_cart),
+        mean_absolute_error(y_test, y_pred_rf),
+        mean_absolute_error(y_test, y_pred_reg),
+        mean_absolute_error(y_test, y_pred_forest),
+    ],
+    "RMSE": [
+        np.sqrt(((y_test - y_pred_cart) ** 2).mean()),
+        np.sqrt(((y_test - y_pred_rf) ** 2).mean()),
+        np.sqrt(((y_test - y_pred_reg) ** 2).mean()),
+        np.sqrt(((y_test - y_pred_forest) ** 2).mean()),
+    ],
+    "R²": [
+        r2_score(y_test, y_pred_cart),
+        r2_score(y_test, y_pred_rf),
+        r2_score(y_test, y_pred_reg),
+        r2_score(y_test, y_pred_forest),
+    ],
+}).round(4)
+```
+
+---
+
+## 4. Cross-Validation
+
+```{python}
+from sklearn.model_selection import cross_val_score
+
+scores = cross_val_score(
+    PartitionTreeRegressor(random_state=42),
+    X,
+    y,
+    cv=5,
+    scoring="r2",
+)
+print(f"CV R²: {scores.mean():.4f} ± {scores.std():.4f}")
+```
+
+---
+
+## 5. Key Hyperparameters
+
+| Parameter | Default | Description |
+|---|---|---|
+| `max_leaves` | 101 | Maximum number of leaves |
+| `max_depth` | 5 | Maximum tree depth |
+| `min_samples_split` | 2.0 | Min samples needed to attempt a split |
+| `min_gain` | 0.0 | Min gain required to accept a split |
+| `min_volume_fraction` | 0.0 | Min fraction of root $Y$-volume for a leaf |
+| `boundaries_expansion_factor` | 0.1 | Padding for the outcome bounding box |
+| `n_estimators` | 100 | Number of trees (forest only) |
+| `max_samples` | 0.8 | Bootstrap fraction (forest only) |
+| `max_features` | 0.8 | Feature subsampling fraction (forest only) |
+| `random_state` | 42 | Random seed (forest only) |
+
+::: {.callout-tip}
+## Tip
+For regression, increasing `max_leaves` and `max_depth` improves fit but risks
+overfitting. Use cross-validation (e.g., `cross_val_score` with `scoring="r2"`)
+to find the right balance.
+:::
+
+::: {.callout-tip}
+## Tip
+`min_samples_split` controls the minimum number of samples in a node before the
+tree even considers splitting it. Setting it to a value like `5.0` or `10.0`
+is a simple but effective regularizer for noisy datasets.
+:::
+
+## 6. Input Formats
+
+The estimators accept:
+
+- **NumPy arrays** — standard `(n_samples, n_features)` float arrays.
+- **Pandas DataFrames** — column names are preserved.
+- **Multi-output** — pass a 2-D `y` array or DataFrame with multiple columns.
+- **Missing values** — `NaN` values are supported (`allow_nan = True`).

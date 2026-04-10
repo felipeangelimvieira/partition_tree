@@ -198,9 +198,13 @@ fn belongs_to_evaluate_and_none() {
     assert_eq!(b_false.volume(), 3.0);
     assert!((b_false.relative_volume() - 0.75).abs() < f64::EPSILON);
 
-    // Mean returns the values themselves (as a set, order-insensitive)
+    // Mean returns uniform probability 1/volume for each active category
     let mean_set: Vec<f64> = b_false.mean().into_iter().collect();
-    assert_eq!(mean_set, [1.0, 0.0, 1.0, 1.0]);
+    let third = 1.0 / 3.0;
+    assert!((mean_set[0] - third).abs() < f64::EPSILON);
+    assert!((mean_set[1] - 0.0).abs() < f64::EPSILON);
+    assert!((mean_set[2] - third).abs() < f64::EPSILON);
+    assert!((mean_set[3] - third).abs() < f64::EPSILON);
 }
 
 /// Split keeps only the split point on the left (when present) and the rest on the right.
