@@ -111,11 +111,13 @@ fn apply_returns_leaf_indices_per_tree() {
     let trees = fitted.trees.as_ref().expect("forest should be fitted");
     for (tree, leaf_indices) in trees.iter().zip(&per_tree_leaf_indices) {
         assert_eq!(leaf_indices.len(), x.height());
-        for &idx in leaf_indices {
-            assert!(
-                tree.nodes[idx].is_leaf,
-                "apply should return leaf node indices"
-            );
+        for row_leaves in leaf_indices {
+            for &idx in row_leaves {
+                assert!(
+                    tree.nodes[idx].is_leaf,
+                    "apply should return leaf node indices"
+                );
+            }
         }
     }
 }

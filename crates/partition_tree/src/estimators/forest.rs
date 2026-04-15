@@ -253,14 +253,14 @@ impl PartitionForest {
 
     /// Apply each tree, returning leaf node indices for every row.
     ///
-    /// Returns `Vec<Vec<usize>>` where the outer index is the tree and
+    /// Returns `Vec<Vec<Vec<usize>>>` where the outer index is the tree and
     /// the inner index is the row.
-    pub fn apply(&self, x: &DataFrame) -> Result<Vec<Vec<usize>>, PredictError> {
+    pub fn apply(&self, x: &DataFrame) -> Result<Vec<Vec<Vec<usize>>>, PredictError> {
         let trees = self.fitted_trees()?;
         let xy = self.expand_with_schema(x)?;
         let dataset = self.build_prediction_dataset(&xy);
 
-        let per_tree_leaf_indices: Vec<Vec<usize>> =
+        let per_tree_leaf_indices: Vec<Vec<Vec<usize>>> =
             trees.par_iter().map(|tree| tree.apply(&dataset)).collect();
 
         Ok(per_tree_leaf_indices)

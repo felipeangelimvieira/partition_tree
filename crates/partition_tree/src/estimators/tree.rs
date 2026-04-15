@@ -197,7 +197,7 @@ impl PartitionTree {
     }
 
     /// Apply the tree, returning the leaf node index for every row.
-    pub fn apply(&self, x: &DataFrame) -> Result<Vec<usize>, PredictError> {
+    pub fn apply(&self, x: &DataFrame) -> Result<Vec<Vec<usize>>, PredictError> {
         let tree = self.fitted_tree()?;
         let xy = self.expand_with_schema(x)?;
         let dataset = self.build_prediction_dataset(&xy);
@@ -490,11 +490,13 @@ mod tests {
 
         assert_eq!(leaf_indices.len(), x.height());
         let tree = fitted.tree.as_ref().unwrap();
-        for &idx in &leaf_indices {
-            assert!(
-                tree.nodes[idx].is_leaf,
-                "apply should return leaf node indices"
-            );
+        for row_leaves in leaf_indices {
+            for idx in row_leaves {
+                assert!(
+                    tree.nodes[idx].is_leaf,
+                    "apply should return leaf node indices"
+                );
+            }
         }
     }
 
