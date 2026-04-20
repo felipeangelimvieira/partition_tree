@@ -152,6 +152,7 @@ impl PyPartitionTree {
                 max_features,
                 loss_obj,
                 seed,
+                std::collections::HashMap::new(),
             ),
         })
     }
