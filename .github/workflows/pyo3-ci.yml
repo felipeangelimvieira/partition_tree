@@ -189,3 +189,36 @@ jobs:
         run: uv publish 'wheels-*/*'
         env:
           UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+
+  test-pypi:
+    name: Test from PyPI
+    runs-on: ubuntu-latest
+    if: ${{ startsWith(github.ref, 'refs/tags/pyo3-v') }}
+    needs: [release]
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Extract version from tag
+        run: |
+          tag="${{ github.ref_name }}"
+          version="${tag#pyo3-v}"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Install from PyPI (with retries)
+        run: |
+          for i in $(seq 1 10); do
+            pip install --no-cache-dir "pyo3-partition-tree==$VERSION" && break
+            echo "Attempt $i/10 failed, retrying in 60s..."
+            sleep 60
+          done
+
+      - name: Install test dependencies
+        run: pip install pytest scikit-learn
+
+      - name: Run pyo3 tests
+        run: pytest pyo3_partition_tree/tests/ -v

@@ -64,11 +64,47 @@ jobs:
         env:
           UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
 
+  test-pypi:
+    name: Test from PyPI
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'release' && startsWith(github.event.release.tag_name, 'partition_tree-py-v') }}
+    needs: [publish-package]
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Extract version from tag
+        run: |
+          tag="${{ github.event.release.tag_name }}"
+          version="${tag#partition_tree-py-v}"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Install from PyPI (with retries)
+        run: |
+          for i in $(seq 1 10); do
+            pip install --no-cache-dir "partition_tree==$VERSION" && break
+            echo "Attempt $i/10 failed, retrying in 60s..."
+            sleep 60
+          done
+
+      - name: Install test dependencies
+        run: pip install pytest
+
+      - name: Run root tests
+        run: pytest tests/ -v
+
+      - name: Run partition_tree tests
+        run: pytest partition_tree/tests/ -v
+
   docs:
     name: Build and Deploy Documentation
     runs-on: ubuntu-latest
-    needs: [publish-package]
-    if: ${{ always() && (github.event_name != 'release' || needs.publish-package.result == 'success') && (github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'release' && startsWith(github.event.release.tag_name, 'partition_tree-py-v'))) }}
+    needs: [publish-package, test-pypi]
+    if: ${{ always() && (github.event_name != 'release' || (needs.publish-package.result == 'success' && needs.test-pypi.result == 'success')) && (github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'release' && startsWith(github.event.release.tag_name, 'partition_tree-py-v'))) }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
