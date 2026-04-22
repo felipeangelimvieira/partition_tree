@@ -18,7 +18,8 @@
 //! | [`split_rule`]  | Produce `(left, right)` child rules from a parent rule |
 //! | [`child_volumes`] | Compute child target volumes without allocating cells |
 //!
-//! Concrete implementations: [`ContinuousSplitOp`], [`CategoricalSplitOp`].
+//! Concrete implementations: [`ContinuousSplitOp`], [`CategoricalSplitOp`],
+//! [`IntegerSplitOp`], [`QuantizedContinuousSplitOp`].
 //!
 //! [`go_left`]: SplitOp::go_left
 //! [`split_rule`]: SplitOp::split_rule
@@ -255,6 +256,79 @@ impl fmt::Display for IntegerSplitOp {
     }
 }
 
+// ---------------------------------------------------------------------------
+// QuantizedContinuousSplitOp
+// ---------------------------------------------------------------------------
+
+/// Split operation for quantized-continuous columns: lattice index < threshold.
+#[derive(Debug, Clone)]
+pub struct QuantizedContinuousSplitOp {
+    /// First lattice index routed to the right child.
+    pub threshold_idx: i64,
+    /// Lattice resolution.
+    pub resolution: f64,
+    /// Position in presorted candidate list (debug / optional).
+    pub k_candidate: usize,
+    /// Position in presorted XY list (debug / optional).
+    pub p_xy: usize,
+}
+
+impl SplitOp for QuantizedContinuousSplitOp {
+    fn go_left(&self, col: &dyn ColumnView, row_idx: usize, none_to_left: bool) -> bool {
+        match col.get_f64(row_idx) {
+            Some(v) => crate::rules::QuantizedContinuousInterval::quantize_value(
+                v,
+                self.resolution,
+            )
+            .unwrap_or_else(|_| {
+                panic!(
+                    "QuantizedContinuousSplitOp encountered value {v} not aligned to resolution {}",
+                    self.resolution
+                )
+            }) < self.threshold_idx,
+            None => none_to_left,
+        }
+    }
+
+    fn split_rule(
+        &self,
+        parent_rule: &dyn DynRule,
+        none_to_left: bool,
+    ) -> (Box<dyn DynRule>, Box<dyn DynRule>) {
+        let qi = parent_rule
+            .as_any()
+            .downcast_ref::<crate::rules::QuantizedContinuousInterval>()
+            .expect("QuantizedContinuousSplitOp requires a QuantizedContinuousInterval rule");
+
+        let threshold = crate::rules::QuantizedContinuousInterval::split_boundary_from_index(
+            self.threshold_idx,
+            self.resolution,
+        );
+        let (left, right) = <crate::rules::QuantizedContinuousInterval as crate::rules::Rule<
+            f64,
+        >>::split(qi, threshold, Some(none_to_left));
+        (Box::new(left), Box::new(right))
+    }
+
+    fn clone_box(&self) -> Box<dyn SplitOp> {
+        Box::new(self.clone())
+    }
+}
+
+impl fmt::Display for QuantizedContinuousSplitOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "QuantizedContinuous(threshold={:.6}, resolution={})",
+            crate::rules::QuantizedContinuousInterval::split_boundary_from_index(
+                self.threshold_idx,
+                self.resolution,
+            ),
+            self.resolution
+        )
+    }
+}
+
 /// Full description of a successful split search on a single column.
 ///
 /// Produced by a [`ColumnSplitSearcher`](super::column_split::ColumnSplitSearcher)
@@ -455,6 +529,7 @@ impl Ord for CandidateSplit {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rules::QuantizedContinuousInterval;
 
     #[test]
     fn default_restrictions_allow_basic_split() {
@@ -551,5 +626,39 @@ mod tests {
         // (so that BinaryHeap pops it first → deterministic).
         // The key invariant: cmp must NOT return Equal for different node_indices.
         assert_ne!(a.cmp(&b), std::cmp::Ordering::Equal);
+    }
+
+    #[test]
+    fn quantized_split_op_uses_half_step_boundary_in_child_rules() {
+        let op = QuantizedContinuousSplitOp {
+            threshold_idx: 4,
+            resolution: 0.5,
+            k_candidate: 0,
+            p_xy: 0,
+        };
+        let parent = QuantizedContinuousInterval::new(2, 6, 0.5, Some((2, 6)), true);
+
+        let (left, right) = op.split_rule(&parent, true);
+        let left = left
+            .as_any()
+            .downcast_ref::<QuantizedContinuousInterval>()
+            .expect("left child should remain quantized");
+        let right = right
+            .as_any()
+            .downcast_ref::<QuantizedContinuousInterval>()
+            .expect("right child should remain quantized");
+
+        assert_eq!(
+            format!("{}", op),
+            "QuantizedContinuous(threshold=1.750000, resolution=0.5)"
+        );
+        assert!((left.high() - 1.75).abs() < 1e-10);
+        assert!((right.low() - 1.75).abs() < 1e-10);
+        assert!(
+            ((left.high() / op.resolution) - (left.high() / op.resolution).round()).abs() > 1e-10
+        );
+        assert!(
+            ((right.low() / op.resolution) - (right.low() / op.resolution).round()).abs() > 1e-10
+        );
     }
 }

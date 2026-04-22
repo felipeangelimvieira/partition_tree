@@ -23,7 +23,8 @@ use std::fmt;
 
 // Re-export the v1 rule types unchanged
 pub use crate::rules::{
-    BelongsTo, BelongsToGeneric, ContinuousInterval, IntegerInterval, Rule, RuleType, RuleValue,
+    BelongsTo, BelongsToGeneric, ContinuousInterval, IntegerInterval,
+    QuantizedContinuousInterval, Rule, RuleType, RuleValue,
 };
 
 // ---------------------------------------------------------------------------
@@ -265,6 +266,63 @@ impl DynRule for IntegerInterval {
 }
 
 // ---------------------------------------------------------------------------
+// DynRule impl for QuantizedContinuousInterval
+// ---------------------------------------------------------------------------
+
+impl DynRule for QuantizedContinuousInterval {
+    fn volume(&self) -> f64 {
+        <QuantizedContinuousInterval as Rule<f64>>::volume(self)
+    }
+
+    fn domain_volume(&self) -> f64 {
+        let (lo, hi) = self.domain;
+        if hi < lo {
+            0.0
+        } else {
+            ((hi as f64) - (lo as f64) + 1.0) * self.resolution
+        }
+    }
+
+    fn relative_volume(&self) -> f64 {
+        <QuantizedContinuousInterval as Rule<f64>>::relative_volume(self)
+    }
+
+    fn phi_volume(&self) -> f64 {
+        <QuantizedContinuousInterval as Rule<f64>>::phi_volume(self)
+    }
+
+    fn mean(&self) -> Vec<f64> {
+        <QuantizedContinuousInterval as Rule<f64>>::mean(self)
+    }
+
+    fn accept_none(&self) -> bool {
+        self.accept_none
+    }
+
+    fn contains(&self, value: Option<&DynValue>) -> bool {
+        match value {
+            None => self.accept_none,
+            Some(DynValue::Continuous(v)) => {
+                <QuantizedContinuousInterval as Rule<f64>>::_evaluate(self, &Some(*v))
+            }
+            Some(_) => false,
+        }
+    }
+
+    fn clone_box(&self) -> Box<dyn DynRule> {
+        Box::new(self.clone())
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn is_continuous(&self) -> bool {
+        true
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Conversion helpers: RuleType ↔ Box<dyn DynRule>
 // ---------------------------------------------------------------------------
 
@@ -274,6 +332,7 @@ impl From<RuleType> for Box<dyn DynRule> {
             RuleType::Continuous(ci) => Box::new(ci),
             RuleType::BelongsTo(bt) => Box::new(bt),
             RuleType::Integer(ii) => Box::new(ii),
+            RuleType::QuantizedContinuous(qi) => Box::new(qi),
         }
     }
 }
@@ -289,6 +348,7 @@ impl RuleType {
             RuleType::Continuous(ci) => ci.accept_none,
             RuleType::BelongsTo(bt) => bt.accept_none,
             RuleType::Integer(ii) => ii.accept_none,
+            RuleType::QuantizedContinuous(qi) => qi.accept_none,
         }
     }
 
@@ -298,6 +358,7 @@ impl RuleType {
             RuleType::Continuous(ci) => <ContinuousInterval as Rule<f64>>::volume(ci),
             RuleType::BelongsTo(bt) => <BelongsTo as Rule<usize>>::volume(bt),
             RuleType::Integer(ii) => <IntegerInterval as Rule<i64>>::volume(ii),
+            RuleType::QuantizedContinuous(qi) => <QuantizedContinuousInterval as Rule<f64>>::volume(qi),
         }
     }
 
@@ -307,6 +368,9 @@ impl RuleType {
             RuleType::Continuous(ci) => <ContinuousInterval as Rule<f64>>::relative_volume(ci),
             RuleType::BelongsTo(bt) => <BelongsTo as Rule<usize>>::relative_volume(bt),
             RuleType::Integer(ii) => <IntegerInterval as Rule<i64>>::relative_volume(ii),
+            RuleType::QuantizedContinuous(qi) => {
+                <QuantizedContinuousInterval as Rule<f64>>::relative_volume(qi)
+            }
         }
     }
 
@@ -316,6 +380,9 @@ impl RuleType {
             RuleType::Continuous(ci) => <ContinuousInterval as Rule<f64>>::phi_volume(ci),
             RuleType::BelongsTo(bt) => <BelongsTo as Rule<usize>>::phi_volume(bt),
             RuleType::Integer(ii) => <IntegerInterval as Rule<i64>>::phi_volume(ii),
+            RuleType::QuantizedContinuous(qi) => {
+                <QuantizedContinuousInterval as Rule<f64>>::phi_volume(qi)
+            }
         }
     }
 
@@ -325,6 +392,7 @@ impl RuleType {
             RuleType::Continuous(ci) => <ContinuousInterval as Rule<f64>>::mean(ci),
             RuleType::BelongsTo(bt) => <BelongsTo as Rule<usize>>::mean(bt),
             RuleType::Integer(ii) => <IntegerInterval as Rule<i64>>::mean(ii),
+            RuleType::QuantizedContinuous(qi) => <QuantizedContinuousInterval as Rule<f64>>::mean(qi),
         }
     }
 
@@ -342,6 +410,17 @@ impl RuleType {
                 let (left, right) =
                     <ContinuousInterval as Rule<f64>>::split(ci, threshold, Some(none_to_left));
                 (RuleType::Continuous(left), RuleType::Continuous(right))
+            }
+            RuleType::QuantizedContinuous(qi) => {
+                let (left, right) = <QuantizedContinuousInterval as Rule<f64>>::split(
+                    qi,
+                    threshold,
+                    Some(none_to_left),
+                );
+                (
+                    RuleType::QuantizedContinuous(left),
+                    RuleType::QuantizedContinuous(right),
+                )
             }
             RuleType::BelongsTo(_) => {
                 panic!("split_continuous called on a categorical RuleType")
@@ -389,7 +468,7 @@ impl RuleType {
                 let (left, right) = bt.split_subset(subset_left, Some(none_to_left));
                 (RuleType::BelongsTo(left), RuleType::BelongsTo(right))
             }
-            RuleType::Continuous(_) | RuleType::Integer(_) => {
+            RuleType::Continuous(_) | RuleType::Integer(_) | RuleType::QuantizedContinuous(_) => {
                 panic!("split_categorical called on a non-categorical RuleType")
             }
         }
@@ -418,6 +497,9 @@ impl RuleType {
     pub fn evaluate_continuous(&self, value: Option<f64>) -> bool {
         match self {
             RuleType::Continuous(ci) => <ContinuousInterval as Rule<f64>>::_evaluate(ci, &value),
+            RuleType::QuantizedContinuous(qi) => {
+                <QuantizedContinuousInterval as Rule<f64>>::_evaluate(qi, &value)
+            }
             RuleType::BelongsTo(_) | RuleType::Integer(_) => {
                 panic!("evaluate_continuous called on a non-continuous RuleType")
             }
@@ -435,7 +517,7 @@ impl RuleType {
     pub fn evaluate_categorical(&self, value: Option<usize>) -> bool {
         match self {
             RuleType::BelongsTo(bt) => <BelongsTo as Rule<usize>>::_evaluate(bt, &value),
-            RuleType::Continuous(_) | RuleType::Integer(_) => {
+            RuleType::Continuous(_) | RuleType::Integer(_) | RuleType::QuantizedContinuous(_) => {
                 panic!("evaluate_categorical called on a non-categorical RuleType")
             }
         }
@@ -445,6 +527,7 @@ impl RuleType {
     pub fn continuous_domain(&self) -> Option<(f64, f64)> {
         match self {
             RuleType::Continuous(ci) => Some(ci.domain()),
+            RuleType::QuantizedContinuous(qi) => Some((qi.low(), qi.high())),
             RuleType::BelongsTo(_) => None,
             RuleType::Integer(_) => None,
         }
@@ -456,6 +539,7 @@ impl RuleType {
             RuleType::BelongsTo(bt) => Some(bt.values.len()),
             RuleType::Continuous(_) => None,
             RuleType::Integer(_) => None,
+            RuleType::QuantizedContinuous(_) => None,
         }
     }
 

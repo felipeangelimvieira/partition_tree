@@ -8,6 +8,9 @@ full predictive distributions instead of point estimates.
 They extend skpro's `BaseProbaRegressor`, giving you access to PDF, CDF, quantiles
 (PPF), sampling, and more.
 
+For a worked example with a lattice-valued response, see
+[Quantized Targets](quantized_target_skpro.ipynb).
+
 ## Available Estimators
 
 | Class | Description |

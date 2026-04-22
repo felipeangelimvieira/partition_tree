@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 use crate::conf::TARGET_PREFIX;
 use crate::serde::schema as schema_serde;
 
-use crate::dataset_view::PolarsDatasetView;
+use crate::dataset_view::{LogicalDType, PolarsDatasetView};
 use crate::dtype_plugin::DTypeRegistry;
 use crate::loss::{ConditionalLogLoss, LossFunc};
 use crate::predict::piecewise_distribution::{MeanVector, PiecewiseConstantDistribution};
@@ -95,6 +95,8 @@ pub struct PartitionForest {
     /// Fraction of feature columns to consider at each split.
     /// `None` means use all features.
     pub max_features: Option<f64>,
+    /// Per-column logical dtype overrides applied during fit and prediction.
+    pub dtype_overrides: HashMap<String, LogicalDType>,
 
     // ── Fitted state ──────────────────────────────────────────────────
     /// Fitted trees (populated after `fit`).
@@ -125,6 +127,7 @@ impl PartitionForest {
         max_features: Option<f64>,
         loss: Option<Box<dyn LossFunc>>,
         seed: Option<usize>,
+        dtype_overrides: HashMap<String, LogicalDType>,
     ) -> Self {
         Self {
             n_estimators: n_estimators,
@@ -140,6 +143,7 @@ impl PartitionForest {
             max_samples: max_samples,
             replace: replace,
             max_features: max_features,
+            dtype_overrides,
             loss: loss,
             seed: seed,
             trees: None,
@@ -165,6 +169,7 @@ impl PartitionForest {
             max_samples: None,
             replace: true,
             max_features: None,
+            dtype_overrides: HashMap::new(),
             loss: None,
             trees: None,
             schema: None,
@@ -185,7 +190,7 @@ impl PartitionForest {
     ) -> Result<Vec<PiecewiseConstantDistribution>, PredictError> {
         let trees = self.fitted_trees()?;
         let xy = self.expand_with_schema(x)?;
-        let dataset = self.build_prediction_dataset(&xy);
+        let dataset = self.build_prediction_dataset(&xy)?;
 
         // Collect per-tree distributions in parallel
         let per_tree: Vec<Vec<PiecewiseConstantDistribution>> = trees
@@ -206,7 +211,7 @@ impl PartitionForest {
     ) -> Result<Vec<Vec<PiecewiseConstantDistribution>>, PredictError> {
         let trees = self.fitted_trees()?;
         let xy = self.expand_with_schema(x)?;
-        let dataset = self.build_prediction_dataset(&xy);
+        let dataset = self.build_prediction_dataset(&xy)?;
 
         let per_tree: Vec<Vec<PiecewiseConstantDistribution>> = trees
             .par_iter()
@@ -258,7 +263,7 @@ impl PartitionForest {
     pub fn apply(&self, x: &DataFrame) -> Result<Vec<Vec<Vec<usize>>>, PredictError> {
         let trees = self.fitted_trees()?;
         let xy = self.expand_with_schema(x)?;
-        let dataset = self.build_prediction_dataset(&xy);
+        let dataset = self.build_prediction_dataset(&xy)?;
 
         let per_tree_leaf_indices: Vec<Vec<Vec<usize>>> =
             trees.par_iter().map(|tree| tree.apply(&dataset)).collect();
@@ -299,10 +304,23 @@ impl PartitionForest {
 
     /// Build a `PolarsDatasetView` for prediction, using stored category
     /// labels to ensure consistent code assignment.
-    fn build_prediction_dataset(&self, xy: &DataFrame) -> PolarsDatasetView {
+    fn build_prediction_dataset(&self, xy: &DataFrame) -> Result<PolarsDatasetView, PredictError> {
         match &self.cat_labels {
-            Some(labels) => PolarsDatasetView::with_category_labels(xy, labels),
-            None => PolarsDatasetView::new(xy),
+            Some(labels) if self.dtype_overrides.is_empty() => {
+                Ok(PolarsDatasetView::with_category_labels(xy, labels))
+            }
+            Some(labels) => PolarsDatasetView::try_with_category_labels_and_dtype_overrides(
+                xy,
+                labels,
+                &self.dtype_overrides,
+            )
+            .map_err(|e| {
+                PredictError::InvalidInput(format!("Failed to build prediction dataset: {e}"))
+            }),
+            None if self.dtype_overrides.is_empty() => Ok(PolarsDatasetView::new(xy)),
+            None => PolarsDatasetView::try_with_dtype_overrides(xy, &self.dtype_overrides).map_err(
+                |e| PredictError::InvalidInput(format!("Failed to build prediction dataset: {e}")),
+            ),
         }
     }
 
@@ -394,7 +412,12 @@ impl Estimator for PartitionForest {
         let schema = xy.schema().as_ref().clone();
 
         // ── 3. Build shared DatasetView once ──────────────────────────
-        let dataset = PolarsDatasetView::new(&xy);
+        let dataset = if self.dtype_overrides.is_empty() {
+            PolarsDatasetView::new(&xy)
+        } else {
+            PolarsDatasetView::try_with_dtype_overrides(&xy, &self.dtype_overrides)
+                .map_err(|e| FitError::InvalidInput(e.to_string()))?
+        };
         // Extract category label mappings before the trees consume the dataset.
         let cat_labels = dataset.category_labels();
         // ── 4. Build trees in parallel ────────────────────────────────
@@ -447,6 +470,7 @@ impl Estimator for PartitionForest {
             max_samples: self.max_samples,
             replace: self.replace,
             max_features: self.max_features,
+            dtype_overrides: self.dtype_overrides.clone(),
             loss: Some(loss_factory),
             trees: self.trees.take(),
             schema: Some(schema),
@@ -457,7 +481,7 @@ impl Estimator for PartitionForest {
     fn _predict_impl(&self, x: &DataFrame) -> Result<DataFrame, PredictError> {
         let trees = self.fitted_trees()?;
         let xy = self.expand_with_schema(x)?;
-        let dataset = self.build_prediction_dataset(&xy);
+        let dataset = self.build_prediction_dataset(&xy)?;
 
         // Collect per-tree distributions in parallel
         let per_tree: Vec<Vec<PiecewiseConstantDistribution>> = trees
@@ -496,7 +520,7 @@ impl PartitionForest {
     /// Convert mean vectors to a DataFrame using target schema from a tree.
     fn mean_vectors_to_dataframe(mean_vectors: &[MeanVector], tree: &Tree) -> DataFrame {
         use crate::rule::DynRule;
-        use crate::rules::{BelongsTo, ContinuousInterval};
+        use crate::rules::{BelongsTo, ContinuousInterval, QuantizedContinuousInterval};
 
         let root = tree.root();
         let mut target_cols: Vec<(&String, &dyn DynRule)> = root.cell.target_rules().collect();
@@ -506,6 +530,10 @@ impl PartitionForest {
 
         for (col_name, rule) in &target_cols {
             if rule.as_any().downcast_ref::<ContinuousInterval>().is_some()
+                || rule
+                    .as_any()
+                    .downcast_ref::<QuantizedContinuousInterval>()
+                    .is_some()
                 || rule
                     .as_any()
                     .downcast_ref::<crate::rules::IntegerInterval>()

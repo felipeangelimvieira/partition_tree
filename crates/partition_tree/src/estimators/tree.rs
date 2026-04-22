@@ -34,7 +34,7 @@ use serde::{Deserialize, Serialize};
 use crate::conf::TARGET_PREFIX;
 use crate::serde::schema as schema_serde;
 
-use crate::dataset_view::{DatasetView, PolarsDatasetView};
+use crate::dataset_view::{LogicalDType, PolarsDatasetView};
 use crate::dtype_plugin::DTypeRegistry;
 use crate::loss::{ConditionalLogLoss, LossFunc};
 use crate::predict::piecewise_distribution::{MeanVector, PiecewiseConstantDistribution};
@@ -85,6 +85,8 @@ pub struct PartitionTree {
     pub loss: Option<Box<dyn LossFunc>>,
     /// RNG seed for reproducible bootstrap / feature subsampling.
     pub seed: Option<u64>,
+    /// Per-column logical dtype overrides applied during fit and prediction.
+    pub dtype_overrides: HashMap<String, LogicalDType>,
 
     // ── Fitted state ───────────────────────────────────────────────────
     /// The fitted tree (populated after `fit`).
@@ -115,6 +117,7 @@ impl PartitionTree {
         max_features: Option<f64>,
         loss: Option<Box<dyn LossFunc>>,
         seed: Option<u64>,
+        dtype_overrides: HashMap<String, LogicalDType>,
     ) -> Self {
         Self {
             max_leaves,
@@ -131,6 +134,7 @@ impl PartitionTree {
             max_features,
             loss,
             seed,
+            dtype_overrides,
             tree: None,
             schema: None,
             cat_labels: None,
@@ -154,6 +158,7 @@ impl PartitionTree {
             max_features: None,
             loss: None,
             seed: None,
+            dtype_overrides: HashMap::new(),
             tree: None,
             schema: None,
             cat_labels: None,
@@ -173,7 +178,7 @@ impl PartitionTree {
     ) -> Result<Vec<PiecewiseConstantDistribution>, PredictError> {
         let tree = self.fitted_tree()?;
         let xy = self.expand_with_schema(x)?;
-        let dataset = self.build_prediction_dataset(&xy);
+        let dataset = self.build_prediction_dataset(&xy)?;
         Ok(tree.predict_distributions(&dataset))
     }
 
@@ -181,7 +186,7 @@ impl PartitionTree {
     pub fn predict_mean_vectors(&self, x: &DataFrame) -> Result<Vec<MeanVector>, PredictError> {
         let tree = self.fitted_tree()?;
         let xy = self.expand_with_schema(x)?;
-        let dataset = self.build_prediction_dataset(&xy);
+        let dataset = self.build_prediction_dataset(&xy)?;
         Ok(tree.predict_mean_vectors(&dataset))
     }
 
@@ -200,7 +205,7 @@ impl PartitionTree {
     pub fn apply(&self, x: &DataFrame) -> Result<Vec<Vec<usize>>, PredictError> {
         let tree = self.fitted_tree()?;
         let xy = self.expand_with_schema(x)?;
-        let dataset = self.build_prediction_dataset(&xy);
+        let dataset = self.build_prediction_dataset(&xy)?;
         Ok(tree.apply(&dataset))
     }
 
@@ -251,10 +256,23 @@ impl PartitionTree {
 
     /// Build a `PolarsDatasetView` for prediction, using stored category
     /// labels to ensure consistent code assignment.
-    fn build_prediction_dataset(&self, xy: &DataFrame) -> PolarsDatasetView {
+    fn build_prediction_dataset(&self, xy: &DataFrame) -> Result<PolarsDatasetView, PredictError> {
         match &self.cat_labels {
-            Some(labels) => PolarsDatasetView::with_category_labels(xy, labels),
-            None => PolarsDatasetView::new(xy),
+            Some(labels) if self.dtype_overrides.is_empty() => {
+                Ok(PolarsDatasetView::with_category_labels(xy, labels))
+            }
+            Some(labels) => PolarsDatasetView::try_with_category_labels_and_dtype_overrides(
+                xy,
+                labels,
+                &self.dtype_overrides,
+            )
+            .map_err(|e| {
+                PredictError::InvalidInput(format!("Failed to build prediction dataset: {e}"))
+            }),
+            None if self.dtype_overrides.is_empty() => Ok(PolarsDatasetView::new(xy)),
+            None => PolarsDatasetView::try_with_dtype_overrides(xy, &self.dtype_overrides).map_err(
+                |e| PredictError::InvalidInput(format!("Failed to build prediction dataset: {e}")),
+            ),
         }
     }
 
@@ -316,7 +334,13 @@ impl Estimator for PartitionTree {
         let schema = xy.schema().as_ref().clone();
 
         // ── 3. Build tree ─────────────────────────────────────────────
-        let dataset = PolarsDatasetView::new(&xy);
+        let dataset = if self.dtype_overrides.is_empty() {
+            PolarsDatasetView::new(&xy)
+        } else {
+            PolarsDatasetView::try_with_dtype_overrides(&xy, &self.dtype_overrides).map_err(
+                |e| FitError::InvalidInput(format!("Failed to build training dataset: {e}")),
+            )?
+        };
 
         // Extract category label mappings before the tree consumes the dataset.
         let cat_labels = dataset.category_labels();
@@ -354,6 +378,7 @@ impl Estimator for PartitionTree {
             max_features: self.max_features,
             loss: Some(loss),
             seed: self.seed,
+            dtype_overrides: self.dtype_overrides.clone(),
             tree: self.tree.take(),
             schema: Some(schema),
             cat_labels: Some(cat_labels),
@@ -363,7 +388,7 @@ impl Estimator for PartitionTree {
     fn _predict_impl(&self, x: &DataFrame) -> Result<DataFrame, PredictError> {
         let tree = self.fitted_tree()?;
         let xy = self.expand_with_schema(x)?;
-        let dataset = self.build_prediction_dataset(&xy);
+        let dataset = self.build_prediction_dataset(&xy)?;
 
         let mut out = tree.predict_mean(&dataset);
 
@@ -394,6 +419,7 @@ impl Estimator for PartitionTree {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rules::{ContinuousInterval, IntegerInterval, QuantizedContinuousInterval};
     use estimators::api::Estimator;
 
     fn make_xy() -> (DataFrame, DataFrame) {
@@ -422,7 +448,21 @@ mod tests {
     fn fit_and_predict_roundtrip() {
         let (x, y) = make_xy();
         let mut model = PartitionTree::new(
-            13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, true, None, None, None,
+            13,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1e-8,
+            0.0,
+            6,
+            2.0,
+            None,
+            true,
+            None,
+            None,
+            None,
+            HashMap::new(),
         );
         let fitted = model.fit(&x, &y, None).expect("fit should succeed");
         let preds = fitted.predict(&x).expect("predict should succeed");
@@ -438,7 +478,21 @@ mod tests {
     fn predict_proba_returns_distributions() {
         let (x, y) = make_xy();
         let mut model = PartitionTree::new(
-            13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, true, None, None, None,
+            13,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1e-8,
+            0.0,
+            6,
+            2.0,
+            None,
+            true,
+            None,
+            None,
+            None,
+            HashMap::new(),
         );
         let fitted = model.fit(&x, &y, None).unwrap();
         let dists = fitted
@@ -483,7 +537,21 @@ mod tests {
     fn apply_returns_leaf_indices() {
         let (x, y) = make_xy();
         let mut model = PartitionTree::new(
-            13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, true, None, None, None,
+            13,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1e-8,
+            0.0,
+            6,
+            2.0,
+            None,
+            true,
+            None,
+            None,
+            None,
+            HashMap::new(),
         );
         let fitted = model.fit(&x, &y, None).unwrap();
         let leaf_indices = fitted.apply(&x).unwrap();
@@ -504,7 +572,21 @@ mod tests {
     fn leaves_info_matches_tree() {
         let (x, y) = make_xy();
         let mut model = PartitionTree::new(
-            13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, true, None, None, None,
+            13,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1e-8,
+            0.0,
+            6,
+            2.0,
+            None,
+            true,
+            None,
+            None,
+            None,
+            HashMap::new(),
         );
         let fitted = model.fit(&x, &y, None).unwrap();
         let infos = fitted.leaves_info().unwrap();
@@ -539,7 +621,21 @@ mod tests {
         // y = 2*x1, so for x1=1 → y=2, x1=2 → y=4
         let (x, y) = make_xy();
         let mut model = PartitionTree::new(
-            13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, true, None, None, None,
+            13,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1e-8,
+            0.0,
+            6,
+            2.0,
+            None,
+            true,
+            None,
+            None,
+            None,
+            HashMap::new(),
         );
         let fitted = model.fit(&x, &y, None).unwrap();
         let preds = fitted.predict(&x).unwrap();
@@ -562,7 +658,21 @@ mod tests {
     fn serde_roundtrip_bincode() {
         let (x, y) = make_xy();
         let mut model = PartitionTree::new(
-            13, 0.0, 0.0, 0.0, 0.0, 1e-8, 0.0, 6, 2.0, None, true, None, None, None,
+            13,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1e-8,
+            0.0,
+            6,
+            2.0,
+            None,
+            true,
+            None,
+            None,
+            None,
+            HashMap::new(),
         );
         let fitted = model.fit(&x, &y, None).unwrap();
 
@@ -600,5 +710,245 @@ mod tests {
                 "row {i}: original {a} vs restored {b} differ after serde roundtrip"
             );
         }
+    }
+
+    #[test]
+    fn fit_uses_dtype_overrides_for_named_columns() {
+        let x = DataFrame::new(vec![Column::new(
+            PlSmallStr::from_static("x1"),
+            &[1.0_f64, 2.0, 3.0, 4.0, 5.0, 6.0],
+        )])
+        .unwrap();
+        let y = DataFrame::new(vec![Column::new(
+            PlSmallStr::from_static("y"),
+            &[10.0_f64, 10.0, 20.0, 20.0, 30.0, 30.0],
+        )])
+        .unwrap();
+
+        let mut dtype_overrides = HashMap::new();
+        dtype_overrides.insert("x1".to_string(), LogicalDType::Integer);
+
+        let mut model = PartitionTree::new(
+            13,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1e-8,
+            0.0,
+            6,
+            2.0,
+            None,
+            true,
+            None,
+            None,
+            None,
+            dtype_overrides,
+        );
+
+        let fitted = model.fit(&x, &y, None).expect("fit should succeed");
+        let root_rule = fitted
+            .tree
+            .as_ref()
+            .expect("tree should be fitted")
+            .root()
+            .cell
+            .get_rule("x1")
+            .expect("x1 rule should exist");
+
+        assert!(
+            root_rule
+                .as_any()
+                .downcast_ref::<IntegerInterval>()
+                .is_some(),
+            "expected x1 to use IntegerInterval after override"
+        );
+        assert!(
+            root_rule
+                .as_any()
+                .downcast_ref::<ContinuousInterval>()
+                .is_none(),
+            "override should replace the default continuous rule"
+        );
+
+        let preds = fitted.predict(&x).expect("predict should succeed");
+        assert_eq!(preds.height(), x.height());
+    }
+
+    #[test]
+    fn fit_uses_quantized_continuous_override_for_named_columns() {
+        let x = DataFrame::new(vec![Column::new(
+            PlSmallStr::from_static("x1"),
+            &[0.0_f64, 0.5, 1.0, 1.5, 2.0, 2.5],
+        )])
+        .unwrap();
+        let y = DataFrame::new(vec![Column::new(
+            PlSmallStr::from_static("y"),
+            &[10.0_f64, 10.0, 20.0, 20.0, 30.0, 30.0],
+        )])
+        .unwrap();
+
+        let mut dtype_overrides = HashMap::new();
+        dtype_overrides.insert(
+            "x1".to_string(),
+            LogicalDType::quantized_continuous(0.5).unwrap(),
+        );
+
+        let mut model = PartitionTree::new(
+            13,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1e-8,
+            0.0,
+            6,
+            2.0,
+            None,
+            true,
+            None,
+            None,
+            None,
+            dtype_overrides,
+        );
+
+        let fitted = model.fit(&x, &y, None).expect("fit should succeed");
+        let root_rule = fitted
+            .tree
+            .as_ref()
+            .expect("tree should be fitted")
+            .root()
+            .cell
+            .get_rule("x1")
+            .expect("x1 rule should exist");
+
+        assert!(
+            root_rule
+                .as_any()
+                .downcast_ref::<QuantizedContinuousInterval>()
+                .is_some(),
+            "expected x1 to use QuantizedContinuousInterval after override"
+        );
+
+        let preds = fitted.predict(&x).expect("predict should succeed");
+        assert_eq!(preds.height(), x.height());
+    }
+
+    #[test]
+    fn quantized_continuous_resolution_one_matches_integer_override() {
+        let x = DataFrame::new(vec![Column::new(
+            PlSmallStr::from_static("x1"),
+            &[1.0_f64, 2.0, 3.0, 4.0, 5.0, 6.0],
+        )])
+        .unwrap();
+        let y = DataFrame::new(vec![Column::new(
+            PlSmallStr::from_static("y"),
+            &[10.0_f64, 10.0, 20.0, 20.0, 30.0, 30.0],
+        )])
+        .unwrap();
+
+        let mut integer_overrides = HashMap::new();
+        integer_overrides.insert("x1".to_string(), LogicalDType::Integer);
+
+        let mut quantized_overrides = HashMap::new();
+        quantized_overrides.insert(
+            "x1".to_string(),
+            LogicalDType::quantized_continuous(1.0).unwrap(),
+        );
+
+        let mut integer_model = PartitionTree::new(
+            13,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1e-8,
+            0.0,
+            6,
+            2.0,
+            None,
+            true,
+            None,
+            None,
+            None,
+            integer_overrides,
+        );
+        let mut quantized_model = PartitionTree::new(
+            13,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1e-8,
+            0.0,
+            6,
+            2.0,
+            None,
+            true,
+            None,
+            None,
+            None,
+            quantized_overrides,
+        );
+
+        let fitted_integer = integer_model
+            .fit(&x, &y, None)
+            .expect("integer fit should succeed");
+        let fitted_quantized = quantized_model
+            .fit(&x, &y, None)
+            .expect("quantized fit should succeed");
+
+        let integer_rule = fitted_integer
+            .tree
+            .as_ref()
+            .expect("integer tree should be fitted")
+            .root()
+            .cell
+            .get_rule("x1")
+            .expect("integer x1 rule should exist");
+        let quantized_rule = fitted_quantized
+            .tree
+            .as_ref()
+            .expect("quantized tree should be fitted")
+            .root()
+            .cell
+            .get_rule("x1")
+            .expect("quantized x1 rule should exist");
+
+        assert!(
+            integer_rule
+                .as_any()
+                .downcast_ref::<IntegerInterval>()
+                .is_some()
+        );
+        assert!(
+            quantized_rule
+                .as_any()
+                .downcast_ref::<QuantizedContinuousInterval>()
+                .is_some()
+        );
+
+        let preds_integer = fitted_integer
+            .predict(&x)
+            .expect("integer predict should succeed");
+        let preds_quantized = fitted_quantized
+            .predict(&x)
+            .expect("quantized predict should succeed");
+        let integer_col = preds_integer.column("y").unwrap().f64().unwrap();
+        let quantized_col = preds_quantized.column("y").unwrap().f64().unwrap();
+
+        for row in 0..x.height() {
+            let a = integer_col.get(row).unwrap();
+            let b = quantized_col.get(row).unwrap();
+            assert!(
+                (a - b).abs() < 1e-12,
+                "row {row}: integer prediction {a} differs from quantized prediction {b}"
+            );
+        }
+
+        assert_eq!(
+            fitted_integer.apply(&x).unwrap(),
+            fitted_quantized.apply(&x).unwrap()
+        );
     }
 }

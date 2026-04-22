@@ -11,7 +11,9 @@ use std::collections::HashMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::rule::DynRule;
-use crate::rules::{BelongsTo, ContinuousInterval, IntegerInterval, RuleType};
+use crate::rules::{
+    BelongsTo, ContinuousInterval, IntegerInterval, QuantizedContinuousInterval, RuleType,
+};
 
 /// Convert a `&dyn DynRule` into a serializable `RuleType`.
 fn to_variant(rule: &dyn DynRule) -> RuleType {
@@ -23,6 +25,9 @@ fn to_variant(rule: &dyn DynRule) -> RuleType {
     }
     if let Some(ii) = rule.as_any().downcast_ref::<IntegerInterval>() {
         return RuleType::Integer(ii.clone());
+    }
+    if let Some(qi) = rule.as_any().downcast_ref::<QuantizedContinuousInterval>() {
+        return RuleType::QuantizedContinuous(qi.clone());
     }
     panic!(
         "Unknown DynRule concrete type for serialization: {:?}",
@@ -36,6 +41,7 @@ fn from_variant(variant: RuleType) -> Box<dyn DynRule> {
         RuleType::Continuous(ci) => Box::new(ci),
         RuleType::BelongsTo(bt) => Box::new(bt),
         RuleType::Integer(ii) => Box::new(ii),
+        RuleType::QuantizedContinuous(qi) => Box::new(qi),
     }
 }
 

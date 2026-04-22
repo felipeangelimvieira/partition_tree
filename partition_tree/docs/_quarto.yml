@@ -26,6 +26,8 @@ website:
             href: tutorials/probabilistic_regression.qmd
           - text: "skpro Interface"
             href: tutorials/skpro.qmd
+          - text: "Quantized Targets"
+            href: tutorials/quantized_target_skpro.ipynb
       - text: "API Reference"
         href: api.qmd
     right:
@@ -39,6 +41,7 @@ format:
   html:
     theme: cosmo
     css: styles.css
+    include-after-body: includes/code-retokenize.html
     toc: true
     toc-depth: 3
     code-copy: true

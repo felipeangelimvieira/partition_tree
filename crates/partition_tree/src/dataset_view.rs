@@ -25,9 +25,11 @@
 //! [`ColumnView`] for your types. Both traits require `Send + Sync` so
 //! that column-level split search can be parallelized with `rayon`.
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use polars::prelude::*;
+use serde::{Deserialize, Serialize};
 
 use crate::conf::TARGET_PREFIX;
 use crate::rule::DynValue;
@@ -40,11 +42,96 @@ use crate::rule::DynValue;
 ///
 /// This enum drives dispatch to the appropriate [`DTypePlugin`](super::dtype_plugin::DTypePlugin)
 /// and [`ColumnSplitSearcher`](super::column_split::ColumnSplitSearcher).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum LogicalDTypeKind {
+    Continuous,
+    Categorical,
+    Integer,
+    QuantizedContinuous,
+}
+
+/// Configuration for quantized-continuous columns.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct QuantizedContinuousSpec {
+    resolution: f64,
+}
+
+impl QuantizedContinuousSpec {
+    pub fn new(resolution: f64) -> Result<Self, String> {
+        if !resolution.is_finite() || resolution <= 0.0 {
+            return Err(format!(
+                "quantized-continuous resolution must be finite and positive, got {resolution}"
+            ));
+        }
+
+        Ok(Self { resolution })
+    }
+
+    pub fn resolution(self) -> f64 {
+        self.resolution
+    }
+
+    pub fn quantize_value(self, value: f64) -> Result<i64, String> {
+        if !value.is_finite() {
+            return Err(format!("value {value} is not finite"));
+        }
+
+        let scaled = value / self.resolution;
+        let rounded = scaled.round();
+        let tolerance = scaled.abs().max(1.0) * 1e-9;
+
+        if (scaled - rounded).abs() > tolerance {
+            return Err(format!(
+                "value {value} is not aligned to resolution {}",
+                self.resolution
+            ));
+        }
+
+        if rounded < i64::MIN as f64 || rounded > i64::MAX as f64 {
+            return Err(format!("value {value} is outside the quantized i64 range"));
+        }
+
+        Ok(rounded as i64)
+    }
+}
+
+impl PartialEq for QuantizedContinuousSpec {
+    fn eq(&self, other: &Self) -> bool {
+        self.resolution.to_bits() == other.resolution.to_bits()
+    }
+}
+
+impl Eq for QuantizedContinuousSpec {}
+
+impl Hash for QuantizedContinuousSpec {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.resolution.to_bits().hash(state);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum LogicalDType {
     Continuous,
     Categorical,
     Integer,
+    QuantizedContinuous(QuantizedContinuousSpec),
+}
+
+impl LogicalDType {
+    pub fn kind(self) -> LogicalDTypeKind {
+        match self {
+            Self::Continuous => LogicalDTypeKind::Continuous,
+            Self::Categorical => LogicalDTypeKind::Categorical,
+            Self::Integer => LogicalDTypeKind::Integer,
+            Self::QuantizedContinuous(_) => LogicalDTypeKind::QuantizedContinuous,
+        }
+    }
+
+    pub fn quantized_continuous(resolution: f64) -> Result<Self, String> {
+        Ok(Self::QuantizedContinuous(QuantizedContinuousSpec::new(
+            resolution,
+        )?))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -107,7 +194,9 @@ pub trait ColumnView: Send + Sync {
     /// Custom backends can override this for efficiency.
     fn get_dyn_value(&self, idx: usize) -> Option<DynValue> {
         match self.logical_dtype() {
-            LogicalDType::Continuous => self.get_f64(idx).map(DynValue::Continuous),
+            LogicalDType::Continuous | LogicalDType::QuantizedContinuous(_) => {
+                self.get_f64(idx).map(DynValue::Continuous)
+            }
             LogicalDType::Categorical => self.get_cat(idx).map(DynValue::Categorical),
             LogicalDType::Integer => self.get_i64(idx).map(DynValue::Integer),
         }
@@ -179,20 +268,262 @@ pub trait DatasetView: Send + Sync {
 /// | Polars dtype         | Logical dtype       |
 /// |----------------------|---------------------|
 /// | `Float64`, `Float32` | `Continuous`        |
-/// | `Int32`, `Int64`     | `Continuous`        |
+/// | `Int32`, `Int64`     | `Integer`           |
 /// | `Enum`, `Categorical`| `Categorical`       |
+/// | `Null`               | `Continuous`        |
+#[derive(Debug)]
+enum ColumnStorage {
+    Continuous(Vec<Option<f64>>),
+    Integer(Vec<Option<i64>>),
+    QuantizedContinuous {
+        values: Vec<Option<f64>>,
+        spec: QuantizedContinuousSpec,
+    },
+    Categorical {
+        codes: Vec<Option<usize>>,
+        labels: Arc<Vec<String>>,
+    },
+}
+
+impl ColumnStorage {
+    fn inferred_from_series(series: &Series) -> Self {
+        match series.dtype() {
+            DataType::Float64 | DataType::Float32 | DataType::Null => {
+                Self::try_continuous(series).expect("continuous materialization should succeed")
+            }
+            DataType::Int32 | DataType::Int64 => {
+                Self::try_integer(series).expect("integer materialization should succeed")
+            }
+            DataType::Enum(_, _) | DataType::Categorical(_, _) => {
+                Self::try_categorical(series, None)
+                    .expect("categorical materialization should succeed")
+            }
+            dt => panic!("PolarsColumnView: unsupported dtype {dt:?}"),
+        }
+    }
+
+    fn try_from_series_with_dtype(
+        series: &Series,
+        logical_dtype: LogicalDType,
+        labels: Option<&[String]>,
+    ) -> Result<Self, String> {
+        match logical_dtype {
+            LogicalDType::Continuous => Self::try_continuous(series),
+            LogicalDType::Integer => Self::try_integer(series),
+            LogicalDType::Categorical => Self::try_categorical(series, labels),
+            LogicalDType::QuantizedContinuous(spec) => Self::try_quantized_continuous(series, spec),
+        }
+    }
+
+    fn try_numeric_as_f64(series: &Series) -> Result<Vec<Option<f64>>, String> {
+        let len = series.len();
+
+        match series.dtype() {
+            DataType::Float64 => Ok(series.f64().expect("f64 series").into_iter().collect()),
+            DataType::Float32 => Ok(series
+                .f32()
+                .expect("f32 series")
+                .into_iter()
+                .map(|v| v.map(|x| x as f64))
+                .collect()),
+            DataType::Int32 => Ok(series
+                .i32()
+                .expect("i32 series")
+                .into_iter()
+                .map(|v| v.map(|x| x as f64))
+                .collect()),
+            DataType::Int64 => Ok(series
+                .i64()
+                .expect("i64 series")
+                .into_iter()
+                .map(|v| v.map(|x| x as f64))
+                .collect()),
+            DataType::Null => Ok(vec![None; len]),
+            dt => Err(format!("unsupported physical dtype {dt:?}")),
+        }
+    }
+
+    fn try_continuous(series: &Series) -> Result<Self, String> {
+        Ok(Self::Continuous(Self::try_numeric_as_f64(series)?))
+    }
+
+    fn try_quantized_continuous(
+        series: &Series,
+        spec: QuantizedContinuousSpec,
+    ) -> Result<Self, String> {
+        let values = Self::try_numeric_as_f64(series)?;
+
+        for value in values.iter().flatten() {
+            spec.quantize_value(*value)?;
+        }
+
+        Ok(Self::QuantizedContinuous { values, spec })
+    }
+
+    fn try_integer(series: &Series) -> Result<Self, String> {
+        let len = series.len();
+        let values = match series.dtype() {
+            DataType::Int32 => series
+                .i32()
+                .expect("i32 series")
+                .into_iter()
+                .map(|v| v.map(|x| x as i64))
+                .collect(),
+            DataType::Int64 => series.i64().expect("i64 series").into_iter().collect(),
+            DataType::Float64 => series
+                .f64()
+                .expect("f64 series")
+                .into_iter()
+                .map(|v| v.map(Self::checked_f64_to_i64).transpose())
+                .collect::<Result<Vec<_>, _>>()?,
+            DataType::Float32 => series
+                .f32()
+                .expect("f32 series")
+                .into_iter()
+                .map(|v| v.map(|x| Self::checked_f64_to_i64(x as f64)).transpose())
+                .collect::<Result<Vec<_>, _>>()?,
+            DataType::Null => vec![None; len],
+            dt => return Err(format!("unsupported physical dtype {dt:?}")),
+        };
+
+        Ok(Self::Integer(values))
+    }
+
+    fn try_categorical(series: &Series, labels: Option<&[String]>) -> Result<Self, String> {
+        let len = series.len();
+
+        match series.dtype() {
+            DataType::Enum(_, _) | DataType::Categorical(_, _) => {
+                let str_series = series
+                    .cast(&DataType::String)
+                    .map_err(|e| format!("failed to cast categorical column to String: {e}"))?;
+                let str_ca = str_series
+                    .str()
+                    .map_err(|e| format!("failed to view categorical values as String: {e}"))?;
+                let str_vals: Vec<Option<String>> = str_ca
+                    .into_iter()
+                    .map(|v| v.map(|s| s.to_owned()))
+                    .collect();
+
+                let label_values = match labels {
+                    Some(existing) => existing.to_vec(),
+                    None => {
+                        let mut uniques: Vec<String> = str_vals
+                            .iter()
+                            .filter_map(|v| v.clone())
+                            .collect::<std::collections::HashSet<_>>()
+                            .into_iter()
+                            .collect();
+                        uniques.sort();
+                        uniques
+                    }
+                };
+
+                let str_to_code: HashMap<String, usize> = label_values
+                    .iter()
+                    .enumerate()
+                    .map(|(code, label)| (label.clone(), code))
+                    .collect();
+
+                let codes = str_vals
+                    .into_iter()
+                    .map(|v| v.and_then(|s| str_to_code.get(&s).copied()))
+                    .collect();
+
+                Ok(Self::Categorical {
+                    codes,
+                    labels: Arc::new(label_values),
+                })
+            }
+            DataType::Null => Ok(Self::Categorical {
+                codes: vec![None; len],
+                labels: Arc::new(labels.map_or_else(Vec::new, |existing| existing.to_vec())),
+            }),
+            dt => Err(format!("unsupported physical dtype {dt:?}")),
+        }
+    }
+
+    fn checked_f64_to_i64(value: f64) -> Result<i64, String> {
+        if !value.is_finite() {
+            return Err(format!("value {value} is not finite"));
+        }
+
+        let rounded = value.round();
+        if (value - rounded).abs() > f64::EPSILON {
+            return Err(format!("value {value} is not an exact integer"));
+        }
+
+        if rounded < i64::MIN as f64 || rounded > i64::MAX as f64 {
+            return Err(format!("value {value} is outside the i64 range"));
+        }
+
+        Ok(rounded as i64)
+    }
+
+    fn len(&self) -> usize {
+        match self {
+            Self::Continuous(values) => values.len(),
+            Self::Integer(values) => values.len(),
+            Self::QuantizedContinuous { values, .. } => values.len(),
+            Self::Categorical { codes, .. } => codes.len(),
+        }
+    }
+
+    fn logical_dtype(&self) -> LogicalDType {
+        match self {
+            Self::Continuous(_) => LogicalDType::Continuous,
+            Self::Integer(_) => LogicalDType::Integer,
+            Self::QuantizedContinuous { spec, .. } => LogicalDType::QuantizedContinuous(*spec),
+            Self::Categorical { .. } => LogicalDType::Categorical,
+        }
+    }
+
+    fn get_f64(&self, idx: usize) -> Option<f64> {
+        match self {
+            Self::Continuous(values) => values.get(idx).copied().flatten(),
+            Self::QuantizedContinuous { values, .. } => values.get(idx).copied().flatten(),
+            Self::Integer(_) | Self::Categorical { .. } => None,
+        }
+    }
+
+    fn get_cat(&self, idx: usize) -> Option<usize> {
+        match self {
+            Self::Categorical { codes, .. } => codes.get(idx).copied().flatten(),
+            Self::Continuous(_) | Self::Integer(_) | Self::QuantizedContinuous { .. } => None,
+        }
+    }
+
+    fn get_i64(&self, idx: usize) -> Option<i64> {
+        match self {
+            Self::Integer(values) => values.get(idx).copied().flatten(),
+            Self::Continuous(_) | Self::QuantizedContinuous { .. } | Self::Categorical { .. } => {
+                None
+            }
+        }
+    }
+
+    fn is_null(&self, idx: usize) -> bool {
+        match self {
+            Self::Continuous(values) => values.get(idx).is_none_or(|value| value.is_none()),
+            Self::Integer(values) => values.get(idx).is_none_or(|value| value.is_none()),
+            Self::QuantizedContinuous { values, .. } => {
+                values.get(idx).is_none_or(|value| value.is_none())
+            }
+            Self::Categorical { codes, .. } => codes.get(idx).is_none_or(|value| value.is_none()),
+        }
+    }
+
+    fn cat_label_arc(&self) -> Option<&Arc<Vec<String>>> {
+        match self {
+            Self::Categorical { labels, .. } => Some(labels),
+            Self::Continuous(_) | Self::Integer(_) | Self::QuantizedContinuous { .. } => None,
+        }
+    }
+}
+
 pub struct PolarsColumnView {
     name: String,
-    logical_dtype: LogicalDType,
-    /// For continuous columns: f64 values indexed by row.
-    f64_values: Option<Vec<Option<f64>>>,
-    /// For categorical columns: usize codes indexed by row.
-    cat_values: Option<Vec<Option<usize>>>,
-    /// For integer columns: i64 values indexed by row.
-    i64_values: Option<Vec<Option<i64>>>,
-    /// Sorted string labels for categorical columns (code → label).
-    cat_labels: Option<Arc<Vec<String>>>,
-    len: usize,
+    storage: ColumnStorage,
 }
 
 impl PolarsColumnView {
@@ -202,98 +533,40 @@ impl PolarsColumnView {
     ///
     /// Panics if the series has an unsupported dtype (e.g., `Utf8`, `Boolean`).
     pub fn from_series(series: &Series) -> Self {
+        Self {
+            name: series.name().to_string(),
+            storage: ColumnStorage::inferred_from_series(series),
+        }
+    }
+
+    /// Build a `PolarsColumnView` from a Polars `Series`, forcing the
+    /// logical dtype used by the tree.
+    pub fn try_from_series_with_dtype(
+        series: &Series,
+        logical_dtype: LogicalDType,
+    ) -> Result<Self, String> {
+        Self::try_from_series_with_dtype_and_labels(series, logical_dtype, None)
+    }
+
+    /// Build a `PolarsColumnView` from a Polars `Series`, forcing the
+    /// logical dtype and optionally stabilizing categorical labels.
+    pub fn try_from_series_with_dtype_and_labels(
+        series: &Series,
+        logical_dtype: LogicalDType,
+        labels: Option<&[String]>,
+    ) -> Result<Self, String> {
         let name = series.name().to_string();
-        let len = series.len();
-
-        let (logical_dtype, f64_values, cat_values, i64_values, cat_labels) = match series.dtype() {
-            DataType::Float64 => {
-                let ca = series.f64().expect("f64 series");
-                let vals: Vec<Option<f64>> = ca.into_iter().collect();
-                (LogicalDType::Continuous, Some(vals), None, None, None)
-            }
-            DataType::Float32 => {
-                let ca = series.f32().expect("f32 series");
-                let vals: Vec<Option<f64>> = ca.into_iter().map(|v| v.map(|x| x as f64)).collect();
-                (LogicalDType::Continuous, Some(vals), None, None, None)
-            }
-            DataType::Int32 => {
-                let ca = series.i32().expect("i32 series");
-                let vals: Vec<Option<i64>> = ca.into_iter().map(|v| v.map(|x| x as i64)).collect();
-                (LogicalDType::Integer, None, None, Some(vals), None)
-            }
-            DataType::Int64 => {
-                let ca = series.i64().expect("i64 series");
-                let vals: Vec<Option<i64>> = ca.into_iter().collect();
-                (LogicalDType::Integer, None, None, Some(vals), None)
-            }
-            DataType::Enum(_, _) | DataType::Categorical(_, _) => {
-                // Remap to lexicographic order so that cat_N always refers to
-                // the N-th class in lex order, independently of the Polars
-                // global string cache state.  We cast directly to String to
-                // avoid the rev_map / physical-code API which changed across
-                // Polars versions.
-                let str_series = series
-                    .cast(&DataType::String)
-                    .expect("cast categorical/enum to String");
-                let str_ca = str_series.str().expect("string chunked array");
-                let str_vals: Vec<Option<String>> = str_ca
-                    .into_iter()
-                    .map(|v| v.map(|s| s.to_owned()))
-                    .collect();
-
-                // Collect unique non-null labels and sort them lexicographically.
-                let mut unique_strs: Vec<String> = str_vals
-                    .iter()
-                    .filter_map(|v| v.clone())
-                    .collect::<std::collections::HashSet<_>>()
-                    .into_iter()
-                    .collect();
-                unique_strs.sort();
-
-                // Build label → lex-code mapping.
-                let str_to_code: HashMap<String, usize> = unique_strs
-                    .iter()
-                    .enumerate()
-                    .map(|(code, s)| (s.clone(), code))
-                    .collect();
-
-                // Apply mapping to each row.
-                let vals: Vec<Option<usize>> = str_vals
-                    .into_iter()
-                    .map(|v| v.and_then(|s| str_to_code.get(&s).copied()))
-                    .collect();
-
-                // Store sorted labels so downstream consumers (CategoricalPlugin,
-                // prediction) can map codes back to strings.
-                let labels = Arc::new(unique_strs);
-
-                (
-                    LogicalDType::Categorical,
-                    None,
-                    Some(vals),
-                    None,
-                    Some(labels),
-                )
-            }
-            DataType::Null => {
-                // All-null placeholder column (e.g., from a ScalarColumn fallback).
-                // Treat as all-null continuous — null target columns are not read
-                // during prediction, so this does not affect results.
-                let vals: Vec<Option<f64>> = vec![None; len];
-                (LogicalDType::Continuous, Some(vals), None, None, None)
-            }
-            dt => panic!("PolarsColumnView: unsupported dtype {dt:?}"),
+        let make_err = |details: String| {
+            format!(
+                "Column '{}' cannot be materialized as {:?}: {}",
+                name, logical_dtype, details
+            )
         };
 
-        Self {
-            name,
-            logical_dtype,
-            f64_values,
-            cat_values,
-            i64_values,
-            cat_labels,
-            len,
-        }
+        let storage = ColumnStorage::try_from_series_with_dtype(series, logical_dtype, labels)
+            .map_err(make_err)?;
+
+        Ok(Self { name, storage })
     }
 
     /// Build a `PolarsColumnView` from a Polars `Series`, using a
@@ -308,35 +581,12 @@ impl PolarsColumnView {
     pub fn from_series_with_labels(series: &Series, labels: &[String]) -> Self {
         match series.dtype() {
             DataType::Enum(_, _) | DataType::Categorical(_, _) => {
-                let name = series.name().to_string();
-                let len = series.len();
-
-                let str_series = series
-                    .cast(&DataType::String)
-                    .expect("cast categorical/enum to String");
-                let str_ca = str_series.str().expect("string chunked array");
-
-                // Build label → code mapping from the provided labels.
-                let str_to_code: HashMap<String, usize> = labels
-                    .iter()
-                    .enumerate()
-                    .map(|(code, s)| (s.clone(), code))
-                    .collect();
-
-                let vals: Vec<Option<usize>> = str_ca
-                    .into_iter()
-                    .map(|v| v.and_then(|s| str_to_code.get(s).copied()))
-                    .collect();
-
-                Self {
-                    name,
-                    logical_dtype: LogicalDType::Categorical,
-                    f64_values: None,
-                    cat_values: Some(vals),
-                    i64_values: None,
-                    cat_labels: Some(Arc::new(labels.to_vec())),
-                    len,
-                }
+                Self::try_from_series_with_dtype_and_labels(
+                    series,
+                    LogicalDType::Categorical,
+                    Some(labels),
+                )
+                .expect("categorical materialization with provided labels should succeed")
             }
             _ => Self::from_series(series),
         }
@@ -344,7 +594,7 @@ impl PolarsColumnView {
 
     /// The sorted label list for categorical columns (code → label).
     pub fn cat_label_arc(&self) -> Option<&Arc<Vec<String>>> {
-        self.cat_labels.as_ref()
+        self.storage.cat_label_arc()
     }
 }
 
@@ -354,50 +604,31 @@ impl ColumnView for PolarsColumnView {
     }
 
     fn len(&self) -> usize {
-        self.len
+        self.storage.len()
     }
 
     fn logical_dtype(&self) -> LogicalDType {
-        self.logical_dtype
+        self.storage.logical_dtype()
     }
 
     fn get_f64(&self, idx: usize) -> Option<f64> {
-        self.f64_values
-            .as_ref()
-            .and_then(|v| v.get(idx).copied().flatten())
+        self.storage.get_f64(idx)
     }
 
     fn get_cat(&self, idx: usize) -> Option<usize> {
-        self.cat_values
-            .as_ref()
-            .and_then(|v| v.get(idx).copied().flatten())
+        self.storage.get_cat(idx)
     }
 
     fn get_i64(&self, idx: usize) -> Option<i64> {
-        self.i64_values
-            .as_ref()
-            .and_then(|v| v.get(idx).copied().flatten())
+        self.storage.get_i64(idx)
     }
 
     fn is_null(&self, idx: usize) -> bool {
-        match self.logical_dtype {
-            LogicalDType::Continuous => self
-                .f64_values
-                .as_ref()
-                .map_or(true, |v| v.get(idx).map_or(true, |x| x.is_none())),
-            LogicalDType::Categorical => self
-                .cat_values
-                .as_ref()
-                .map_or(true, |v| v.get(idx).map_or(true, |x| x.is_none())),
-            LogicalDType::Integer => self
-                .i64_values
-                .as_ref()
-                .map_or(true, |v| v.get(idx).map_or(true, |x| x.is_none())),
-        }
+        self.storage.is_null(idx)
     }
 
     fn cat_labels(&self) -> Option<&[String]> {
-        self.cat_labels.as_ref().map(|v| v.as_slice())
+        self.storage.cat_label_arc().map(|labels| labels.as_slice())
     }
 }
 
@@ -460,6 +691,32 @@ impl PolarsDatasetView {
         Self::build_inner(df, None, None, None, Some(cat_labels))
     }
 
+    /// Build from a Polars `DataFrame` while forcing logical dtype overrides
+    /// for specific named columns.
+    pub fn try_with_dtype_overrides(
+        df: &DataFrame,
+        dtype_overrides: &HashMap<String, LogicalDType>,
+    ) -> Result<Self, String> {
+        Self::try_build_inner(df, None, None, None, None, Some(dtype_overrides))
+    }
+
+    /// Build from a Polars `DataFrame` using pre-existing category labels and
+    /// per-column logical dtype overrides.
+    pub fn try_with_category_labels_and_dtype_overrides(
+        df: &DataFrame,
+        cat_labels: &HashMap<String, Vec<String>>,
+        dtype_overrides: &HashMap<String, LogicalDType>,
+    ) -> Result<Self, String> {
+        Self::try_build_inner(
+            df,
+            None,
+            None,
+            None,
+            Some(cat_labels),
+            Some(dtype_overrides),
+        )
+    }
+
     /// Extract the category label mappings from all categorical columns.
     ///
     /// Returns a map of column name → sorted labels (code → label).
@@ -482,9 +739,35 @@ impl PolarsDatasetView {
         weights_y: Option<Vec<f64>>,
         cat_labels: Option<&HashMap<String, Vec<String>>>,
     ) -> Self {
+        Self::try_build_inner(df, weights_xy, weights_x, weights_y, cat_labels, None)
+            .unwrap_or_else(|e| panic!("PolarsDatasetView: {e}"))
+    }
+
+    fn try_build_inner(
+        df: &DataFrame,
+        weights_xy: Option<Vec<f64>>,
+        weights_x: Option<Vec<f64>>,
+        weights_y: Option<Vec<f64>>,
+        cat_labels: Option<&HashMap<String, Vec<String>>>,
+        dtype_overrides: Option<&HashMap<String, LogicalDType>>,
+    ) -> Result<Self, String> {
+        if let Some(overrides) = dtype_overrides {
+            let mut missing: Vec<String> = overrides
+                .keys()
+                .filter(|name| df.column(name.as_str()).is_err())
+                .cloned()
+                .collect();
+            if !missing.is_empty() {
+                missing.sort();
+                return Err(format!(
+                    "dtype overrides reference unknown columns: {}",
+                    missing.join(", ")
+                ));
+            }
+        }
+
         let n_rows = df.height();
 
-        // Materialize columns.
         let columns: Vec<PolarsColumnView> = df
             .get_columns()
             .iter()
@@ -494,15 +777,21 @@ impl PolarsDatasetView {
                     None => Series::new_null(c.name().clone(), c.len()),
                 };
                 let col_name = c.name().to_string();
-                // If we have a pre-existing label mapping for this column, use it.
-                if let Some(labels_map) = cat_labels {
-                    if let Some(labels) = labels_map.get(&col_name) {
-                        return PolarsColumnView::from_series_with_labels(&series, labels);
-                    }
+                let labels = cat_labels.and_then(|map| map.get(&col_name).map(Vec::as_slice));
+
+                match dtype_overrides.and_then(|map| map.get(&col_name)).copied() {
+                    Some(dtype) => PolarsColumnView::try_from_series_with_dtype_and_labels(
+                        &series, dtype, labels,
+                    ),
+                    None => match labels {
+                        Some(existing) => {
+                            Ok(PolarsColumnView::from_series_with_labels(&series, existing))
+                        }
+                        None => Ok(PolarsColumnView::from_series(&series)),
+                    },
                 }
-                PolarsColumnView::from_series(&series)
             })
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
 
         let col_index: HashMap<String, usize> = columns
             .iter()
@@ -510,7 +799,6 @@ impl PolarsDatasetView {
             .map(|(i, c)| (c.name().to_string(), i))
             .collect();
 
-        // Pre-sort indices for every column
         let sorted_indices: HashMap<String, Vec<u32>> = columns
             .iter()
             .map(|col| {
@@ -523,7 +811,7 @@ impl PolarsDatasetView {
         let w_x = weights_x.unwrap_or_else(|| vec![1.0; n_rows]);
         let w_y = weights_y.unwrap_or_else(|| vec![1.0; n_rows]);
 
-        Self {
+        Ok(Self {
             columns,
             col_index,
             sorted_indices,
@@ -531,7 +819,7 @@ impl PolarsDatasetView {
             weights_x: w_x,
             weights_y: w_y,
             n_rows,
-        }
+        })
     }
 
     /// Sort indices by column values (ascending, nulls last).
@@ -539,7 +827,7 @@ impl PolarsDatasetView {
         let mut indices: Vec<u32> = (0..n_rows as u32).collect();
 
         match col.logical_dtype() {
-            LogicalDType::Continuous => {
+            LogicalDType::Continuous | LogicalDType::QuantizedContinuous(_) => {
                 indices.sort_by(|&a, &b| {
                     let va = col.get_f64(a as usize);
                     let vb = col.get_f64(b as usize);
@@ -702,6 +990,48 @@ mod tests {
         assert!(view.weights_xy().iter().all(|&w| (w - 1.0).abs() < 1e-10));
     }
 
+    #[test]
+    fn quantized_continuous_override_materializes_numeric_column() {
+        let df = DataFrame::new(vec![Column::new(
+            "x1".into(),
+            &[0.0_f64, 0.5, 1.0, 1.5, 2.0],
+        )])
+        .unwrap();
+
+        let mut overrides = HashMap::new();
+        overrides.insert(
+            "x1".to_string(),
+            LogicalDType::quantized_continuous(0.5).unwrap(),
+        );
+
+        let view = PolarsDatasetView::try_with_dtype_overrides(&df, &overrides)
+            .expect("quantized override should succeed");
+        let col = view.column("x1").unwrap();
+
+        assert_eq!(
+            col.logical_dtype(),
+            LogicalDType::quantized_continuous(0.5).unwrap()
+        );
+        assert_eq!(col.get_f64(1), Some(0.5));
+    }
+
+    #[test]
+    fn quantized_continuous_override_rejects_off_lattice_values() {
+        let df = DataFrame::new(vec![Column::new("x1".into(), &[0.0_f64, 0.3, 1.0])]).unwrap();
+
+        let mut overrides = HashMap::new();
+        overrides.insert(
+            "x1".to_string(),
+            LogicalDType::quantized_continuous(0.5).unwrap(),
+        );
+
+        let err = match PolarsDatasetView::try_with_dtype_overrides(&df, &overrides) {
+            Ok(_) => panic!("off-lattice values should be rejected"),
+            Err(err) => err,
+        };
+        assert!(err.contains("not aligned to resolution 0.5"));
+    }
+
     // -----------------------------------------------------------------------
     // Categorical code stability tests
     // -----------------------------------------------------------------------
@@ -812,7 +1142,21 @@ mod tests {
 
         // Fit tree — enough leaves to learn the 3-way split
         let mut model = PartitionTree::new(
-            10, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10, 2.0, None, true, None, None, None,
+            10,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            10,
+            2.0,
+            None,
+            true,
+            None,
+            None,
+            None,
+            std::collections::HashMap::new(),
         );
         let fitted = model
             .fit(&x_train, &y_train, None)

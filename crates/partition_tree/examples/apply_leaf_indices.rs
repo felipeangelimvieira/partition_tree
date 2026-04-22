@@ -51,6 +51,7 @@ fn main() {
         /* max_features */ None,
         /* loss */ None,
         /* seed */ Some(42),
+        /* dtype_overrides */ std::collections::HashMap::new(),
     );
 
     let fitted = model.fit(&x, &y_df, None).expect("fit failed");
@@ -116,6 +117,7 @@ fn main() {
         /* max_features */ None,
         /* loss */ None,
         /* seed */ Some(42),
+        /* dtype_overrides */ std::collections::HashMap::new(),
     );
 
     let fitted_forest = forest.fit(&x, &y_df, None).expect("forest fit failed");
