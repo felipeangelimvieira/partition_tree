@@ -419,7 +419,7 @@ impl Estimator for PartitionTree {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rules::{ContinuousInterval, IntegerInterval};
+    use crate::rules::{ContinuousInterval, IntegerInterval, QuantizedContinuousInterval};
     use estimators::api::Estimator;
 
     fn make_xy() -> (DataFrame, DataFrame) {
@@ -773,5 +773,182 @@ mod tests {
 
         let preds = fitted.predict(&x).expect("predict should succeed");
         assert_eq!(preds.height(), x.height());
+    }
+
+    #[test]
+    fn fit_uses_quantized_continuous_override_for_named_columns() {
+        let x = DataFrame::new(vec![Column::new(
+            PlSmallStr::from_static("x1"),
+            &[0.0_f64, 0.5, 1.0, 1.5, 2.0, 2.5],
+        )])
+        .unwrap();
+        let y = DataFrame::new(vec![Column::new(
+            PlSmallStr::from_static("y"),
+            &[10.0_f64, 10.0, 20.0, 20.0, 30.0, 30.0],
+        )])
+        .unwrap();
+
+        let mut dtype_overrides = HashMap::new();
+        dtype_overrides.insert(
+            "x1".to_string(),
+            LogicalDType::quantized_continuous(0.5).unwrap(),
+        );
+
+        let mut model = PartitionTree::new(
+            13,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1e-8,
+            0.0,
+            6,
+            2.0,
+            None,
+            true,
+            None,
+            None,
+            None,
+            dtype_overrides,
+        );
+
+        let fitted = model.fit(&x, &y, None).expect("fit should succeed");
+        let root_rule = fitted
+            .tree
+            .as_ref()
+            .expect("tree should be fitted")
+            .root()
+            .cell
+            .get_rule("x1")
+            .expect("x1 rule should exist");
+
+        assert!(
+            root_rule
+                .as_any()
+                .downcast_ref::<QuantizedContinuousInterval>()
+                .is_some(),
+            "expected x1 to use QuantizedContinuousInterval after override"
+        );
+
+        let preds = fitted.predict(&x).expect("predict should succeed");
+        assert_eq!(preds.height(), x.height());
+    }
+
+    #[test]
+    fn quantized_continuous_resolution_one_matches_integer_override() {
+        let x = DataFrame::new(vec![Column::new(
+            PlSmallStr::from_static("x1"),
+            &[1.0_f64, 2.0, 3.0, 4.0, 5.0, 6.0],
+        )])
+        .unwrap();
+        let y = DataFrame::new(vec![Column::new(
+            PlSmallStr::from_static("y"),
+            &[10.0_f64, 10.0, 20.0, 20.0, 30.0, 30.0],
+        )])
+        .unwrap();
+
+        let mut integer_overrides = HashMap::new();
+        integer_overrides.insert("x1".to_string(), LogicalDType::Integer);
+
+        let mut quantized_overrides = HashMap::new();
+        quantized_overrides.insert(
+            "x1".to_string(),
+            LogicalDType::quantized_continuous(1.0).unwrap(),
+        );
+
+        let mut integer_model = PartitionTree::new(
+            13,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1e-8,
+            0.0,
+            6,
+            2.0,
+            None,
+            true,
+            None,
+            None,
+            None,
+            integer_overrides,
+        );
+        let mut quantized_model = PartitionTree::new(
+            13,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1e-8,
+            0.0,
+            6,
+            2.0,
+            None,
+            true,
+            None,
+            None,
+            None,
+            quantized_overrides,
+        );
+
+        let fitted_integer = integer_model
+            .fit(&x, &y, None)
+            .expect("integer fit should succeed");
+        let fitted_quantized = quantized_model
+            .fit(&x, &y, None)
+            .expect("quantized fit should succeed");
+
+        let integer_rule = fitted_integer
+            .tree
+            .as_ref()
+            .expect("integer tree should be fitted")
+            .root()
+            .cell
+            .get_rule("x1")
+            .expect("integer x1 rule should exist");
+        let quantized_rule = fitted_quantized
+            .tree
+            .as_ref()
+            .expect("quantized tree should be fitted")
+            .root()
+            .cell
+            .get_rule("x1")
+            .expect("quantized x1 rule should exist");
+
+        assert!(
+            integer_rule
+                .as_any()
+                .downcast_ref::<IntegerInterval>()
+                .is_some()
+        );
+        assert!(
+            quantized_rule
+                .as_any()
+                .downcast_ref::<QuantizedContinuousInterval>()
+                .is_some()
+        );
+
+        let preds_integer = fitted_integer
+            .predict(&x)
+            .expect("integer predict should succeed");
+        let preds_quantized = fitted_quantized
+            .predict(&x)
+            .expect("quantized predict should succeed");
+        let integer_col = preds_integer.column("y").unwrap().f64().unwrap();
+        let quantized_col = preds_quantized.column("y").unwrap().f64().unwrap();
+
+        for row in 0..x.height() {
+            let a = integer_col.get(row).unwrap();
+            let b = quantized_col.get(row).unwrap();
+            assert!(
+                (a - b).abs() < 1e-12,
+                "row {row}: integer prediction {a} differs from quantized prediction {b}"
+            );
+        }
+
+        assert_eq!(
+            fitted_integer.apply(&x).unwrap(),
+            fitted_quantized.apply(&x).unwrap()
+        );
     }
 }

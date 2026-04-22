@@ -50,6 +50,7 @@ fn fit_forest(n_estimators: usize) -> (PartitionForest, DataFrame) {
         /* max_features */ None,
         /* loss */ None,
         /* seed */ Some(42),
+        /* dtype_overrides */ std::collections::HashMap::new(),
     );
     let fitted = model.fit(&x, &y, None).expect("fit should succeed");
     (fitted, x)
@@ -164,6 +165,7 @@ fn feature_importances_are_nonempty() {
         None,
         None,
         Some(42),
+        std::collections::HashMap::new(),
     );
     let fitted = model.fit(&x, &y, None).unwrap();
     let imp = fitted.feature_importances(true).unwrap();
@@ -355,6 +357,7 @@ fn fit_forest_subsampled(
         /* max_features */ max_features,
         /* loss */ None,
         /* seed */ seed,
+        /* dtype_overrides */ std::collections::HashMap::new(),
     );
     let fitted = model.fit(&x, &y, None).expect("fit should succeed");
     (fitted, x)
@@ -521,6 +524,7 @@ fn fit_classification_forest(
         /* max_features */ None,
         /* loss */ None,
         /* seed */ Some(42),
+        /* dtype_overrides */ std::collections::HashMap::new(),
     );
     let fitted = model
         .fit(&x, &y, None)

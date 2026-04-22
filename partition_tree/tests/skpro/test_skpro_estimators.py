@@ -72,6 +72,27 @@ class TestPartitionTreeEndToEnd:
         preds = model.predict(X_test)
         assert preds.shape[0] == X_test.shape[0]
 
+    def test_fit_predict_multioutput_with_auto_dtype_overrides(self, regression_data):
+        """A scalar 'auto' override should be applied to every target column."""
+        X_train, X_test, y_train, _ = regression_data
+        y_train_multi = pd.DataFrame(
+            {
+                "target_0": np.round(y_train / 0.25) * 0.25,
+                "target_1": np.round((y_train + 1.0) / 0.5) * 0.5,
+            }
+        )
+
+        model = PartitionTreeRegressor(
+            max_leaves=20,
+            max_depth=5,
+            dtype_overrides="auto",
+        )
+        model.fit(X_train, y_train_multi)
+        preds = model.predict(X_test)
+
+        assert list(preds.columns) == ["target_0", "target_1"]
+        assert preds.shape == (X_test.shape[0], y_train_multi.shape[1])
+
     def test_predict_proba_returns_distribution(self, regression_data):
         """predict_proba should return an IntervalDistribution."""
         X_train, X_test, y_train, _ = regression_data

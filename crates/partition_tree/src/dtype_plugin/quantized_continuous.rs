@@ -8,35 +8,32 @@ use crate::rules::QuantizedContinuousInterval;
 
 use super::DTypePlugin;
 use crate::column_split::{ColumnSplitSearcher, QuantizedContinuousColumnSplitSearcher};
-use crate::dataset_view::{ColumnView, LogicalDType};
+use crate::dataset_view::{ColumnView, LogicalDType, LogicalDTypeKind};
 use crate::rule::DynRule;
 
 /// Plugin for quantized-continuous columns.
 pub struct QuantizedContinuousPlugin {
-    resolution: f64,
     searcher: QuantizedContinuousColumnSplitSearcher,
 }
 
 impl QuantizedContinuousPlugin {
     /// Create a new quantized-continuous plugin.
-    pub fn new(resolution: f64) -> Self {
-        assert!(
-            resolution.is_finite() && resolution > 0.0,
-            "QuantizedContinuousPlugin requires a finite positive resolution"
-        );
-
+    pub fn new() -> Self {
         Self {
-            resolution,
-            searcher: QuantizedContinuousColumnSplitSearcher::new(resolution),
+            searcher: QuantizedContinuousColumnSplitSearcher,
         }
     }
 
-    /// The lattice resolution used by this plugin.
-    pub fn resolution(&self) -> f64 {
-        self.resolution
+    fn resolution_for_column(col: &dyn ColumnView) -> f64 {
+        match col.logical_dtype() {
+            LogicalDType::QuantizedContinuous(spec) => spec.resolution(),
+            dtype => panic!(
+                "QuantizedContinuousPlugin requires a quantized column, got {dtype:?}"
+            ),
+        }
     }
 
-    fn scan_lattice_bounds(&self, col: &dyn ColumnView) -> Option<(i64, i64)> {
+    fn scan_lattice_bounds(col: &dyn ColumnView, resolution: f64) -> Option<(i64, i64)> {
         let mut min_idx = i64::MAX;
         let mut max_idx = i64::MIN;
 
@@ -45,12 +42,12 @@ impl QuantizedContinuousPlugin {
                 continue;
             };
 
-            let idx = QuantizedContinuousInterval::quantize_value(value, self.resolution)
-                .unwrap_or_else(|| {
+            let idx = QuantizedContinuousInterval::quantize_value(value, resolution)
+                .unwrap_or_else(|_| {
                     panic!(
                         "Column '{}' uses QuantizedContinuous(resolution={}) but value {} is not aligned to the lattice",
                         col.name(),
-                        self.resolution,
+                        resolution,
                         value
                     )
                 });
@@ -73,13 +70,13 @@ impl QuantizedContinuousPlugin {
 
 impl Default for QuantizedContinuousPlugin {
     fn default() -> Self {
-        Self::new(1.0)
+        Self::new()
     }
 }
 
 impl DTypePlugin for QuantizedContinuousPlugin {
-    fn logical_dtype(&self) -> LogicalDType {
-        LogicalDType::QuantizedContinuous
+    fn logical_dtype_kind(&self) -> LogicalDTypeKind {
+        LogicalDTypeKind::QuantizedContinuous
     }
 
     fn default_rule(
@@ -87,8 +84,9 @@ impl DTypePlugin for QuantizedContinuousPlugin {
         col: &dyn ColumnView,
         boundaries_expansion_factor: f64,
     ) -> Box<dyn DynRule> {
+        let resolution = Self::resolution_for_column(col);
         let is_target = col.name().starts_with(TARGET_PREFIX);
-        let bounds = self.scan_lattice_bounds(col);
+        let bounds = Self::scan_lattice_bounds(col, resolution);
 
         if is_target {
             let (min_idx, max_idx) = bounds.unwrap_or((0, 1));
@@ -100,7 +98,7 @@ impl DTypePlugin for QuantizedContinuousPlugin {
             Box::new(QuantizedContinuousInterval::new(
                 low_idx,
                 high_idx,
-                self.resolution,
+                resolution,
                 Some((low_idx, high_idx)),
                 true,
             ))
@@ -108,7 +106,7 @@ impl DTypePlugin for QuantizedContinuousPlugin {
             Box::new(QuantizedContinuousInterval::new(
                 i64::MIN,
                 i64::MAX,
-                self.resolution,
+                resolution,
                 Some((i64::MIN, i64::MAX)),
                 true,
             ))
@@ -126,13 +124,22 @@ mod tests {
     use crate::dataset_view::{DatasetView, PolarsDatasetView};
     use polars::prelude::*;
 
+    fn quantized_view(df: &DataFrame) -> PolarsDatasetView {
+        let mut overrides = std::collections::HashMap::new();
+        overrides.insert(
+            "x1".to_string(),
+            LogicalDType::quantized_continuous(0.5).unwrap(),
+        );
+        PolarsDatasetView::try_with_dtype_overrides(df, &overrides).unwrap()
+    }
+
     #[test]
     fn quantized_plugin_creates_unbounded_feature_rule() {
         let df = DataFrame::new(vec![Column::new("x1".into(), &[0.0_f64, 0.5, 1.0])]).unwrap();
-        let view = PolarsDatasetView::new(&df);
+        let view = quantized_view(&df);
         let col = view.column("x1").unwrap();
 
-        let plugin = QuantizedContinuousPlugin::new(0.5);
+        let plugin = QuantizedContinuousPlugin::new();
         let rule = plugin.default_rule(col, 0.1);
 
         let qi = rule
@@ -148,13 +155,19 @@ mod tests {
     fn quantized_plugin_creates_bounded_target_rule() {
         let df = DataFrame::new(vec![Column::new(
             "target__y1".into(),
-            &[10.0_f64, 20.0, 30.0],
+            &[10.0_f64, 10.5, 11.0],
         )])
         .unwrap();
-        let view = PolarsDatasetView::new(&df);
+
+        let mut overrides = std::collections::HashMap::new();
+        overrides.insert(
+            "target__y1".to_string(),
+            LogicalDType::quantized_continuous(0.5).unwrap(),
+        );
+        let view = PolarsDatasetView::try_with_dtype_overrides(&df, &overrides).unwrap();
         let col = view.column("target__y1").unwrap();
 
-        let plugin = QuantizedContinuousPlugin::new(1.0);
+        let plugin = QuantizedContinuousPlugin::new();
         let rule = plugin.default_rule(col, 0.1);
 
         let qi = rule
@@ -162,12 +175,15 @@ mod tests {
             .downcast_ref::<QuantizedContinuousInterval>()
             .expect("expected QuantizedContinuousInterval");
         assert!(qi.low() <= 10.0, "low should be at or below min value");
-        assert!(qi.high() >= 30.0, "high should be at or above max value");
+        assert!(qi.high() >= 11.0, "high should be at or above max value");
     }
 
     #[test]
-    fn quantized_plugin_logical_dtype() {
-        let plugin = QuantizedContinuousPlugin::new(0.25);
-        assert_eq!(plugin.logical_dtype(), LogicalDType::QuantizedContinuous);
+    fn quantized_plugin_logical_dtype_kind() {
+        let plugin = QuantizedContinuousPlugin::new();
+        assert_eq!(
+            plugin.logical_dtype_kind(),
+            LogicalDTypeKind::QuantizedContinuous
+        );
     }
 }

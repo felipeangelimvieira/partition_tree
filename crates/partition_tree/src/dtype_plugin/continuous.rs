@@ -10,7 +10,7 @@ use crate::rules::ContinuousInterval;
 
 use super::DTypePlugin;
 use crate::column_split::{ColumnSplitSearcher, ContinuousColumnSplitSearcher};
-use crate::dataset_view::{ColumnView, LogicalDType};
+use crate::dataset_view::{ColumnView, LogicalDTypeKind};
 use crate::rule::DynRule;
 
 // ---------------------------------------------------------------------------
@@ -42,8 +42,8 @@ impl Default for ContinuousPlugin {
 }
 
 impl DTypePlugin for ContinuousPlugin {
-    fn logical_dtype(&self) -> LogicalDType {
-        LogicalDType::Continuous
+    fn logical_dtype_kind(&self) -> LogicalDTypeKind {
+        LogicalDTypeKind::Continuous
     }
 
     fn default_rule(

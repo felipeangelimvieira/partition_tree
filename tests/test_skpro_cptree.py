@@ -2,12 +2,17 @@
 
 import numpy as np
 import pandas as pd
+import pytest
 from skpro.utils.estimator_checks import check_estimator
 from sklearn.datasets import make_regression, load_diabetes
 from sklearn.model_selection import train_test_split
 from skpro.metrics import CRPS
 
-from partition_tree.estimators import PartitionTreeRegressorSkpro
+from partition_tree.estimators import (
+    Domain,
+    PartitionForestRegressorSkpro,
+    PartitionTreeRegressorSkpro,
+)
 from partition_tree.skpro.distribution import IntervalDistribution
 
 
@@ -164,3 +169,79 @@ def test_interval_boundary_open_closed():
         f"Split point {split_point} should match exactly one interval, "
         f"but left={left_matches}, right={right_matches}"
     )
+
+
+def test_cptree_skpro_passes_dtype_overrides_to_backend():
+    X = pd.DataFrame(
+        {
+            "x1": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            "x2": [0.0, 0.0, 1.0, 1.0, 2.0, 2.0],
+        }
+    )
+    y = pd.Series([10.0, 10.0, 20.0, 20.0, 30.0, 30.0], name="target").to_frame()
+
+    integer_model = PartitionTreeRegressorSkpro(
+        max_depth=5,
+        min_samples_split=2,
+        random_state=42,
+        dtype_overrides={"x1": Domain.integer()},
+    )
+    quantized_model = PartitionTreeRegressorSkpro(
+        max_depth=5,
+        min_samples_split=2,
+        random_state=42,
+        dtype_overrides={"x1": Domain.quantized_continuous(1.0)},
+    )
+
+    integer_model.fit(X, y)
+    quantized_model.fit(X, y)
+
+    preds_integer = np.asarray(integer_model.predict(X)).reshape(-1)
+    preds_quantized = np.asarray(quantized_model.predict(X)).reshape(-1)
+
+    np.testing.assert_allclose(preds_integer, preds_quantized)
+
+
+def test_cptree_skpro_auto_dtype_override_detects_quantized_resolution():
+    X = pd.DataFrame(
+        {
+            "x1": [0.0, 0.25, 0.5, 0.75, 1.0, 1.25],
+            "x2": [0.0, 1.0, 0.0, 1.0, 0.0, 1.0],
+        }
+    )
+    y = pd.Series([10.0, 10.0, 20.0, 20.0, 30.0, 30.0], name="target").to_frame()
+
+    model = PartitionTreeRegressorSkpro(
+        max_depth=5,
+        min_samples_split=2,
+        random_state=42,
+        dtype_overrides={"x1": "auto"},
+    )
+
+    model.fit(X, y)
+    root_partitions = model.partition_tree_.get_nodes_info()[0]["partitions"]
+    assert root_partitions["x1"]["type"] == "quantized_continuous"
+    assert root_partitions["x1"]["resolution"] == pytest.approx(0.25)
+
+
+def test_cpforest_skpro_auto_dtype_override_detects_quantized_resolution():
+    X = pd.DataFrame(
+        {
+            "x1": [0.0, 0.5, 1.0, 1.5, 2.0, 2.5],
+            "x2": [0.0, 0.0, 1.0, 1.0, 2.0, 2.0],
+        }
+    )
+    y = pd.Series([10.0, 10.0, 20.0, 20.0, 30.0, 30.0], name="target").to_frame()
+
+    model = PartitionForestRegressorSkpro(
+        n_estimators=2,
+        max_depth=5,
+        min_samples_split=2,
+        random_state=42,
+        dtype_overrides={"x1": "auto"},
+    )
+
+    model.fit(X, y)
+    nodes = model.partition_forest_.get_nodes_info()
+    assert nodes[0][0]["partitions"]["x1"]["type"] == "quantized_continuous"
+    assert nodes[0][0]["partitions"]["x1"]["resolution"] == pytest.approx(0.5)

@@ -30,7 +30,7 @@ use polars::prelude::*;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::rules::{BelongsTo, ContinuousInterval, IntegerInterval};
+use crate::rules::{BelongsTo, ContinuousInterval, IntegerInterval, QuantizedContinuousInterval};
 
 use crate::cell::Cell;
 use crate::dataset_view::{ColumnView, DatasetView, LogicalDType};
@@ -436,7 +436,12 @@ impl Tree {
 
         for (col_name, rule) in &target_cols {
             // Determine dtype from the root rule
-            if rule.as_any().downcast_ref::<ContinuousInterval>().is_some() {
+            if rule.as_any().downcast_ref::<ContinuousInterval>().is_some()
+                || rule
+                    .as_any()
+                    .downcast_ref::<QuantizedContinuousInterval>()
+                    .is_some()
+            {
                 // Continuous target → Float64 column
                 let values: Vec<f64> = mean_vectors
                     .iter()
@@ -550,6 +555,9 @@ impl Tree {
         for (name, rule) in root.cell.target_rules() {
             let dtype = if rule.as_any().downcast_ref::<ContinuousInterval>().is_some() {
                 LogicalDType::Continuous
+            } else if let Some(qi) = rule.as_any().downcast_ref::<QuantizedContinuousInterval>() {
+                LogicalDType::quantized_continuous(qi.resolution)
+                    .expect("stored quantized rule should have a valid resolution")
             } else if rule.as_any().downcast_ref::<IntegerInterval>().is_some() {
                 LogicalDType::Integer
             } else if rule.as_any().downcast_ref::<BelongsTo>().is_some() {

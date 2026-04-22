@@ -1,0 +1,210 @@
+<script>
+  (() => {
+    const pythonKeywords = new Set([
+      "False",
+      "None",
+      "True",
+      "and",
+      "as",
+      "assert",
+      "async",
+      "await",
+      "break",
+      "case",
+      "class",
+      "continue",
+      "def",
+      "del",
+      "elif",
+      "else",
+      "except",
+      "finally",
+      "for",
+      "from",
+      "global",
+      "if",
+      "import",
+      "in",
+      "is",
+      "lambda",
+      "match",
+      "nonlocal",
+      "not",
+      "or",
+      "pass",
+      "raise",
+      "return",
+      "try",
+      "while",
+      "with",
+      "yield"
+    ]);
+
+    function escapeHtml(text) {
+      return text
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;");
+    }
+
+    function previousNonWhitespace(text, index) {
+      for (let position = index - 1; position >= 0; position -= 1) {
+        if (!/\s/.test(text[position])) {
+          return text[position];
+        }
+      }
+      return "";
+    }
+
+    function dedupeMatches(matches) {
+      matches.sort((left, right) => {
+        if (left.start !== right.start) {
+          return left.start - right.start;
+        }
+        if (left.end !== right.end) {
+          return right.end - left.end;
+        }
+        return left.kind.localeCompare(right.kind);
+      });
+
+      const deduped = [];
+      for (const match of matches) {
+        const last = deduped[deduped.length - 1];
+        if (last && last.start === match.start && last.end === match.end) {
+          continue;
+        }
+        if (last && match.start < last.end) {
+          continue;
+        }
+        deduped.push(match);
+      }
+      return deduped;
+    }
+
+    function findMatches(fullText) {
+      const matches = [];
+      const callablePattern = /\b([A-Za-z_][A-Za-z0-9_]*)(?=\s*\()/g;
+      for (const capture of fullText.matchAll(callablePattern)) {
+        const name = capture[1];
+        const start = capture.index;
+        if (pythonKeywords.has(name)) {
+          continue;
+        }
+        matches.push({
+          start,
+          end: start + name.length,
+          kind: previousNonWhitespace(fullText, start) === "." ? "method" : "function",
+        });
+      }
+
+      const keywordArgumentPattern = /\b([A-Za-z_][A-Za-z0-9_]*)(?==(?!=))/g;
+      for (const capture of fullText.matchAll(keywordArgumentPattern)) {
+        const name = capture[1];
+        const start = capture.index;
+        const previous = previousNonWhitespace(fullText, start);
+        if (previous !== "(" && previous !== ",") {
+          continue;
+        }
+        matches.push({ start, end: start + name.length, kind: "argument" });
+      }
+
+      return dedupeMatches(matches);
+    }
+
+    function renderTextAtom(atomText, atomStart, matches) {
+      const localMatches = matches.filter(
+        (match) => match.start >= atomStart && match.end <= atomStart + atomText.length
+      );
+      if (!localMatches.length) {
+        return escapeHtml(atomText);
+      }
+
+      let cursor = 0;
+      let html = "";
+      for (const match of localMatches) {
+        const localStart = match.start - atomStart;
+        const localEnd = match.end - atomStart;
+        html += escapeHtml(atomText.slice(cursor, localStart));
+        html += `<span class="pt-code-${match.kind}">${escapeHtml(
+          atomText.slice(localStart, localEnd)
+        )}</span>`;
+        cursor = localEnd;
+      }
+      html += escapeHtml(atomText.slice(cursor));
+      return html;
+    }
+
+    function retokenizeLine(lineElement) {
+      const atoms = Array.from(lineElement.childNodes).map((node) => {
+        if (node.nodeType === Node.TEXT_NODE) {
+          return { type: "text", text: node.textContent ?? "" };
+        }
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          return {
+            type: "html",
+            text: node.textContent ?? "",
+            html: node.outerHTML,
+          };
+        }
+        return { type: "text", text: "" };
+      });
+
+      const fullText = atoms.map((atom) => atom.text).join("");
+      const matches = findMatches(fullText);
+      if (!matches.length) {
+        return;
+      }
+
+      let offset = 0;
+      const rendered = atoms
+        .map((atom) => {
+          const atomStart = offset;
+          offset += atom.text.length;
+          if (atom.type === "html") {
+            return atom.html;
+          }
+          return renderTextAtom(atom.text, atomStart, matches);
+        })
+        .join("");
+
+      lineElement.innerHTML = rendered;
+    }
+
+    function retokenizeCodeBlock(codeElement) {
+      if (codeElement.dataset.ptRetokenized === "true") {
+        return;
+      }
+      if (!codeElement.classList.contains("python")) {
+        return;
+      }
+
+      const lineElements = Array.from(codeElement.children).filter(
+        (child) => child.tagName === "SPAN"
+      );
+      if (!lineElements.length) {
+        codeElement.dataset.ptRetokenized = "true";
+        return;
+      }
+
+      for (const lineElement of lineElements) {
+        retokenizeLine(lineElement);
+      }
+      codeElement.dataset.ptRetokenized = "true";
+    }
+
+    function applyRetokenization() {
+      const codeBlocks = document.querySelectorAll("pre > code.sourceCode.python");
+      for (const codeBlock of codeBlocks) {
+        retokenizeCodeBlock(codeBlock);
+      }
+    }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", applyRetokenization, {
+        once: true,
+      });
+    } else {
+      applyRetokenization();
+    }
+  })();
+</script>

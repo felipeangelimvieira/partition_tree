@@ -25,6 +25,7 @@
 //! [`ColumnView`] for your types. Both traits require `Send + Sync` so
 //! that column-level split search can be parallelized with `rayon`.
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use polars::prelude::*;
@@ -42,10 +43,95 @@ use crate::rule::DynValue;
 /// This enum drives dispatch to the appropriate [`DTypePlugin`](super::dtype_plugin::DTypePlugin)
 /// and [`ColumnSplitSearcher`](super::column_split::ColumnSplitSearcher).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum LogicalDTypeKind {
+    Continuous,
+    Categorical,
+    Integer,
+    QuantizedContinuous,
+}
+
+/// Configuration for quantized-continuous columns.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct QuantizedContinuousSpec {
+    resolution: f64,
+}
+
+impl QuantizedContinuousSpec {
+    pub fn new(resolution: f64) -> Result<Self, String> {
+        if !resolution.is_finite() || resolution <= 0.0 {
+            return Err(format!(
+                "quantized-continuous resolution must be finite and positive, got {resolution}"
+            ));
+        }
+
+        Ok(Self { resolution })
+    }
+
+    pub fn resolution(self) -> f64 {
+        self.resolution
+    }
+
+    pub fn quantize_value(self, value: f64) -> Result<i64, String> {
+        if !value.is_finite() {
+            return Err(format!("value {value} is not finite"));
+        }
+
+        let scaled = value / self.resolution;
+        let rounded = scaled.round();
+        let tolerance = scaled.abs().max(1.0) * 1e-9;
+
+        if (scaled - rounded).abs() > tolerance {
+            return Err(format!(
+                "value {value} is not aligned to resolution {}",
+                self.resolution
+            ));
+        }
+
+        if rounded < i64::MIN as f64 || rounded > i64::MAX as f64 {
+            return Err(format!("value {value} is outside the quantized i64 range"));
+        }
+
+        Ok(rounded as i64)
+    }
+}
+
+impl PartialEq for QuantizedContinuousSpec {
+    fn eq(&self, other: &Self) -> bool {
+        self.resolution.to_bits() == other.resolution.to_bits()
+    }
+}
+
+impl Eq for QuantizedContinuousSpec {}
+
+impl Hash for QuantizedContinuousSpec {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.resolution.to_bits().hash(state);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum LogicalDType {
     Continuous,
     Categorical,
     Integer,
+    QuantizedContinuous(QuantizedContinuousSpec),
+}
+
+impl LogicalDType {
+    pub fn kind(self) -> LogicalDTypeKind {
+        match self {
+            Self::Continuous => LogicalDTypeKind::Continuous,
+            Self::Categorical => LogicalDTypeKind::Categorical,
+            Self::Integer => LogicalDTypeKind::Integer,
+            Self::QuantizedContinuous(_) => LogicalDTypeKind::QuantizedContinuous,
+        }
+    }
+
+    pub fn quantized_continuous(resolution: f64) -> Result<Self, String> {
+        Ok(Self::QuantizedContinuous(QuantizedContinuousSpec::new(
+            resolution,
+        )?))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -108,7 +194,9 @@ pub trait ColumnView: Send + Sync {
     /// Custom backends can override this for efficiency.
     fn get_dyn_value(&self, idx: usize) -> Option<DynValue> {
         match self.logical_dtype() {
-            LogicalDType::Continuous => self.get_f64(idx).map(DynValue::Continuous),
+            LogicalDType::Continuous | LogicalDType::QuantizedContinuous(_) => {
+                self.get_f64(idx).map(DynValue::Continuous)
+            }
             LogicalDType::Categorical => self.get_cat(idx).map(DynValue::Categorical),
             LogicalDType::Integer => self.get_i64(idx).map(DynValue::Integer),
         }
@@ -187,6 +275,10 @@ pub trait DatasetView: Send + Sync {
 enum ColumnStorage {
     Continuous(Vec<Option<f64>>),
     Integer(Vec<Option<i64>>),
+    QuantizedContinuous {
+        values: Vec<Option<f64>>,
+        spec: QuantizedContinuousSpec,
+    },
     Categorical {
         codes: Vec<Option<usize>>,
         labels: Arc<Vec<String>>,
@@ -219,36 +311,53 @@ impl ColumnStorage {
             LogicalDType::Continuous => Self::try_continuous(series),
             LogicalDType::Integer => Self::try_integer(series),
             LogicalDType::Categorical => Self::try_categorical(series, labels),
+            LogicalDType::QuantizedContinuous(spec) => Self::try_quantized_continuous(series, spec),
         }
     }
 
-    fn try_continuous(series: &Series) -> Result<Self, String> {
+    fn try_numeric_as_f64(series: &Series) -> Result<Vec<Option<f64>>, String> {
         let len = series.len();
-        let values = match series.dtype() {
-            DataType::Float64 => series.f64().expect("f64 series").into_iter().collect(),
-            DataType::Float32 => series
+
+        match series.dtype() {
+            DataType::Float64 => Ok(series.f64().expect("f64 series").into_iter().collect()),
+            DataType::Float32 => Ok(series
                 .f32()
                 .expect("f32 series")
                 .into_iter()
                 .map(|v| v.map(|x| x as f64))
-                .collect(),
-            DataType::Int32 => series
+                .collect()),
+            DataType::Int32 => Ok(series
                 .i32()
                 .expect("i32 series")
                 .into_iter()
                 .map(|v| v.map(|x| x as f64))
-                .collect(),
-            DataType::Int64 => series
+                .collect()),
+            DataType::Int64 => Ok(series
                 .i64()
                 .expect("i64 series")
                 .into_iter()
                 .map(|v| v.map(|x| x as f64))
-                .collect(),
-            DataType::Null => vec![None; len],
-            dt => return Err(format!("unsupported physical dtype {dt:?}")),
-        };
+                .collect()),
+            DataType::Null => Ok(vec![None; len]),
+            dt => Err(format!("unsupported physical dtype {dt:?}")),
+        }
+    }
 
-        Ok(Self::Continuous(values))
+    fn try_continuous(series: &Series) -> Result<Self, String> {
+        Ok(Self::Continuous(Self::try_numeric_as_f64(series)?))
+    }
+
+    fn try_quantized_continuous(
+        series: &Series,
+        spec: QuantizedContinuousSpec,
+    ) -> Result<Self, String> {
+        let values = Self::try_numeric_as_f64(series)?;
+
+        for value in values.iter().flatten() {
+            spec.quantize_value(*value)?;
+        }
+
+        Ok(Self::QuantizedContinuous { values, spec })
     }
 
     fn try_integer(series: &Series) -> Result<Self, String> {
@@ -355,6 +464,7 @@ impl ColumnStorage {
         match self {
             Self::Continuous(values) => values.len(),
             Self::Integer(values) => values.len(),
+            Self::QuantizedContinuous { values, .. } => values.len(),
             Self::Categorical { codes, .. } => codes.len(),
         }
     }
@@ -363,6 +473,7 @@ impl ColumnStorage {
         match self {
             Self::Continuous(_) => LogicalDType::Continuous,
             Self::Integer(_) => LogicalDType::Integer,
+            Self::QuantizedContinuous { spec, .. } => LogicalDType::QuantizedContinuous(*spec),
             Self::Categorical { .. } => LogicalDType::Categorical,
         }
     }
@@ -370,6 +481,7 @@ impl ColumnStorage {
     fn get_f64(&self, idx: usize) -> Option<f64> {
         match self {
             Self::Continuous(values) => values.get(idx).copied().flatten(),
+            Self::QuantizedContinuous { values, .. } => values.get(idx).copied().flatten(),
             Self::Integer(_) | Self::Categorical { .. } => None,
         }
     }
@@ -377,14 +489,16 @@ impl ColumnStorage {
     fn get_cat(&self, idx: usize) -> Option<usize> {
         match self {
             Self::Categorical { codes, .. } => codes.get(idx).copied().flatten(),
-            Self::Continuous(_) | Self::Integer(_) => None,
+            Self::Continuous(_) | Self::Integer(_) | Self::QuantizedContinuous { .. } => None,
         }
     }
 
     fn get_i64(&self, idx: usize) -> Option<i64> {
         match self {
             Self::Integer(values) => values.get(idx).copied().flatten(),
-            Self::Continuous(_) | Self::Categorical { .. } => None,
+            Self::Continuous(_) | Self::QuantizedContinuous { .. } | Self::Categorical { .. } => {
+                None
+            }
         }
     }
 
@@ -392,6 +506,9 @@ impl ColumnStorage {
         match self {
             Self::Continuous(values) => values.get(idx).is_none_or(|value| value.is_none()),
             Self::Integer(values) => values.get(idx).is_none_or(|value| value.is_none()),
+            Self::QuantizedContinuous { values, .. } => {
+                values.get(idx).is_none_or(|value| value.is_none())
+            }
             Self::Categorical { codes, .. } => codes.get(idx).is_none_or(|value| value.is_none()),
         }
     }
@@ -399,7 +516,7 @@ impl ColumnStorage {
     fn cat_label_arc(&self) -> Option<&Arc<Vec<String>>> {
         match self {
             Self::Categorical { labels, .. } => Some(labels),
-            Self::Continuous(_) | Self::Integer(_) => None,
+            Self::Continuous(_) | Self::Integer(_) | Self::QuantizedContinuous { .. } => None,
         }
     }
 }
@@ -710,7 +827,7 @@ impl PolarsDatasetView {
         let mut indices: Vec<u32> = (0..n_rows as u32).collect();
 
         match col.logical_dtype() {
-            LogicalDType::Continuous => {
+            LogicalDType::Continuous | LogicalDType::QuantizedContinuous(_) => {
                 indices.sort_by(|&a, &b| {
                     let va = col.get_f64(a as usize);
                     let vb = col.get_f64(b as usize);
@@ -871,6 +988,48 @@ mod tests {
 
         assert_eq!(view.weights_xy().len(), 5);
         assert!(view.weights_xy().iter().all(|&w| (w - 1.0).abs() < 1e-10));
+    }
+
+    #[test]
+    fn quantized_continuous_override_materializes_numeric_column() {
+        let df = DataFrame::new(vec![Column::new(
+            "x1".into(),
+            &[0.0_f64, 0.5, 1.0, 1.5, 2.0],
+        )])
+        .unwrap();
+
+        let mut overrides = HashMap::new();
+        overrides.insert(
+            "x1".to_string(),
+            LogicalDType::quantized_continuous(0.5).unwrap(),
+        );
+
+        let view = PolarsDatasetView::try_with_dtype_overrides(&df, &overrides)
+            .expect("quantized override should succeed");
+        let col = view.column("x1").unwrap();
+
+        assert_eq!(
+            col.logical_dtype(),
+            LogicalDType::quantized_continuous(0.5).unwrap()
+        );
+        assert_eq!(col.get_f64(1), Some(0.5));
+    }
+
+    #[test]
+    fn quantized_continuous_override_rejects_off_lattice_values() {
+        let df = DataFrame::new(vec![Column::new("x1".into(), &[0.0_f64, 0.3, 1.0])]).unwrap();
+
+        let mut overrides = HashMap::new();
+        overrides.insert(
+            "x1".to_string(),
+            LogicalDType::quantized_continuous(0.5).unwrap(),
+        );
+
+        let err = match PolarsDatasetView::try_with_dtype_overrides(&df, &overrides) {
+            Ok(_) => panic!("off-lattice values should be rejected"),
+            Err(err) => err,
+        };
+        assert!(err.contains("not aligned to resolution 0.5"));
     }
 
     // -----------------------------------------------------------------------

@@ -1,11 +1,14 @@
 use bincode;
 use estimators::api::*;
+use partition_tree::dataset_view::LogicalDType;
 use partition_tree::estimators::{PartitionForest, PartitionTree};
 use partition_tree::loss::{
     BalancedLogLoss, ConditionalLogLoss, LossFunc, MeanIntegratedSquaredError,
 };
 use partition_tree::predict::PiecewiseConstantDistribution;
-use partition_tree::rules::{BelongsTo, ContinuousInterval, IntegerInterval};
+use partition_tree::rules::{
+    BelongsTo, ContinuousInterval, IntegerInterval, QuantizedContinuousInterval,
+};
 use polars::prelude::DataFrame as PolarsDataFrame;
 use polars::prelude::*;
 use std::collections::HashMap;
@@ -16,6 +19,101 @@ use pyo3_polars::{PolarsAllocator, PyDataFrame};
 
 #[global_allocator]
 static ALLOC: PolarsAllocator = PolarsAllocator::new();
+
+#[pyclass(module = "pyo3_partition_tree", name = "Domain")]
+pub struct Domain {
+    inner: LogicalDType,
+}
+
+#[pymethods]
+impl Domain {
+    #[staticmethod]
+    pub fn continuous() -> Self {
+        Self {
+            inner: LogicalDType::Continuous,
+        }
+    }
+
+    #[staticmethod]
+    pub fn categorical() -> Self {
+        Self {
+            inner: LogicalDType::Categorical,
+        }
+    }
+
+    #[staticmethod]
+    pub fn integer() -> Self {
+        Self {
+            inner: LogicalDType::Integer,
+        }
+    }
+
+    #[staticmethod]
+    pub fn quantized_continuous(resolution: f64) -> PyResult<Self> {
+        let inner = LogicalDType::quantized_continuous(resolution)
+            .map_err(pyo3::exceptions::PyValueError::new_err)?;
+        Ok(Self { inner })
+    }
+
+    #[getter]
+    pub fn kind(&self) -> &'static str {
+        match self.inner {
+            LogicalDType::Continuous => "continuous",
+            LogicalDType::Categorical => "categorical",
+            LogicalDType::Integer => "integer",
+            LogicalDType::QuantizedContinuous(_) => "quantized_continuous",
+        }
+    }
+
+    #[getter]
+    pub fn resolution(&self) -> Option<f64> {
+        match self.inner {
+            LogicalDType::QuantizedContinuous(spec) => Some(spec.resolution()),
+            _ => None,
+        }
+    }
+
+    pub fn __repr__(&self) -> String {
+        match self.inner {
+            LogicalDType::Continuous => "Domain.continuous()".to_string(),
+            LogicalDType::Categorical => "Domain.categorical()".to_string(),
+            LogicalDType::Integer => "Domain.integer()".to_string(),
+            LogicalDType::QuantizedContinuous(spec) => {
+                format!("Domain.quantized_continuous({})", spec.resolution())
+            }
+        }
+    }
+
+    pub fn __str__(&self) -> String {
+        self.__repr__()
+    }
+}
+
+fn parse_dtype_overrides(
+    py: Python<'_>,
+    dtype_overrides: Option<Py<PyDict>>,
+) -> PyResult<HashMap<String, LogicalDType>> {
+    let mut parsed = HashMap::new();
+    let Some(dtype_overrides) = dtype_overrides else {
+        return Ok(parsed);
+    };
+
+    for (key, value) in dtype_overrides.bind(py).iter() {
+        let column = key.extract::<String>().map_err(|_| {
+            pyo3::exceptions::PyTypeError::new_err(
+                "dtype_overrides keys must be column names as strings",
+            )
+        })?;
+        let domain = value.extract::<PyRef<'_, Domain>>().map_err(|_| {
+            pyo3::exceptions::PyTypeError::new_err(format!(
+                "dtype_overrides['{column}'] must be a Domain"
+            ))
+        })?;
+        parsed.insert(column, domain.inner);
+    }
+
+    Ok(parsed)
+}
 
 /// Convert a single `FittedNode` (by arena index) into a Python dict.
 fn fitted_node_to_dict<'py>(
@@ -49,6 +147,13 @@ fn fitted_node_to_dict<'py>(
             info.set_item("type", "integer").unwrap();
             info.set_item("low", ii.low).unwrap();
             info.set_item("high", ii.high).unwrap();
+        } else if let Some(qi) = rule.as_any().downcast_ref::<QuantizedContinuousInterval>() {
+            info.set_item("type", "quantized_continuous").unwrap();
+            info.set_item("low", qi.low()).unwrap();
+            info.set_item("high", qi.high()).unwrap();
+            info.set_item("resolution", qi.resolution).unwrap();
+            info.set_item("lower_closed", qi.lower_closed).unwrap();
+            info.set_item("upper_closed", qi.upper_closed).unwrap();
         } else if let Some(bt) = rule.as_any().downcast_ref::<BelongsTo>() {
             info.set_item("type", "categorical").unwrap();
             let cats: Vec<String> = bt
@@ -103,8 +208,10 @@ impl PyPartitionTree {
         max_features = None,
         loss = None,
         seed = None,
+        dtype_overrides = None,
     ))]
     pub fn new(
+        py: Python<'_>,
         max_leaves: usize,
         boundaries_expansion_factor: f64,
         min_samples_xy: f64,
@@ -119,6 +226,7 @@ impl PyPartitionTree {
         max_features: Option<f64>,
         loss: Option<String>,
         seed: Option<u64>,
+        dtype_overrides: Option<Py<PyDict>>,
     ) -> PyResult<Self> {
         let loss_obj: Option<Box<dyn LossFunc>> = match loss {
             Some(l) => match l.as_str() {
@@ -135,6 +243,7 @@ impl PyPartitionTree {
             },
             None => Ok(None),
         }?;
+        let dtype_overrides = parse_dtype_overrides(py, dtype_overrides)?;
 
         Ok(Self {
             inner: PartitionTree::new(
@@ -152,7 +261,7 @@ impl PyPartitionTree {
                 max_features,
                 loss_obj,
                 seed,
-                std::collections::HashMap::new(),
+                dtype_overrides,
             ),
         })
     }
@@ -221,9 +330,25 @@ impl PyPartitionTree {
     /// Apply the tree to the input data, returning the leaf node index for each sample.
     pub fn apply(&self, x: PyDataFrame) -> PyResult<Vec<usize>> {
         let x_df: PolarsDataFrame = x.into();
-        self.inner
+        let leaf_paths = self
+            .inner
             .apply(&x_df)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+        leaf_paths
+            .into_iter()
+            .enumerate()
+            .map(|(row_idx, leaves)| match leaves.as_slice() {
+                [leaf] => Ok(*leaf),
+                [] => Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "Row {row_idx} did not map to any leaf"
+                ))),
+                _ => Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "Row {row_idx} mapped to multiple leaves: {:?}",
+                    leaves
+                ))),
+            })
+            .collect()
     }
 
     /// Get detailed information about all leaves in the tree.
@@ -279,6 +404,15 @@ impl PyPartitionTree {
                         info_dict.set_item("type", "integer").unwrap();
                         info_dict.set_item("low", ii.low).unwrap();
                         info_dict.set_item("high", ii.high).unwrap();
+                    } else if let Some(qi) =
+                        rule.as_any().downcast_ref::<QuantizedContinuousInterval>()
+                    {
+                        info_dict.set_item("type", "quantized_continuous").unwrap();
+                        info_dict.set_item("low", qi.low()).unwrap();
+                        info_dict.set_item("high", qi.high()).unwrap();
+                        info_dict.set_item("resolution", qi.resolution).unwrap();
+                        info_dict.set_item("lower_closed", qi.lower_closed).unwrap();
+                        info_dict.set_item("upper_closed", qi.upper_closed).unwrap();
                     } else if let Some(bt) = rule.as_any().downcast_ref::<BelongsTo>() {
                         info_dict.set_item("type", "categorical").unwrap();
                         let cats: Vec<String> = bt
@@ -415,8 +549,10 @@ impl PyPartitionForest {
         max_features = None,
         loss = None,
         seed = None,
+        dtype_overrides = None,
     ))]
     pub fn new(
+        py: Python<'_>,
         n_estimators: usize,
         max_leaves: usize,
         boundaries_expansion_factor: f64,
@@ -432,6 +568,7 @@ impl PyPartitionForest {
         max_features: Option<f64>,
         loss: Option<String>,
         seed: Option<usize>,
+        dtype_overrides: Option<Py<PyDict>>,
     ) -> PyResult<Self> {
         let loss_obj: Option<Box<dyn LossFunc>> = match loss {
             Some(l) => match l.as_str() {
@@ -448,6 +585,7 @@ impl PyPartitionForest {
             },
             None => Ok(None),
         }?;
+        let dtype_overrides = parse_dtype_overrides(py, dtype_overrides)?;
 
         Ok(Self {
             inner: PartitionForest::new(
@@ -466,6 +604,7 @@ impl PyPartitionForest {
                 max_features,
                 loss_obj,
                 seed,
+                dtype_overrides,
             ),
         })
     }
@@ -667,6 +806,7 @@ impl PyPiecewiseDistribution {
 
 #[pymodule]
 fn pyo3_partition_tree(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
+    m.add_class::<Domain>()?;
     m.add_class::<PyPartitionTree>()?;
     m.add_class::<PyPartitionForest>()?;
     m.add_class::<PyPiecewiseDistribution>()?;
