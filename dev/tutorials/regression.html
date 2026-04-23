@@ -280,7 +280,7 @@ window.Quarto = {
 </div>
 <section id="setup" class="level2">
 <h2 class="anchored" data-anchor-id="setup">Setup</h2>
-<div id="8585c57e" class="cell" data-execution_count="1">
+<div id="58de05c2" class="cell" data-execution_count="1">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.datasets <span class="im">import</span> fetch_california_housing</span>
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.model_selection <span class="im">import</span> train_test_split</span>
 <span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.metrics <span class="im">import</span> mean_absolute_error, r2_score</span>
@@ -295,7 +295,7 @@ window.Quarto = {
 </section>
 <section id="baselines-decision-tree-random-forest" class="level2">
 <h2 class="anchored" data-anchor-id="baselines-decision-tree-random-forest">1. Baselines — Decision Tree &amp; Random Forest</h2>
-<div id="47d1dbfb" class="cell" data-execution_count="2">
+<div id="436b2af7" class="cell" data-execution_count="2">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.tree <span class="im">import</span> DecisionTreeRegressor</span>
 <span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.ensemble <span class="im">import</span> RandomForestRegressor</span>
 <span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a></span>
@@ -314,7 +314,7 @@ RMSE : 0.7037
 R²   : 0.6221</code></pre>
 </div>
 </div>
-<div id="0a8b589e" class="cell" data-execution_count="3">
+<div id="9edd89e4" class="cell" data-execution_count="3">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>rf <span class="op">=</span> RandomForestRegressor(n_estimators<span class="op">=</span><span class="dv">50</span>, random_state<span class="op">=</span><span class="dv">42</span>)</span>
 <span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>rf.fit(X_train, y_train)</span>
 <span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>y_pred_rf <span class="op">=</span> rf.predict(X_test)</span>
@@ -334,7 +334,7 @@ R²   : 0.8037</code></pre>
 </section>
 <section id="single-partition-tree" class="level2">
 <h2 class="anchored" data-anchor-id="single-partition-tree">2. Single Partition Tree</h2>
-<div id="80edf3de" class="cell" data-execution_count="4">
+<div id="2234529a" class="cell" data-execution_count="4">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> partition_tree.sklearn <span class="im">import</span> PartitionTreeRegressor</span>
 <span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>reg <span class="op">=</span> PartitionTreeRegressor(random_state<span class="op">=</span><span class="dv">42</span>)</span>
@@ -354,7 +354,7 @@ R²   : 0.7445</code></pre>
 </div>
 <section id="comparison-with-baselines" class="level3">
 <h3 class="anchored" data-anchor-id="comparison-with-baselines">Comparison with Baselines</h3>
-<div id="4ccbe792" class="cell" data-execution_count="5">
+<div id="dbf82567" class="cell" data-execution_count="5">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> pandas <span class="im">as</span> pd</span>
 <span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>pd.DataFrame({</span>
@@ -423,7 +423,7 @@ R²   : 0.7445</code></pre>
 <section id="partition-forest-ensemble" class="level2">
 <h2 class="anchored" data-anchor-id="partition-forest-ensemble">3. Partition Forest (Ensemble)</h2>
 <p><code>PartitionForestRegressor</code> averages the conditional densities of multiple trees, then reports the posterior mean — similar in spirit to a Random Forest but built on the Partition Tree density framework.</p>
-<div id="75fc2892" class="cell" data-execution_count="6">
+<div id="fe472e51" class="cell" data-execution_count="6">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb9"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> partition_tree.sklearn <span class="im">import</span> PartitionForestRegressor</span>
 <span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>forest_reg <span class="op">=</span> PartitionForestRegressor(</span>
@@ -448,7 +448,7 @@ R²   : 0.8032</code></pre>
 </div>
 <section id="full-comparison" class="level3">
 <h3 class="anchored" data-anchor-id="full-comparison">Full Comparison</h3>
-<div id="01f83f3c" class="cell" data-execution_count="7">
+<div id="389646fc" class="cell" data-execution_count="7">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb11"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>pd.DataFrame({</span>
 <span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Model"</span>: [<span class="st">"DecisionTree (CART)"</span>, <span class="st">"RandomForest"</span>, <span class="st">"PartitionTree"</span>, <span class="st">"PartitionForest"</span>],</span>
 <span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>    <span class="st">"MAE"</span>: [</span>
@@ -524,7 +524,7 @@ R²   : 0.8032</code></pre>
 </section>
 <section id="cross-validation" class="level2">
 <h2 class="anchored" data-anchor-id="cross-validation">4. Cross-Validation</h2>
-<div id="1eb8825a" class="cell" data-execution_count="8">
+<div id="b718f2ee" class="cell" data-execution_count="8">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.model_selection <span class="im">import</span> cross_val_score</span>
 <span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>scores <span class="op">=</span> cross_val_score(</span>
