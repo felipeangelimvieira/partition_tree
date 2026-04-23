@@ -8,10 +8,10 @@
 use crate::conf::TARGET_PREFIX;
 use crate::rules::ContinuousInterval;
 
-use crate::column_split::{ColumnSplitSearcher, ContinuousColumnSplitSearcher};
-use crate::dataset_view::{ColumnView, LogicalDType};
-use crate::rule::DynRule;
 use super::DTypePlugin;
+use crate::column_split::{ColumnSplitSearcher, ContinuousColumnSplitSearcher};
+use crate::dataset_view::{ColumnView, LogicalDTypeKind};
+use crate::rule::DynRule;
 
 // ---------------------------------------------------------------------------
 // ContinuousPlugin
@@ -42,11 +42,15 @@ impl Default for ContinuousPlugin {
 }
 
 impl DTypePlugin for ContinuousPlugin {
-    fn logical_dtype(&self) -> LogicalDType {
-        LogicalDType::Continuous
+    fn logical_dtype_kind(&self) -> LogicalDTypeKind {
+        LogicalDTypeKind::Continuous
     }
 
-    fn default_rule(&self, col: &dyn ColumnView, boundaries_expansion_factor: f64) -> Box<dyn DynRule> {
+    fn default_rule(
+        &self,
+        col: &dyn ColumnView,
+        boundaries_expansion_factor: f64,
+    ) -> Box<dyn DynRule> {
         let is_target = col.name().starts_with(TARGET_PREFIX);
 
         if is_target {
@@ -122,7 +126,9 @@ mod tests {
         let plugin = ContinuousPlugin::new();
         let rule = plugin.default_rule(col, 0.1);
 
-        let ci = rule.as_any().downcast_ref::<ContinuousInterval>()
+        let ci = rule
+            .as_any()
+            .downcast_ref::<ContinuousInterval>()
             .expect("expected ContinuousInterval");
         assert!(ci.low.is_infinite());
         assert!(ci.high.is_infinite());
@@ -141,7 +147,9 @@ mod tests {
         let plugin = ContinuousPlugin::new();
         let rule = plugin.default_rule(col, 0.1);
 
-        let ci = rule.as_any().downcast_ref::<ContinuousInterval>()
+        let ci = rule
+            .as_any()
+            .downcast_ref::<ContinuousInterval>()
             .expect("expected ContinuousInterval");
         assert!(ci.low < 10.0, "low should be below min value");
         assert!(ci.high > 30.0, "high should be above max value");

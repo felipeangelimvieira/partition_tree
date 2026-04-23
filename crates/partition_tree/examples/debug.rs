@@ -1,19 +1,25 @@
-use partition_tree::dataset_view::{DatasetView, PolarsDatasetView, ColumnView};
 use partition_tree::cell::Cell;
+use partition_tree::column_split::{
+    CategoricalColumnSplitSearcher, ColumnSplitSearcher, ContinuousColumnSplitSearcher,
+};
+use partition_tree::dataset_view::{ColumnView, DatasetView, PolarsDatasetView};
+use partition_tree::dtype_plugin::{DTypePlugin, DTypeRegistry};
+use partition_tree::loss::ConditionalLogLoss;
 use partition_tree::node::Node;
 use partition_tree::split_result::{SplitKind, SplitRestrictions};
-use partition_tree::loss::ConditionalLogLoss;
-use partition_tree::column_split::{CategoricalColumnSplitSearcher, ContinuousColumnSplitSearcher, ColumnSplitSearcher};
-use partition_tree::dtype_plugin::{DTypeRegistry, DTypePlugin};
 use polars::prelude::*;
 
 fn main() {
     let df = DataFrame::new(vec![
         Column::new("x1".into(), &[1.0_f64, 1.0, 2.0, 2.0]),
         Column::new("x2".into(), &[1.0_f64, 2.0, 2.0, 1.0]),
-    ]).unwrap();
+    ])
+    .unwrap();
 
-    let target_strs = Series::new(PlSmallStr::from_static("target_a"), &[Some("A"), Some("A"), Some("B"), Some("B")]);
+    let target_strs = Series::new(
+        PlSmallStr::from_static("target_a"),
+        &[Some("A"), Some("A"), Some("B"), Some("B")],
+    );
     let cats = FrozenCategories::new(["A", "B"]).unwrap();
     let enum_dt = DataType::from_frozen_categories(cats);
     let target_enum = target_strs.cast(&enum_dt).unwrap();
@@ -25,9 +31,20 @@ fn main() {
     println!("n_rows={} n_cols={}", dataset.n_rows(), dataset.n_columns());
 
     for col in dataset.columns() {
-        println!("  col='{}' dtype={:?} is_target={}", col.name(), col.logical_dtype(), col.is_target());
+        println!(
+            "  col='{}' dtype={:?} is_target={}",
+            col.name(),
+            col.logical_dtype(),
+            col.is_target()
+        );
         for i in 0..4 {
-            println!("    [{}] f64={:?} cat={:?} null={}", i, col.get_f64(i), col.get_cat(i), col.is_null(i));
+            println!(
+                "    [{}] f64={:?} cat={:?} null={}",
+                i,
+                col.get_f64(i),
+                col.get_cat(i),
+                col.is_null(i)
+            );
         }
     }
 
@@ -41,7 +58,11 @@ fn main() {
         cell.set_rule(col.name(), rule);
     }
 
-    println!("\nCell volume={:.6} target_vol={:.6}", cell.volume(), cell.target_volume());
+    println!(
+        "\nCell volume={:.6} target_vol={:.6}",
+        cell.volume(),
+        cell.target_volume()
+    );
 
     let node = Node::root(&dataset, cell);
     println!("Root: w_xy={} w_x={} w_y={}", node.w_xy, node.w_x, node.w_y);
@@ -64,18 +85,42 @@ fn main() {
     let target_col = dataset.column("target_a").unwrap();
     println!("\nSearching categorical split on target_a (YSplit)...");
     let cat_searcher = CategoricalColumnSplitSearcher;
-    let result = cat_searcher.search(&node, &node.cell, target_col, SplitKind::YSplit, &dataset, &loss, &restrictions, 4.0);
+    let result = cat_searcher.search(
+        &node,
+        &node.cell,
+        target_col,
+        SplitKind::YSplit,
+        &dataset,
+        &loss,
+        &restrictions,
+        4.0,
+    );
     match &result {
-        Some(s) => println!("Cat split: gain={:.6} col={} op={:?}", s.gain, s.col_name, s.op),
+        Some(s) => println!(
+            "Cat split: gain={:.6} col={} op={:?}",
+            s.gain, s.col_name, s.op
+        ),
         None => println!("Cat split: NONE"),
     }
 
     let x1_col = dataset.column("x1").unwrap();
     println!("\nSearching continuous split on x1 (XSplit)...");
     let cont_searcher = ContinuousColumnSplitSearcher;
-    let result2 = cont_searcher.search(&node, &node.cell, x1_col, SplitKind::XSplit, &dataset, &loss, &restrictions, 4.0);
+    let result2 = cont_searcher.search(
+        &node,
+        &node.cell,
+        x1_col,
+        SplitKind::XSplit,
+        &dataset,
+        &loss,
+        &restrictions,
+        4.0,
+    );
     match &result2 {
-        Some(s) => println!("Cont split: gain={:.6} col={} op={:?}", s.gain, s.col_name, s.op),
+        Some(s) => println!(
+            "Cont split: gain={:.6} col={} op={:?}",
+            s.gain, s.col_name, s.op
+        ),
         None => println!("Cont split: NONE"),
     }
 }

@@ -50,6 +50,7 @@ fn fit_forest(n_estimators: usize) -> (PartitionForest, DataFrame) {
         /* max_features */ None,
         /* loss */ None,
         /* seed */ Some(42),
+        /* dtype_overrides */ std::collections::HashMap::new(),
     );
     let fitted = model.fit(&x, &y, None).expect("fit should succeed");
     (fitted, x)
@@ -101,6 +102,28 @@ fn predict_trees_proba_returns_per_tree() {
 }
 
 #[test]
+fn apply_returns_leaf_indices_per_tree() {
+    let n_trees = 5;
+    let (fitted, x) = fit_forest(n_trees);
+    let per_tree_leaf_indices = fitted.apply(&x).expect("apply should succeed");
+
+    assert_eq!(per_tree_leaf_indices.len(), n_trees);
+
+    let trees = fitted.trees.as_ref().expect("forest should be fitted");
+    for (tree, leaf_indices) in trees.iter().zip(&per_tree_leaf_indices) {
+        assert_eq!(leaf_indices.len(), x.height());
+        for row_leaves in leaf_indices {
+            for &idx in row_leaves {
+                assert!(
+                    tree.nodes[idx].is_leaf,
+                    "apply should return leaf node indices"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn ensemble_distribution_has_multiple_cells() {
     let (fitted, x) = fit_forest(3);
     let dists = fitted.predict_proba(&x).unwrap();
@@ -123,18 +146,26 @@ fn feature_importances_are_nonempty() {
     let y_vals: Vec<Option<f64>> = (0..100)
         .map(|i| Some(if i < 50 { 1.0 } else { 9.0 }))
         .collect();
-    let x = DataFrame::new(vec![
-        Column::new(PlSmallStr::from_static("x1"), x1),
-    ])
-    .unwrap();
-    let y = DataFrame::new(vec![
-        Column::new(PlSmallStr::from_static("y"), y_vals),
-    ])
-    .unwrap();
+    let x = DataFrame::new(vec![Column::new(PlSmallStr::from_static("x1"), x1)]).unwrap();
+    let y = DataFrame::new(vec![Column::new(PlSmallStr::from_static("y"), y_vals)]).unwrap();
 
     let mut model = PartitionForest::new(
-        5, 13, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 6, 2.0,
-        None, true, None, None, Some(42),
+        5,
+        13,
+        0.1,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        6,
+        2.0,
+        None,
+        true,
+        None,
+        None,
+        Some(42),
+        std::collections::HashMap::new(),
     );
     let fitted = model.fit(&x, &y, None).unwrap();
     let imp = fitted.feature_importances(true).unwrap();
@@ -174,6 +205,7 @@ fn not_fitted_returns_error() {
         model.feature_importances(true),
         Err(PredictError::NotFitted)
     ));
+    assert!(matches!(model.apply(&x), Err(PredictError::NotFitted)));
 }
 
 #[test]
@@ -325,6 +357,7 @@ fn fit_forest_subsampled(
         /* max_features */ max_features,
         /* loss */ None,
         /* seed */ seed,
+        /* dtype_overrides */ std::collections::HashMap::new(),
     );
     let fitted = model.fit(&x, &y, None).expect("fit should succeed");
     (fitted, x)
@@ -491,6 +524,7 @@ fn fit_classification_forest(
         /* max_features */ None,
         /* loss */ None,
         /* seed */ Some(42),
+        /* dtype_overrides */ std::collections::HashMap::new(),
     );
     let fitted = model
         .fit(&x, &y, None)

@@ -295,6 +295,7 @@ mod forest_tests {
             /* max_features */ None,
             /* loss */ None,
             /* seed */ Some(42),
+            /* dtype_overrides */ std::collections::HashMap::new(),
         )
     }
 

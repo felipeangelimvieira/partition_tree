@@ -9,10 +9,10 @@
 use crate::conf::TARGET_PREFIX;
 use crate::rules::IntegerInterval;
 
-use crate::column_split::{ColumnSplitSearcher, IntegerColumnSplitSearcher};
-use crate::dataset_view::{ColumnView, LogicalDType};
-use crate::rule::DynRule;
 use super::DTypePlugin;
+use crate::column_split::{ColumnSplitSearcher, IntegerColumnSplitSearcher};
+use crate::dataset_view::{ColumnView, LogicalDTypeKind};
+use crate::rule::DynRule;
 
 // ---------------------------------------------------------------------------
 // IntegerPlugin
@@ -44,8 +44,8 @@ impl Default for IntegerPlugin {
 }
 
 impl DTypePlugin for IntegerPlugin {
-    fn logical_dtype(&self) -> LogicalDType {
-        LogicalDType::Integer
+    fn logical_dtype_kind(&self) -> LogicalDTypeKind {
+        LogicalDTypeKind::Integer
     }
 
     fn default_rule(
@@ -106,14 +106,13 @@ impl DTypePlugin for IntegerPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rules::IntegerInterval;
     use crate::dataset_view::{DatasetView, PolarsDatasetView};
+    use crate::rules::IntegerInterval;
     use polars::prelude::*;
 
     #[test]
     fn integer_plugin_creates_unbounded_feature_rule() {
-        let df =
-            DataFrame::new(vec![Column::new("x1".into(), &[1_i64, 2, 3])]).unwrap();
+        let df = DataFrame::new(vec![Column::new("x1".into(), &[1_i64, 2, 3])]).unwrap();
         let view = PolarsDatasetView::new(&df);
         let col = view.column("x1").unwrap();
 
@@ -130,11 +129,7 @@ mod tests {
 
     #[test]
     fn integer_plugin_creates_bounded_target_rule() {
-        let df = DataFrame::new(vec![Column::new(
-            "target__y1".into(),
-            &[10_i64, 20, 30],
-        )])
-        .unwrap();
+        let df = DataFrame::new(vec![Column::new("target__y1".into(), &[10_i64, 20, 30])]).unwrap();
         let view = PolarsDatasetView::new(&df);
         let col = view.column("target__y1").unwrap();
 
@@ -152,6 +147,6 @@ mod tests {
     #[test]
     fn integer_plugin_logical_dtype() {
         let plugin = IntegerPlugin::new();
-        assert_eq!(plugin.logical_dtype(), LogicalDType::Integer);
+        assert_eq!(plugin.logical_dtype_kind(), LogicalDTypeKind::Integer);
     }
 }

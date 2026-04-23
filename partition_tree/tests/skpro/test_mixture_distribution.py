@@ -122,7 +122,7 @@ def _numerical_integral(mixture, instance_idx, lo, hi, n=5000):
     """Numerical integral of the mixture PDF over [lo, hi]."""
     xs = np.linspace(lo, hi, n)
     ys = [_numerical_pdf(mixture, instance_idx, float(xi)) for xi in xs]
-    return float(np.trapz(ys, xs))
+    return float(np.trapezoid(ys, xs))
 
 
 # ===========================================================================

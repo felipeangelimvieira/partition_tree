@@ -133,11 +133,21 @@ fn print_results(tree: &Tree) {
 
     println!("\nSplit history (parent -> [left, right]) and split points:");
     for (i, rec) in tree.split_history.iter().enumerate() {
-        let value = match &tree.nodes[rec.left_child_index].cell.rules.get(&rec.col_name) {
+        let value = match &tree.nodes[rec.left_child_index]
+            .cell
+            .rules
+            .get(&rec.col_name)
+        {
             Some(rule) => {
-                if let Some(ci) = rule.as_any().downcast_ref::<partition_tree::rules::ContinuousInterval>() {
+                if let Some(ci) = rule
+                    .as_any()
+                    .downcast_ref::<partition_tree::rules::ContinuousInterval>()
+                {
                     ci.high
-                } else if let Some(bt) = rule.as_any().downcast_ref::<partition_tree::rules::BelongsTo>() {
+                } else if let Some(bt) = rule
+                    .as_any()
+                    .downcast_ref::<partition_tree::rules::BelongsTo>()
+                {
                     bt.values.len() as f64
                 } else {
                     f64::NAN

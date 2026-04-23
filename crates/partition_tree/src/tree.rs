@@ -30,7 +30,7 @@ use polars::prelude::*;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::rules::{BelongsTo, ContinuousInterval, IntegerInterval};
+use crate::rules::{BelongsTo, ContinuousInterval, IntegerInterval, QuantizedContinuousInterval};
 
 use crate::cell::Cell;
 use crate::dataset_view::{ColumnView, DatasetView, LogicalDType};
@@ -228,39 +228,22 @@ impl Tree {
     ///
     /// Returns a `Vec<usize>` of length `dataset.n_rows()`, where each
     /// element is the index of the leaf node the corresponding row falls into.
-    pub fn predict_leaves(&self, dataset: &dyn DatasetView) -> Vec<usize> {
+    pub fn predict_leaves(&self, dataset: &dyn DatasetView) -> Vec<Vec<usize>> {
         let n_rows = dataset.n_rows();
         let columns = dataset.columns();
+
+        // Build column lookup once — reused for every row.
+        let col_map: HashMap<&str, &dyn ColumnView> =
+            columns.iter().map(|c| (c.name(), *c)).collect();
+
         let mut result = Vec::with_capacity(n_rows);
 
         for row_idx in 0..n_rows {
-            let leaf_idx = self.predict_leaf_row(row_idx, &columns);
+            let leaf_idx = self.walk_leaves(row_idx, &col_map);
             result.push(leaf_idx);
         }
 
         result
-    }
-
-    /// Predict leaf index for a single row by column views.
-    fn predict_leaf_row(&self, row_idx: usize, columns: &[&dyn ColumnView]) -> usize {
-        let mut node_idx = 0;
-        loop {
-            let node = &self.nodes[node_idx];
-            if node.is_leaf {
-                return node_idx;
-            }
-
-            let left_idx = node.left_child.unwrap();
-            let left_node = &self.nodes[left_idx];
-
-            let goes_left = self.evaluate_row_membership(left_node, row_idx, columns);
-
-            if goes_left {
-                node_idx = left_idx;
-            } else {
-                node_idx = node.right_child.unwrap();
-            }
-        }
     }
 
     /// Check if row_idx satisfies all rules of a node's cell.
@@ -301,7 +284,6 @@ impl Tree {
         dataset: &dyn DatasetView,
     ) -> Vec<PiecewiseConstantDistribution> {
         let feature_columns = dataset.feature_columns();
-        let all_columns = dataset.columns();
 
         // Build column lookup once — reused for every row.
         let col_map: HashMap<&str, &dyn ColumnView> =
@@ -319,13 +301,7 @@ impl Tree {
             .map(|row_idx| {
                 // Conditional prediction P(Y|X=x): match *all* leaves whose
                 // feature-space constraints contain x (ignoring target rules).
-                let mut matched = self.walk_leaves(row_idx, &col_map);
-
-                // Defensive fallback: if no leaf matched by features, fall back
-                // to deterministic traversal over all columns.
-                if matched.is_empty() {
-                    matched.push(self.predict_leaf_row(row_idx, &all_columns));
-                }
+                let matched = self.walk_leaves(row_idx, &col_map);
 
                 let cells = matched
                     .into_iter()
@@ -460,7 +436,12 @@ impl Tree {
 
         for (col_name, rule) in &target_cols {
             // Determine dtype from the root rule
-            if rule.as_any().downcast_ref::<ContinuousInterval>().is_some() {
+            if rule.as_any().downcast_ref::<ContinuousInterval>().is_some()
+                || rule
+                    .as_any()
+                    .downcast_ref::<QuantizedContinuousInterval>()
+                    .is_some()
+            {
                 // Continuous target → Float64 column
                 let values: Vec<f64> = mean_vectors
                     .iter()
@@ -558,10 +539,10 @@ impl Tree {
 
     /// Apply the tree to a dataset, returning the leaf index for each row.
     ///
-    /// Returns a `Vec<usize>` of length `dataset.n_rows()`, where each
-    /// element is the index of the leaf node the row was routed to.
+    /// Returns a `Vec<Vec<usize>>` of length `dataset.n_rows()`, where each
+    /// element is a vector of leaf indices the row was routed to.
     /// These are node indices (not positions in the `leaves` array).
-    pub fn apply(&self, dataset: &dyn DatasetView) -> Vec<usize> {
+    pub fn apply(&self, dataset: &dyn DatasetView) -> Vec<Vec<usize>> {
         self.predict_leaves(dataset)
     }
     /// Get target column metadata from the root cell.
@@ -574,6 +555,9 @@ impl Tree {
         for (name, rule) in root.cell.target_rules() {
             let dtype = if rule.as_any().downcast_ref::<ContinuousInterval>().is_some() {
                 LogicalDType::Continuous
+            } else if let Some(qi) = rule.as_any().downcast_ref::<QuantizedContinuousInterval>() {
+                LogicalDType::quantized_continuous(qi.resolution)
+                    .expect("stored quantized rule should have a valid resolution")
             } else if rule.as_any().downcast_ref::<IntegerInterval>().is_some() {
                 LogicalDType::Integer
             } else if rule.as_any().downcast_ref::<BelongsTo>().is_some() {

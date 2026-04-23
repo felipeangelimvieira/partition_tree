@@ -9,81 +9,15 @@ from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from sklearn.preprocessing import LabelEncoder
 from sklearn.utils.validation import check_is_fitted, validate_data
 
-from partition_tree.utils import _preprocess, _preprocess_X
-
-
-def _convert_string_columns_to_categorical(
-    df: pl.DataFrame,
-    categories_map: Optional[dict] = None,
-    return_categories: bool = False,
-):
-    if categories_map is not None:
-        missing_cols = [col for col in categories_map.keys() if col not in df.columns]
-        if missing_cols:
-            raise ValueError(
-                "Missing expected categorical columns: " + ", ".join(missing_cols)
-            )
-        string_columns = list(categories_map.keys())
-    else:
-        string_columns = [
-            col
-            for col in df.columns
-            if df[col].dtype == pl.Utf8 or df[col].dtype == pl.Categorical
-        ]
-
-    if not string_columns:
-        if return_categories:
-            return df, categories_map or {}
-        return df
-
-    if categories_map is None:
-        categories_map = {
-            col: sorted(map(str, df[col].unique().to_list())) for col in string_columns
-        }
-
-    df_converted = df.with_columns(
-        [pl.col(col).cast(pl.Categorical()) for col in string_columns]
-    )
-
-    if return_categories:
-        return df_converted, categories_map
-    return df_converted
-
-
-def _convert_int_to_float64(df):
-    if isinstance(df, pl.DataFrame):
-        int_cols = [
-            col for col, dtype in df.schema.items() if dtype in pl.INTEGER_DTYPES
-        ]
-        if not int_cols:
-            return df
-        return df.with_columns([pl.col(col).cast(pl.Float64) for col in int_cols])
-
-    if isinstance(df, pd.DataFrame):
-        df_converted = df.copy()
-        int_cols = df_converted.select_dtypes(
-            include=["int", "Int64", "Int32", "int64", "int32"]
-        ).columns
-        if len(int_cols) == 0:
-            return df_converted
-        df_converted.loc[:, int_cols] = df_converted.loc[:, int_cols].astype("float64")
-        return df_converted
-
-    return df
-
-
-def _coerce_target_dataframe(y, default_column: str = "target") -> pd.DataFrame:
-    if isinstance(y, pd.DataFrame):
-        return y.copy()
-    if isinstance(y, pd.Series):
-        return y.to_frame(default_column)
-    if isinstance(y, np.ndarray):
-        if y.ndim == 1:
-            return pd.DataFrame(y, columns=[default_column])
-        return pd.DataFrame(
-            y, columns=[f"{default_column}_{i}" for i in range(y.shape[1])]
-        )
-    return pd.DataFrame(y, columns=[default_column])
+from partition_tree.utils import (
+    _coerce_target_dataframe,
+    _convert_int_to_float64,
+    _convert_string_columns_to_categorical,
+    _prepare_regression_features,
+    _prepare_regression_training_data,
+    _preprocess,
+    _preprocess_X,
+)
 
 
 def _prepare_classification_training_data(
@@ -268,66 +202,6 @@ def _refine_probabilities_with_leaf_frequencies(
     return refined
 
 
-def _ensure_numeric_float64(df):
-    if isinstance(df, pl.DataFrame):
-        numeric_cols = [
-            col for col, dtype in df.schema.items() if dtype in pl.NUMERIC_DTYPES
-        ]
-        if not numeric_cols:
-            return df
-        return df.with_columns([pl.col(col).cast(pl.Float64) for col in numeric_cols])
-
-    if isinstance(df, pd.DataFrame):
-        numeric_cols = df.select_dtypes(include=["number"]).columns
-        if len(numeric_cols) == 0:
-            return df
-        df_float = df.copy()
-        df_float.loc[:, numeric_cols] = df_float.loc[:, numeric_cols].astype(np.float64)
-        return df_float
-
-    return df
-
-
-def _prepare_regression_training_data(
-    X, y
-) -> Tuple[pl.DataFrame, pl.DataFrame, List[str], dict]:
-    y_df = _coerce_target_dataframe(y)
-    y_columns = y_df.columns.to_list()
-
-    if isinstance(X, pd.DataFrame):
-        X_df = X.copy()
-    else:
-        X_df = pd.DataFrame(X, columns=[f"feature_{i}" for i in range(X.shape[1])])
-
-    X_processed, y_processed = _preprocess(X_df, y_df)
-
-    X_processed = _convert_int_to_float64(X_processed)
-    X_pol = pl.DataFrame(X_processed)
-    X_pol = _convert_int_to_float64(X_pol)
-    X_pol, categorical_metadata = _convert_string_columns_to_categorical(
-        X_pol, return_categories=True
-    )
-    y_pol = pl.DataFrame(y_processed).cast(pl.Float64)
-
-    return X_pol, y_pol, y_columns, categorical_metadata
-
-
-def _prepare_regression_features(
-    X, categorical_metadata: Optional[dict] = None
-) -> pl.DataFrame:
-    if isinstance(X, pd.DataFrame):
-        X_df = _convert_int_to_float64(X)
-    else:
-        X_df = pd.DataFrame(X, columns=[f"feature_{i}" for i in range(X.shape[1])])
-        X_df = _convert_int_to_float64(X_df)
-    X_processed = _preprocess_X(X_df)
-    X_pol = pl.DataFrame(_convert_int_to_float64(X_processed))
-    X_pol = _convert_string_columns_to_categorical(
-        X_pol, categories_map=categorical_metadata
-    )
-    return _convert_int_to_float64(X_pol)
-
-
 def _wrap_sample_weights(sample_weights):
     if sample_weights is None:
         return None
@@ -352,6 +226,7 @@ class PartitionTreeClassifier(ClassifierMixin, BaseEstimator):
         min_samples_split=2.0,
         loss=None,
         random_state=42,
+        dtype_overrides=None,
     ):
         self.max_leaves = max_leaves
         self.boundaries_expansion_factor = boundaries_expansion_factor
@@ -364,6 +239,7 @@ class PartitionTreeClassifier(ClassifierMixin, BaseEstimator):
         self.min_samples_split = min_samples_split
         self.loss = loss
         self.random_state = random_state
+        self.dtype_overrides = dtype_overrides
         super().__init__()
 
     @property
@@ -387,6 +263,7 @@ class PartitionTreeClassifier(ClassifierMixin, BaseEstimator):
             min_samples_split=self.min_samples_split,
             loss=self.loss,
             seed=self.random_state,
+            dtype_overrides=self.dtype_overrides,
         )
 
         self.label_encoder_ = LabelEncoder()
@@ -590,6 +467,7 @@ class PartitionTreeRegressor(RegressorMixin, BaseEstimator):
         min_samples_split=2.0,
         loss=None,
         random_state=42,
+        dtype_overrides="auto",
     ):
         self.max_leaves = max_leaves
         self.boundaries_expansion_factor = boundaries_expansion_factor
@@ -602,6 +480,7 @@ class PartitionTreeRegressor(RegressorMixin, BaseEstimator):
         self.min_samples_split = min_samples_split
         self.loss = loss
         self.random_state = random_state
+        self.dtype_overrides = dtype_overrides
         super().__init__()
 
     @property
@@ -617,6 +496,14 @@ class PartitionTreeRegressor(RegressorMixin, BaseEstimator):
             self, X, y, accept_sparse=False, multi_output=True, skip_check_array=True
         )
 
+        (
+            X_pol,
+            y_pol,
+            self._y_columns,
+            self._categorical_metadata,
+            resolved_dtype_overrides,
+        ) = _prepare_regression_training_data(X, y, self.dtype_overrides)
+
         backend = PyPartitionTree(
             max_leaves=self._max_leaves,
             boundaries_expansion_factor=self.boundaries_expansion_factor,
@@ -629,10 +516,7 @@ class PartitionTreeRegressor(RegressorMixin, BaseEstimator):
             min_samples_split=self.min_samples_split,
             loss=self.loss,
             seed=self.random_state,
-        )
-
-        X_pol, y_pol, self._y_columns, self._categorical_metadata = (
-            _prepare_regression_training_data(X, y)
+            dtype_overrides=resolved_dtype_overrides,
         )
 
         backend.fit(X_pol, y_pol, _wrap_sample_weights(sample_weights))
@@ -690,6 +574,7 @@ class PartitionForestRegressor(RegressorMixin, BaseEstimator):
         max_features=0.8,
         loss=None,
         random_state=42,
+        dtype_overrides="auto",
     ):
         self.n_estimators = n_estimators
         self.max_leaves = max_leaves
@@ -706,6 +591,7 @@ class PartitionForestRegressor(RegressorMixin, BaseEstimator):
         self.max_features = max_features
         self.loss = loss
         self.random_state = random_state
+        self.dtype_overrides = dtype_overrides
         super().__init__()
 
     @property
@@ -720,6 +606,14 @@ class PartitionForestRegressor(RegressorMixin, BaseEstimator):
         X, y = validate_data(
             self, X, y, accept_sparse=False, multi_output=True, skip_check_array=True
         )
+
+        (
+            X_pol,
+            y_pol,
+            self._y_columns,
+            self._categorical_metadata,
+            resolved_dtype_overrides,
+        ) = _prepare_regression_training_data(X, y, self.dtype_overrides)
 
         backend = PyPartitionForest(
             n_estimators=self.n_estimators,
@@ -737,10 +631,7 @@ class PartitionForestRegressor(RegressorMixin, BaseEstimator):
             max_features=self.max_features,
             loss=self.loss,
             seed=self.random_state,
-        )
-
-        X_pol, y_pol, self._y_columns, self._categorical_metadata = (
-            _prepare_regression_training_data(X, y)
+            dtype_overrides=resolved_dtype_overrides,
         )
 
         backend.fit(X_pol, y_pol, _wrap_sample_weights(sample_weights))

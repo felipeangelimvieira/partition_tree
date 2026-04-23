@@ -17,7 +17,7 @@ def test_cptree():
     y = (y - y.min()) / (y.max() - y.min())
     y = y * 0.98 + 0.01
 
-    t = PartitionTreeRegressor(max_depth=10, min_samples_leaf=1)
+    t = PartitionTreeRegressor(max_depth=10, min_samples_xy=1.0)
     t.fit(X, y)
 
     t.predict(X)

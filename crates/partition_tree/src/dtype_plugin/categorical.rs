@@ -10,7 +10,7 @@ use crate::rules::BelongsTo;
 
 use super::DTypePlugin;
 use crate::column_split::{CategoricalColumnSplitSearcher, ColumnSplitSearcher};
-use crate::dataset_view::{ColumnView, LogicalDType};
+use crate::dataset_view::{ColumnView, LogicalDTypeKind};
 use crate::rule::DynRule;
 
 // ---------------------------------------------------------------------------
@@ -41,8 +41,8 @@ impl Default for CategoricalPlugin {
 }
 
 impl DTypePlugin for CategoricalPlugin {
-    fn logical_dtype(&self) -> LogicalDType {
-        LogicalDType::Categorical
+    fn logical_dtype_kind(&self) -> LogicalDTypeKind {
+        LogicalDTypeKind::Categorical
     }
 
     fn default_rule(

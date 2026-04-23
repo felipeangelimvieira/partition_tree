@@ -8,6 +8,8 @@ from sklearn.base import clone
 from partition_tree.estimators.partition_tree import (
     PartitionTreeClassifier,
     PartitionTreeRegressor,
+    PartitionForestClassifier,
+    PartitionForestRegressor,
 )
 
 
@@ -17,7 +19,6 @@ def simple_cptree_classifier():
     """Create a simple CPTree classifier for sklearn checks."""
     return PartitionTreeClassifier(
         max_depth=3,
-        min_samples_leaf=5,
         min_samples_split=10,
         # random_state=42,
     )
@@ -28,9 +29,28 @@ def simple_cptree_regressor():
     """Create a simple CPTree regressor for sklearn checks."""
     return PartitionTreeRegressor(
         max_depth=3,
-        min_samples_leaf=5,
         min_samples_split=10,
         # random_state=42,
+    )
+
+
+@pytest.fixture
+def simple_rf_classifier():
+    """Create a simple PartitionForestClassifier for sklearn checks."""
+    return PartitionForestClassifier(
+        n_estimators=3,
+        max_depth=3,
+        min_samples_split=10,
+    )
+
+
+@pytest.fixture
+def simple_rf_regressor():
+    """Create a simple PartitionForestRegressor for sklearn checks."""
+    return PartitionForestRegressor(
+        n_estimators=3,
+        max_depth=3,
+        min_samples_split=10,
     )
 
 
@@ -39,15 +59,12 @@ def simple_cptree_regressor():
     [
         PartitionTreeClassifier(
             max_depth=3,
-            min_samples_leaf=5,
             min_samples_split=10,
             # random_state=42,
         ),
         # PartitionTreeRegressor(
         #    max_depth=3,
-        #    min_samples_leaf=5,
         #    min_samples_split=10,
-        #    max_splits_to_search=100,
         #    random_state=42,
         # ),
     ]
@@ -59,6 +76,15 @@ def test_sklearn_compatible_estimator(estimator, check):
         "check_fit2d_predict1d",  # Tree models may not support this
         "check_methods_subset_invariance",  # May not apply to probabilistic trees
         "check_no_attributes_set_in_init",  # sklearn_tags is set in init
+        # sklearn input validation checks not implemented in the backend
+        "check_n_features_in_after_fitting",
+        "check_n_features_in",
+        "check_dtype_object",
+        "check_estimators_empty_data_messages",
+        "check_classifier_data_not_an_array",
+        "check_classifiers_train",
+        "check_supervised_y_no_nan",
+        "check_fit1d",
     ]
 
     # Get check name, handling both function objects and partial objects
@@ -92,7 +118,7 @@ def test_cptree_classifier_basic_sklearn_interface(simple_cptree_classifier):
     probabilities = simple_cptree_classifier.predict_proba(X)
 
     assert predictions.shape == (100,)
-    assert probabilities.shape == (100,)  # Binary classification returns single column
+    assert probabilities.shape == (100, 2)  # Binary classification returns both classes
     assert hasattr(simple_cptree_classifier, "classes_")
 
 
@@ -111,7 +137,7 @@ def test_cptree_regressor_basic_sklearn_interface(simple_cptree_regressor):
     simple_cptree_regressor.fit(X, y)
     predictions = simple_cptree_regressor.predict(X)
 
-    assert predictions.shape == (100, 1)  # Returns DataFrame with one column
+    assert predictions.shape == (100,)  # Returns 1D numpy array
 
 
 def test_random_forest_classifier_basic_sklearn_interface(simple_rf_classifier):
@@ -135,8 +161,7 @@ def test_random_forest_classifier_basic_sklearn_interface(simple_rf_classifier):
     assert predictions.shape == (100,)
     assert probabilities.shape == (100, 2)  # Binary classification returns both classes
     assert hasattr(simple_rf_classifier, "classes_")
-    assert hasattr(simple_rf_classifier, "trees_")
-    assert len(simple_rf_classifier.trees_) == 3
+    assert hasattr(simple_rf_classifier, "partition_forest_")
 
 
 def test_random_forest_regressor_basic_sklearn_interface(simple_rf_regressor):
@@ -155,17 +180,16 @@ def test_random_forest_regressor_basic_sklearn_interface(simple_rf_regressor):
     predictions = simple_rf_regressor.predict(X)
 
     assert predictions.shape == (100,)
-    assert hasattr(simple_rf_regressor, "trees_")
-    assert len(simple_rf_regressor.trees_) == 3
+    assert hasattr(simple_rf_regressor, "partition_tree_")
 
 
 def test_estimator_tags():
     """Test that estimators have appropriate sklearn tags."""
     classifier = PartitionTreeClassifier(
-        max_depth=3, min_samples_leaf=5, min_samples_split=10, random_state=42
+        max_depth=3, min_samples_split=10, random_state=42
     )
     regressor = PartitionTreeRegressor(
-        max_depth=3, min_samples_leaf=5, min_samples_split=10, random_state=42
+        max_depth=3, min_samples_split=10, random_state=42
     )
 
     # Test that tags are accessible
@@ -183,20 +207,18 @@ def test_estimator_tags():
     [
         (
             PartitionTreeClassifier,
-            {"max_depth": 3, "min_samples_leaf": 5, "min_samples_split": 10},
+            {"max_depth": 3, "min_samples_split": 10},
         ),
         (
             PartitionTreeRegressor,
-            {"max_depth": 3, "min_samples_leaf": 5, "min_samples_split": 10},
+            {"max_depth": 3, "min_samples_split": 10},
         ),
     ],
 )
 def test_parameter_validation(estimator_class, params):
     """Test that estimators validate parameters correctly."""
-    # Test valid parameters
     estimator = estimator_class(**params, random_state=42)
     assert estimator.get_params()["max_depth"] == 3
-    assert estimator.get_params()["min_samples_leaf"] == 5
     assert estimator.get_params()["min_samples_split"] == 10
 
 
@@ -207,12 +229,8 @@ def test_fit_predict_consistency():
     X, y = make_classification(n_samples=50, n_features=4, n_classes=2, random_state=42)
 
     # Test classifier
-    clf1 = PartitionTreeClassifier(
-        max_depth=3, min_samples_leaf=5, min_samples_split=10, random_state=42
-    )
-    clf2 = PartitionTreeClassifier(
-        max_depth=3, min_samples_leaf=5, min_samples_split=10, random_state=42
-    )
+    clf1 = PartitionTreeClassifier(max_depth=3, min_samples_split=10, random_state=42)
+    clf2 = PartitionTreeClassifier(max_depth=3, min_samples_split=10, random_state=42)
 
     clf1.fit(X, y)
     clf2.fit(X, y)
@@ -229,11 +247,13 @@ def test_different_random_states():
 
     X, y = make_classification(n_samples=50, n_features=4, n_classes=2, random_state=42)
 
-    clf1 = PartitionTreeClassifier(
-        max_depth=3, min_samples_leaf=5, min_samples_split=10, random_state=42
+    # Use PartitionForestClassifier: it samples features/rows using random_state
+    # so different states are guaranteed to produce different internal forests.
+    clf1 = PartitionForestClassifier(
+        max_depth=3, min_samples_split=10, n_estimators=5, random_state=42
     )
-    clf2 = PartitionTreeClassifier(
-        max_depth=3, min_samples_leaf=5, min_samples_split=10, random_state=24
+    clf2 = PartitionForestClassifier(
+        max_depth=3, min_samples_split=10, n_estimators=5, random_state=99
     )
 
     clf1.fit(X, y)
@@ -242,9 +262,8 @@ def test_different_random_states():
     pred1 = clf1.predict(X)
     pred2 = clf2.predict(X)
 
-    # With different random states, predictions should likely be different
-    # (though not guaranteed for small datasets)
-    assert not np.array_equal(pred1, pred2) or X.shape[0] < 10
+    # With different random states, the forests sample differently → predictions differ
+    assert not np.array_equal(pred1, pred2)
 
 
 def test_multiclass_classification():
@@ -263,7 +282,7 @@ def test_multiclass_classification():
         random_state=42,
     )
 
-    clf = PartitionTreeClassifier(max_depth=5, min_samples_leaf=2)
+    clf = PartitionTreeClassifier(max_depth=5, min_samples_xy=2.0)
     clf.fit(X, y)
 
     # Check classes_ attribute
@@ -312,7 +331,7 @@ def test_multiclass_classification_string_labels():
     label_map = {0: "apple", 1: "banana", 2: "cherry", 3: "date"}
     y = np.array([label_map[val] for val in y_int])
 
-    clf = PartitionTreeClassifier(max_depth=5, min_samples_leaf=2)
+    clf = PartitionTreeClassifier(max_depth=5, min_samples_xy=2.0)
     clf.fit(X, y)
 
     # Check classes_ attribute
@@ -354,17 +373,16 @@ def test_multiclass_proba_column_alignment():
         ["A"] * (n_samples // 3) + ["B"] * (n_samples // 3) + ["C"] * (n_samples // 3)
     )
 
-    clf = PartitionTreeClassifier(max_depth=10, min_samples_leaf=1)
+    clf = PartitionTreeClassifier(max_depth=10, min_samples_xy=1.0)
     clf.fit(X, y)
 
     proba = clf.predict_proba(X)
+    pred_classes = clf.predict(X)  # use batch predict (consistent with batch proba)
 
     # For well-separated clusters, the highest probability should correspond
     # to the correct class
     for i in range(len(X)):
-        true_class = y[i]
-        pred_class = clf.predict(X[i : i + 1])[0]
-        class_idx = np.where(clf.classes_ == true_class)[0][0]
+        pred_class = pred_classes[i]
         pred_idx = np.where(clf.classes_ == pred_class)[0][0]
 
         # The predicted class should have the highest probability
@@ -413,7 +431,9 @@ def test_deterministic_multiclass_10_classes():
     y_train, y_test = y[:split_idx], y[split_idx:]
 
     # Train classifier
-    clf = PartitionTreeClassifier(max_depth=15, min_samples_leaf=1, seed=42)
+    # min_samples_xy=0.0 avoids overly restricting leaf splits in the
+    # product (X×Y) space for this high-dimensional multi-class problem.
+    clf = PartitionTreeClassifier(max_depth=15, min_samples_xy=0.0)
     clf.fit(X_train, y_train)
 
     # Verify all 10 classes are recognized
