@@ -257,7 +257,7 @@ window.Quarto = {
 <section id="setup" class="level2">
 <h2 class="anchored" data-anchor-id="setup">Setup</h2>
 <p>We use the UCI letter recognition dataset — a well-known classification benchmark with 26 classes. We initially use a simple train-test split for clarity, but the same code works with cross-validation and pipelines.</p>
-<div id="3ab46233" class="cell" data-execution_count="1">
+<div id="72ee39e2" class="cell" data-execution_count="1">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> ucimlrepo <span class="im">import</span> fetch_ucirepo</span>
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.model_selection <span class="im">import</span> train_test_split</span>
 <span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.datasets <span class="im">import</span> load_digits</span>
@@ -284,7 +284,7 @@ window.Quarto = {
 </section>
 <section id="partition-tree-classifier" class="level2">
 <h2 class="anchored" data-anchor-id="partition-tree-classifier">Partition Tree Classifier</h2>
-<div id="ce910c3b" class="cell" data-execution_count="2">
+<div id="de834d15" class="cell" data-execution_count="2">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> partition_tree.sklearn <span class="im">import</span> PartitionTreeClassifier</span>
 <span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a></span>
@@ -898,7 +898,7 @@ document.querySelectorAll('.fa-regular.fa-copy').forEach(function(element) {
 </script>
 </div>
 </div>
-<div id="4c342c08" class="cell" data-execution_count="3">
+<div id="5a7fefdf" class="cell" data-execution_count="3">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>y_pred_pt <span class="op">=</span> pt.predict(X_test)</span>
 <span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>y_proba_pt <span class="op">=</span> pt.predict_proba(X_test)</span>
 <span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>y_pred_train_pt <span class="op">=</span> pt.predict(X_train)</span>
@@ -915,7 +915,7 @@ document.querySelectorAll('.fa-regular.fa-copy').forEach(function(element) {
  0.8695306284805091)</code></pre>
 </div>
 </div>
-<div id="4c7f85c4" class="cell" data-execution_count="4">
+<div id="4a04db1c" class="cell" data-execution_count="4">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.tree <span class="im">import</span> DecisionTreeClassifier</span>
 <span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>cart <span class="op">=</span> DecisionTreeClassifier(random_state<span class="op">=</span><span class="dv">42</span>, criterion<span class="op">=</span><span class="st">"log_loss"</span>)</span>
@@ -1520,7 +1520,7 @@ document.querySelectorAll('.fa-regular.fa-copy').forEach(function(element) {
 </script>
 </div>
 </div>
-<div id="d3c888c4" class="cell" data-execution_count="5">
+<div id="c06e1d49" class="cell" data-execution_count="5">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>y_pred_cart <span class="op">=</span> cart.predict(X_test)</span>
 <span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>y_proba_cart <span class="op">=</span> cart.predict_proba(X_test)</span>
 <span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>y_pred_train_cart <span class="op">=</span> cart.predict(X_train)</span>
@@ -1533,7 +1533,7 @@ document.querySelectorAll('.fa-regular.fa-copy').forEach(function(element) {
 <pre><code>(4.2050928953970015, 0.8833333333333333, 2.2204460492503136e-16, 1.0)</code></pre>
 </div>
 </div>
-<div id="fc3a2351" class="cell" data-execution_count="6">
+<div id="5a194297" class="cell" data-execution_count="6">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> partition_tree.sklearn <span class="im">import</span> PartitionForestClassifier</span>
 <span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>pf <span class="op">=</span> PartitionForestClassifier(</span>
@@ -2163,7 +2163,7 @@ document.querySelectorAll('.fa-regular.fa-copy').forEach(function(element) {
 </script>
 </div>
 </div>
-<div id="46c5a99c" class="cell" data-execution_count="7">
+<div id="24912a1c" class="cell" data-execution_count="7">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>y_pred_pf <span class="op">=</span> pf.predict(X_test)</span>
 <span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>y_proba_pf <span class="op">=</span> pf.predict_proba(X_test)</span>
 <span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>y_pred_train_pf <span class="op">=</span> pf.predict(X_train)</span>
@@ -2176,7 +2176,7 @@ document.querySelectorAll('.fa-regular.fa-copy').forEach(function(element) {
 <pre><code>(0.2304735176510748, 0.9740740740740741, 0.08552331466917275, 1.0)</code></pre>
 </div>
 </div>
-<div id="04c83cf9" class="cell" data-execution_count="8">
+<div id="fc9af395" class="cell" data-execution_count="8">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb14"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.ensemble <span class="im">import</span> RandomForestClassifier</span>
 <span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>random_forest <span class="op">=</span> RandomForestClassifier(</span>
@@ -2819,7 +2819,7 @@ document.querySelectorAll('.fa-regular.fa-copy').forEach(function(element) {
 </script>
 </div>
 </div>
-<div id="f6cab5dd" class="cell" data-execution_count="9">
+<div id="c13a0034" class="cell" data-execution_count="9">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb15"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a>y_pred_rf <span class="op">=</span> random_forest.predict(X_test)</span>
 <span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>y_proba_rf <span class="op">=</span> random_forest.predict_proba(X_test)</span>
 <span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a>y_pred_train_rf <span class="op">=</span> random_forest.predict(X_train)</span>
@@ -2832,7 +2832,7 @@ document.querySelectorAll('.fa-regular.fa-copy').forEach(function(element) {
 <pre><code>(0.24943876980216306, 0.9722222222222222, 2.2204460492503136e-16, 1.0)</code></pre>
 </div>
 </div>
-<div id="5f2287f6" class="cell" data-execution_count="10">
+<div id="fb064faa" class="cell" data-execution_count="10">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb17"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>comparison_df <span class="op">=</span> pd.DataFrame({</span>
 <span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Model"</span>: [<span class="st">"PartitionTree"</span>, <span class="st">"PartitionForest"</span>, <span class="st">"DecisionTree (CART)"</span>, <span class="st">"RandomForest"</span>],</span>
 <span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Log Loss"</span>: [logloss_pt, logloss_pf, logloss_cart, logloss_rf],</span>
