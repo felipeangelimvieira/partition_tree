@@ -3,14 +3,31 @@ name: Integration CI
 on:
   push:
     branches: [main]
-  pull_request:
     paths:
       - .github/workflows/integration-ci.yml
+      - Cargo.toml
+      - Cargo.lock
       - crates/**
       - pyo3_partition_tree/src/**
+      - pyo3_partition_tree/tests/**
       - pyo3_partition_tree/Cargo.toml
       - pyo3_partition_tree/pyproject.toml
       - partition_tree/src/**
+      - partition_tree/tests/**
+      - partition_tree/pyproject.toml
+      - tests/**
+  pull_request:
+    paths:
+      - .github/workflows/integration-ci.yml
+      - Cargo.toml
+      - Cargo.lock
+      - crates/**
+      - pyo3_partition_tree/src/**
+      - pyo3_partition_tree/tests/**
+      - pyo3_partition_tree/Cargo.toml
+      - pyo3_partition_tree/pyproject.toml
+      - partition_tree/src/**
+      - partition_tree/tests/**
       - partition_tree/pyproject.toml
       - tests/**
   workflow_dispatch:
@@ -21,10 +38,98 @@ concurrency:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
-  test:
-    name: Integration Tests (Python ${{ matrix.python-version }})
+  changes:
+    name: Detect changed test surfaces
+    runs-on: ubuntu-latest
+    outputs:
+      crates: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs.crates }}
+      pyo3: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs.pyo3 }}
+      python: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs.python }}
+    steps:
+      - name: Check out repository
+        if: ${{ github.event_name != 'workflow_dispatch' }}
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed files
+        if: ${{ github.event_name != 'workflow_dispatch' }}
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            crates:
+              - '.github/workflows/integration-ci.yml'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'crates/**'
+            pyo3:
+              - '.github/workflows/integration-ci.yml'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'crates/**'
+              - 'pyo3_partition_tree/src/**'
+              - 'pyo3_partition_tree/tests/**'
+              - 'pyo3_partition_tree/Cargo.toml'
+              - 'pyo3_partition_tree/pyproject.toml'
+            python:
+              - '.github/workflows/integration-ci.yml'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'crates/**'
+              - 'pyo3_partition_tree/src/**'
+              - 'pyo3_partition_tree/tests/**'
+              - 'pyo3_partition_tree/Cargo.toml'
+              - 'pyo3_partition_tree/pyproject.toml'
+              - 'partition_tree/src/**'
+              - 'partition_tree/tests/**'
+              - 'partition_tree/pyproject.toml'
+              - 'tests/**'
+
+      - name: Show selected suites
+        run: |
+          echo "crates=${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs.crates }}"
+          echo "pyo3=${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs.pyo3 }}"
+          echo "python=${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs.python }}"
+
+  test-crates:
+    name: Crate Tests
+    needs: [changes]
+    if: ${{ needs.changes.outputs.crates == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Rust stable
+        run: |
+          rustup update stable
+          rustup default stable
+          rustc -V
+          cargo -V
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-integration-${{ hashFiles('Cargo.toml', 'crates/**/Cargo.toml', 'pyo3_partition_tree/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-integration-
+
+      - name: Run crate tests
+        run: |
+          cargo test --release -p estimators
+          cargo test --release -p partition_tree
+
+  test-pyo3:
+    name: PyO3 Tests (Python ${{ matrix.python-version }})
+    needs: [changes]
+    if: ${{ needs.changes.outputs.pyo3 == 'true' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -74,6 +179,57 @@ jobs:
 
       - name: Run pyo3 tests
         run: pytest pyo3_partition_tree/tests/ -v
+
+  test-python:
+    name: Integration Tests (Python ${{ matrix.python-version }})
+    needs: [changes]
+    if: ${{ needs.changes.outputs.python == 'true' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Set up Rust stable
+        run: |
+          rustup update stable
+          rustup default stable
+          rustc -V
+          cargo -V
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-integration-${{ hashFiles('Cargo.toml', 'crates/**/Cargo.toml', 'pyo3_partition_tree/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-integration-
+
+      - name: Install maturin
+        run: pip install maturin
+
+      - name: Build pyo3_partition_tree wheel from source
+        working-directory: pyo3_partition_tree
+        run: maturin build --release --out dist
+
+      - name: Install pyo3_partition_tree wheel
+        run: pip install pyo3_partition_tree/dist/*.whl
+
+      - name: Install partition_tree from source
+        run: pip install -e partition_tree/
+
+      - name: Install test dependencies
+        run: pip install pytest scikit-learn
 
       - name: Run partition_tree tests
         run: pytest partition_tree/tests/ -v
