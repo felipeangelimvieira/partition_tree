@@ -282,7 +282,7 @@ impl SplitOp for QuantizedContinuousSplitOp {
             )
             .unwrap_or_else(|_| {
                 panic!(
-                    "QuantizedContinuousSplitOp encountered value {v} not aligned to resolution {}",
+                    "QuantizedContinuousSplitOp encountered value {v} that could not be quantized at resolution {}",
                     self.resolution
                 )
             }) < self.threshold_idx,

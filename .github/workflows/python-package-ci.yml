@@ -64,11 +64,50 @@ jobs:
         env:
           UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
 
-  docs:
-    name: Build and Deploy Documentation
+  test-pypi:
+    name: Test from PyPI (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'release' && startsWith(github.event.release.tag_name, 'partition_tree-py-v') }}
     needs: [publish-package]
-    if: ${{ always() && (github.event_name != 'release' || needs.publish-package.result == 'success') && (github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'release' && startsWith(github.event.release.tag_name, 'partition_tree-py-v'))) }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Extract version from tag
+        run: |
+          tag="${{ github.event.release.tag_name }}"
+          version="${tag#partition_tree-py-v}"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Install from PyPI (with retries)
+        run: |
+          for i in $(seq 1 10); do
+            pip install --no-cache-dir "partition_tree==$VERSION" && break
+            echo "Attempt $i/10 failed, retrying in 60s..."
+            sleep 60
+          done
+
+      - name: Install test dependencies
+        run: pip install pytest
+
+      - name: Run root tests
+        run: pytest tests/ -v
+
+      - name: Run partition_tree tests
+        run: pytest partition_tree/tests/ -v
+
+  docs-pr:
+    name: Build Documentation (PR / push)
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -78,10 +117,33 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Set up Rust stable
+        run: |
+          rustup update stable
+          rustup default stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-docs-${{ hashFiles('Cargo.toml', 'crates/**/Cargo.toml', 'pyo3_partition_tree/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-docs-
+
+      - name: Install maturin
+        run: pip install maturin
+
+      - name: Build pyo3_partition_tree wheel from source
+        working-directory: pyo3_partition_tree
+        run: maturin build --release --out dist
+
       - name: Install documentation dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "pyo3-partition-tree>=0.0.3,<0.0.4"
+          pip install pyo3_partition_tree/dist/*.whl
           python -m pip install -e "./partition_tree[docs]"
 
       - name: Set PYTHONPATH
@@ -96,13 +158,6 @@ jobs:
       - name: Render Quarto site
         working-directory: partition_tree
         run: quarto render docs
-
-      - name: Derive release docs version
-        if: ${{ github.event_name == 'release' && startsWith(github.event.release.tag_name, 'partition_tree-py-v') }}
-        run: |
-          tag="${{ github.event.release.tag_name }}"
-          version="${tag#partition_tree-py-}"
-          echo "DOCS_VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Publish PR Preview
         if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false }}
@@ -120,8 +175,51 @@ jobs:
           publish_dir: ./partition_tree/docs/_site
           destination_dir: dev
 
+  docs:
+    name: Build and Deploy Documentation (Release)
+    runs-on: ubuntu-latest
+    needs: [publish-package, test-pypi]
+    if: ${{ github.event_name == 'release' && startsWith(github.event.release.tag_name, 'partition_tree-py-v') && needs.publish-package.result == 'success' && needs.test-pypi.result == 'success' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Extract version from tag
+        run: |
+          tag="${{ github.event.release.tag_name }}"
+          version="${tag#partition_tree-py-v}"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Install documentation dependencies from PyPI
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "partition_tree==$VERSION"
+
+      - name: Set PYTHONPATH
+        run: echo "PYTHONPATH=$GITHUB_WORKSPACE/partition_tree/src" >> "$GITHUB_ENV"
+
+      - name: Install Quarto
+        uses: quarto-dev/quarto-actions/setup@v2
+
+      - name: Check Quarto installation
+        run: quarto check
+
+      - name: Render Quarto site
+        working-directory: partition_tree
+        run: quarto render docs
+
+      - name: Derive release docs version
+        run: |
+          tag="${{ github.event.release.tag_name }}"
+          version="${tag#partition_tree-py-}"
+          echo "DOCS_VERSION=$version" >> "$GITHUB_ENV"
+
       - name: Publish Versioned Site
-        if: ${{ github.event_name == 'release' && startsWith(github.event.release.tag_name, 'partition_tree-py-v') }}
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -129,14 +227,14 @@ jobs:
           destination_dir: ${{ env.DOCS_VERSION }}
 
       - name: Create latest alias
-        if: ${{ github.event_name == 'release' && startsWith(github.event.release.tag_name, 'partition_tree-py-v') && !contains(env.DOCS_VERSION, '-') }}
+        if: ${{ !contains(env.DOCS_VERSION, '-') }}
         run: |
           rm -rf ./latest
           mkdir -p ./latest
           cp -R ./partition_tree/docs/_site/. ./latest/
 
       - name: Publish Latest Alias
-        if: ${{ github.event_name == 'release' && startsWith(github.event.release.tag_name, 'partition_tree-py-v') && !contains(env.DOCS_VERSION, '-') }}
+        if: ${{ !contains(env.DOCS_VERSION, '-') }}
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -144,7 +242,6 @@ jobs:
           destination_dir: latest
 
       - name: Publish Production Site
-        if: ${{ github.event_name == 'release' && startsWith(github.event.release.tag_name, 'partition_tree-py-v') }}
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}

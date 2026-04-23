@@ -77,21 +77,15 @@ impl QuantizedContinuousSpec {
         }
 
         let scaled = value / self.resolution;
-        let rounded = scaled.round();
-        let tolerance = scaled.abs().max(1.0) * 1e-9;
+        let shifted = scaled + 0.5;
+        let tolerance = f64::EPSILON * shifted.abs().max(1.0) * 16.0;
+        let bucket = (shifted + tolerance).floor();
 
-        if (scaled - rounded).abs() > tolerance {
-            return Err(format!(
-                "value {value} is not aligned to resolution {}",
-                self.resolution
-            ));
-        }
-
-        if rounded < i64::MIN as f64 || rounded > i64::MAX as f64 {
+        if bucket < i64::MIN as f64 || bucket > i64::MAX as f64 {
             return Err(format!("value {value} is outside the quantized i64 range"));
         }
 
-        Ok(rounded as i64)
+        Ok(bucket as i64)
     }
 }
 
@@ -1016,7 +1010,7 @@ mod tests {
     }
 
     #[test]
-    fn quantized_continuous_override_rejects_off_lattice_values() {
+    fn quantized_continuous_override_accepts_points_within_bin_interval() {
         let df = DataFrame::new(vec![Column::new("x1".into(), &[0.0_f64, 0.3, 1.0])]).unwrap();
 
         let mut overrides = HashMap::new();
@@ -1025,11 +1019,32 @@ mod tests {
             LogicalDType::quantized_continuous(0.5).unwrap(),
         );
 
+        let view = PolarsDatasetView::try_with_dtype_overrides(&df, &overrides)
+            .expect("values inside quantized bins should be accepted");
+        let col = view.column("x1").unwrap();
+
+        assert_eq!(
+            col.logical_dtype(),
+            LogicalDType::quantized_continuous(0.5).unwrap()
+        );
+        assert_eq!(col.get_f64(1), Some(0.3));
+    }
+
+    #[test]
+    fn quantized_continuous_override_rejects_non_finite_values() {
+        let df = DataFrame::new(vec![Column::new("x1".into(), &[0.0_f64, f64::NAN, 1.0])]).unwrap();
+
+        let mut overrides = HashMap::new();
+        overrides.insert(
+            "x1".to_string(),
+            LogicalDType::quantized_continuous(0.5).unwrap(),
+        );
+
         let err = match PolarsDatasetView::try_with_dtype_overrides(&df, &overrides) {
-            Ok(_) => panic!("off-lattice values should be rejected"),
+            Ok(_) => panic!("non-finite values should be rejected"),
             Err(err) => err,
         };
-        assert!(err.contains("not aligned to resolution 0.5"));
+        assert!(err.contains("is not finite"));
     }
 
     // -----------------------------------------------------------------------
