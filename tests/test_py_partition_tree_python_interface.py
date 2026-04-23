@@ -22,14 +22,14 @@ def make_simple_data(n: int = 8):
 
 def test_predict_before_fit_raises():
     model = PyPartitionTree(
-        max_iter=10,
+        max_leaves=10,
         min_samples_split=2,
-        min_samples_leaf_y=1,
-        min_samples_leaf_x=1,
-        min_samples_leaf=1,
-        min_target_volume=0.0,
+        min_samples_y=1.0,
+        min_samples_x=1.0,
+        min_samples_xy=1.0,
+        min_volume_fraction=0.0,
         max_depth=5,
-        min_split_gain=0.0,
+        min_gain=0.0,
     )
     X, _ = make_simple_data()
     with pytest.raises(ValueError, match="Model is not fitted"):
@@ -39,23 +39,23 @@ def test_predict_before_fit_raises():
 def test_fit_and_predict_returns_dataframe_with_expected_shape_and_columns():
     X, y = make_simple_data(12)
     model = PyPartitionTree(
-        max_iter=50,
+        max_leaves=50,
         min_samples_split=2,
-        min_samples_leaf_y=1,
-        min_samples_leaf_x=1,
-        min_samples_leaf=1,
-        min_target_volume=0.0,
+        min_samples_y=1.0,
+        min_samples_x=1.0,
+        min_samples_xy=1.0,
+        min_volume_fraction=0.0,
         max_depth=10,
-        min_split_gain=0.0,
+        min_gain=0.0,
     )
-    model.fit(X, y)
+    model.fit(X, y, None)
     preds = model.predict(X)
     # Should be a polars DataFrame
     assert isinstance(preds, pl.DataFrame)
     # Row count preserved
     assert preds.height == X.height
-    # Expect target column to be renamed with prefix target_
-    assert any(col.startswith("target_") for col in preds.columns), preds.columns
+    # predict returns a DataFrame with the same columns as y
+    assert set(preds.columns) == set(y.columns), preds.columns
 
 
 def test_fit_with_mismatched_row_counts_raises():
@@ -63,14 +63,14 @@ def test_fit_with_mismatched_row_counts_raises():
     # Drop a row from y to mismatch
     y_bad = y.head(5)
     model = PyPartitionTree(
-        max_iter=10,
+        max_leaves=10,
         min_samples_split=2,
-        min_samples_leaf_y=1,
-        min_samples_leaf_x=1,
-        min_samples_leaf=1,
-        min_target_volume=0.0,
+        min_samples_y=1.0,
+        min_samples_x=1.0,
+        min_samples_xy=1.0,
+        min_volume_fraction=0.0,
         max_depth=5,
-        min_split_gain=0.0,
+        min_gain=0.0,
     )
     with pytest.raises(ValueError):
-        model.fit(X, y_bad)
+        model.fit(X, y_bad, None)

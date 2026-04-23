@@ -1,6 +1,6 @@
 //! Quantized-continuous dtype plugin.
 //!
-//! Handles `f64` columns constrained to a fixed lattice `resolution * i`.
+//! Handles `f64` columns by snapping values to bins centered on `resolution * i`.
 //! Rule and split semantics match the integer dtype on that lattice while
 //! preserving `f64` values in the public API.
 use crate::conf::TARGET_PREFIX;
@@ -45,7 +45,7 @@ impl QuantizedContinuousPlugin {
             let idx = QuantizedContinuousInterval::quantize_value(value, resolution)
                 .unwrap_or_else(|_| {
                     panic!(
-                        "Column '{}' uses QuantizedContinuous(resolution={}) but value {} is not aligned to the lattice",
+                        "Column '{}' uses QuantizedContinuous(resolution={}) but value {} could not be quantized",
                         col.name(),
                         resolution,
                         value

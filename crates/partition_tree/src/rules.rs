@@ -650,6 +650,10 @@ impl QuantizedContinuousInterval {
         (self.high_idx as f64 + if self.upper_closed { 0.5 } else { -0.5 }) * self.resolution
     }
 
+    fn boundary_tolerance(boundary: f64, resolution: f64) -> f64 {
+        f64::EPSILON * boundary.abs().max(resolution.abs()).max(1.0) * 16.0
+    }
+
     pub fn quantize_value(value: f64, resolution: f64) -> Result<i64, String> {
         QuantizedContinuousSpec::new(resolution)?.quantize_value(value)
     }
@@ -749,22 +753,36 @@ impl Rule<f64> for QuantizedContinuousInterval {
     }
 
     fn _evaluate_some(&self, value: &f64) -> bool {
-        match Self::quantize_value(*value, self.resolution) {
-            Ok(idx) => {
-                let lower_ok = if self.lower_closed {
-                    idx >= self.low_idx
-                } else {
-                    idx > self.low_idx
-                };
-                let upper_ok = if self.upper_closed {
-                    idx <= self.high_idx
-                } else {
-                    idx < self.high_idx
-                };
-                lower_ok && upper_ok
-            }
-            Err(_) => false,
+        if !value.is_finite() {
+            return false;
         }
+
+        let lower_ok = if self.low_idx == i64::MIN {
+            true
+        } else {
+            let low = self.low();
+            let tolerance = Self::boundary_tolerance(low, self.resolution);
+
+            if self.lower_closed {
+                *value >= low - tolerance
+            } else {
+                *value > low + tolerance
+            }
+        };
+        let upper_ok = if self.high_idx == i64::MAX {
+            true
+        } else {
+            let high = self.high();
+            let tolerance = Self::boundary_tolerance(high, self.resolution);
+
+            if self.upper_closed {
+                *value <= high + tolerance
+            } else {
+                *value < high - tolerance
+            }
+        };
+
+        lower_ok && upper_ok
     }
 
     fn _evaluate_none(&self) -> bool {
@@ -918,8 +936,72 @@ mod tests {
         assert!((q_left.volume() - i_left.volume()).abs() < 1e-10);
         assert!((q_right.volume() - i_right.volume()).abs() < 1e-10);
         assert!(q_left.evaluate(&[Some(3.0)])[0]);
+        assert!(!q_left.evaluate(&[Some(3.5)])[0]);
+        assert!(q_right.evaluate(&[Some(3.5)])[0]);
         assert!(!q_left.evaluate(&[Some(4.0)])[0]);
         assert!(q_right.evaluate(&[Some(4.0)])[0]);
+    }
+
+    #[test]
+    fn quantized_continuous_bin_includes_values_within_half_resolution_of_center() {
+        let zero_bin = QuantizedContinuousInterval::new(0, 0, 1.0, Some((0, 0)), true);
+
+        assert_eq!(QuantizedContinuousInterval::quantize_value(0.0, 1.0), Ok(0));
+        assert_eq!(
+            QuantizedContinuousInterval::quantize_value(0.002, 1.0),
+            Ok(0)
+        );
+        assert!(zero_bin.evaluate(&[Some(0.0)])[0]);
+        assert!(zero_bin.evaluate(&[Some(0.002)])[0]);
+    }
+
+    #[test]
+    fn quantized_continuous_quantize_value_maps_points_to_expected_bins() {
+        let cases = [
+            (-1.49, -1),
+            (-0.51, -1),
+            (-0.49, 0),
+            (0.002, 0),
+            (0.49, 0),
+            (0.51, 1),
+            (1.49, 1),
+            (1.51, 2),
+        ];
+
+        for (value, expected_idx) in cases {
+            assert_eq!(
+                QuantizedContinuousInterval::quantize_value(value, 1.0),
+                Ok(expected_idx),
+                "value {value} should quantize to bin {expected_idx}"
+            );
+        }
+    }
+
+    #[test]
+    fn quantized_continuous_single_bin_includes_closed_endpoints() {
+        let zero_bin = QuantizedContinuousInterval::new(0, 0, 1.0, Some((0, 0)), true);
+
+        assert!(zero_bin.evaluate(&[Some(-0.5)])[0]);
+        assert!(zero_bin.evaluate(&[Some(0.5)])[0]);
+        assert!(!zero_bin.evaluate(&[Some(-0.500_000_1)])[0]);
+        assert!(!zero_bin.evaluate(&[Some(0.500_000_1)])[0]);
+    }
+
+    #[test]
+    fn quantized_continuous_unbounded_interval_tolerance_does_not_swallow_values() {
+        let left = QuantizedContinuousInterval {
+            low_idx: i64::MIN,
+            high_idx: 3,
+            lower_closed: true,
+            upper_closed: false,
+            resolution: 1.0,
+            domain: (i64::MIN, i64::MAX),
+            accept_none: false,
+        };
+
+        assert!(left.evaluate(&[Some(1.0)])[0]);
+        assert!(left.evaluate(&[Some(2.49)])[0]);
+        assert!(!left.evaluate(&[Some(2.5)])[0]);
     }
 }
 

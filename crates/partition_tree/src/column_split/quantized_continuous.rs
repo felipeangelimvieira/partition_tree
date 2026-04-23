@@ -1,7 +1,7 @@
 //! Quantized-continuous column split searcher.
 //!
-//! Handles numeric columns constrained to a fixed lattice `resolution * i`
-//! using integer-style split thresholds on the quantized lattice indices.
+//! Handles numeric columns by snapping values to bins centered on
+//! `resolution * i` and using integer-style split thresholds on the bin indices.
 use super::{ColumnSplitSearcher, cumsum, split_nulls};
 use crate::cell::Cell;
 use crate::dataset_view::{ColumnView, DatasetView, LogicalDType};
@@ -38,7 +38,7 @@ impl ColumnSplitSearcher for QuantizedContinuousColumnSplitSearcher {
             crate::rules::QuantizedContinuousInterval::quantize_value(value, resolution)
                 .unwrap_or_else(|_| {
                     panic!(
-                        "column '{}' contains value {} that is not aligned to resolution {}",
+                        "column '{}' contains value {} that could not be quantized at resolution {}",
                         col.name(),
                         value,
                         resolution
