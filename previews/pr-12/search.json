@@ -1,0 +1,387 @@
+[
+  {
+    "objectID": "api.html",
+    "href": "api.html",
+    "title": "API Reference",
+    "section": "",
+    "text": "Standard scikit-learn–compatible estimators for classification and regression.\nfrom partition_tree.sklearn import (\n    PartitionTreeClassifier,\n    PartitionForestClassifier,\n    PartitionTreeRegressor,\n    PartitionForestRegressor,\n)\n\n\n\nA single Partition Tree for classification tasks.\nInherits: sklearn.base.ClassifierMixin, sklearn.base.BaseEstimator\n\n\nPartitionTreeClassifier(\n    max_leaves=101,\n    boundaries_expansion_factor=0.1,\n    min_samples_xy=1.0,\n    min_samples_x=1.0,\n    min_samples_y=1.0,\n    min_gain=0.0,\n    min_volume_fraction=0.0,\n    max_depth=1000,\n    min_samples_split=2.0,\n)\n\n\n\n\n\n\n\n\n\n\nMethod\nDescription\n\n\n\n\nfit(X, y, sample_weights=None)\nFit the tree on training data\n\n\npredict(X)\nPredict class labels\n\n\npredict_proba(X)\nPredict class probabilities — np.ndarray of shape (n_samples, n_classes)\n\n\napply(X)\nReturn the leaf index for each sample\n\n\nget_leaves_info()\nReturn metadata for each leaf\n\n\n\n\n\n\n\n\n\nAttribute\nDescription\n\n\n\n\nclasses_\nArray of class labels learned during fit\n\n\npartition_tree_\nInternal tree object (available after fit)\n\n\n\n\n\n\n\n\nEnsemble of Partition Trees for classification (bagging with density averaging).\nInherits: sklearn.base.ClassifierMixin, sklearn.base.BaseEstimator\n\n\nPartitionForestClassifier(\n    n_estimators=100,\n    max_leaves=101,\n    boundaries_expansion_factor=0.1,\n    min_samples_xy=1.0,\n    min_samples_x=1.0,\n    min_samples_y=1.0,\n    min_gain=0.0,\n    min_volume_fraction=0.0,\n    max_depth=5,\n    min_samples_split=2.0,\n    max_samples=0.8,\n    max_features=0.8,\n    random_state=None,\n)\n\n\n\n\n\n\n\n\n\n\nMethod\nDescription\n\n\n\n\nfit(X, y, sample_weights=None)\nFit the forest on training data\n\n\npredict(X)\nPredict class labels (majority vote from averaged probabilities)\n\n\npredict_proba(X)\nPredict class probabilities — np.ndarray of shape (n_samples, n_classes)\n\n\n\n\n\n\n\n\nA single Partition Tree for regression tasks.\nInherits: sklearn.base.RegressorMixin, sklearn.base.BaseEstimator\n\n\nPartitionTreeRegressor(\n    max_leaves=101,\n    boundaries_expansion_factor=0.1,\n    min_samples_xy=1.0,\n    min_samples_x=1.0,\n    min_samples_y=1.0,\n    min_gain=0.0,\n    min_volume_fraction=0.0,\n    max_depth=5,\n    min_samples_split=2.0,\n)\n\n\n\n\n\n\nMethod\nDescription\n\n\n\n\nfit(X, y, sample_weights=None)\nFit the tree on training data\n\n\npredict(X)\nPredict target values — np.ndarray\n\n\n\n\n\n\n\n\nEnsemble of Partition Trees for regression.\nInherits: sklearn.base.RegressorMixin, sklearn.base.BaseEstimator\n\n\nPartitionForestRegressor(\n    n_estimators=100,\n    max_leaves=101,\n    boundaries_expansion_factor=0.1,\n    min_samples_xy=1.0,\n    min_samples_x=1.0,\n    min_samples_y=1.0,\n    min_gain=0.0,\n    min_volume_fraction=0.0,\n    max_depth=5,\n    min_samples_split=2.0,\n    max_samples=0.8,\n    max_features=0.8,\n    random_state=42,\n)\n\n\n\n\n\n\nMethod\nDescription\n\n\n\n\nfit(X, y, sample_weights=None)\nFit the forest on training data\n\n\npredict(X)\nPredict target values — np.ndarray"
+  },
+  {
+    "objectID": "api.html#partition_tree.sklearn",
+    "href": "api.html#partition_tree.sklearn",
+    "title": "API Reference",
+    "section": "",
+    "text": "Standard scikit-learn–compatible estimators for classification and regression.\nfrom partition_tree.sklearn import (\n    PartitionTreeClassifier,\n    PartitionForestClassifier,\n    PartitionTreeRegressor,\n    PartitionForestRegressor,\n)\n\n\n\nA single Partition Tree for classification tasks.\nInherits: sklearn.base.ClassifierMixin, sklearn.base.BaseEstimator\n\n\nPartitionTreeClassifier(\n    max_leaves=101,\n    boundaries_expansion_factor=0.1,\n    min_samples_xy=1.0,\n    min_samples_x=1.0,\n    min_samples_y=1.0,\n    min_gain=0.0,\n    min_volume_fraction=0.0,\n    max_depth=1000,\n    min_samples_split=2.0,\n)\n\n\n\n\n\n\n\n\n\n\nMethod\nDescription\n\n\n\n\nfit(X, y, sample_weights=None)\nFit the tree on training data\n\n\npredict(X)\nPredict class labels\n\n\npredict_proba(X)\nPredict class probabilities — np.ndarray of shape (n_samples, n_classes)\n\n\napply(X)\nReturn the leaf index for each sample\n\n\nget_leaves_info()\nReturn metadata for each leaf\n\n\n\n\n\n\n\n\n\nAttribute\nDescription\n\n\n\n\nclasses_\nArray of class labels learned during fit\n\n\npartition_tree_\nInternal tree object (available after fit)\n\n\n\n\n\n\n\n\nEnsemble of Partition Trees for classification (bagging with density averaging).\nInherits: sklearn.base.ClassifierMixin, sklearn.base.BaseEstimator\n\n\nPartitionForestClassifier(\n    n_estimators=100,\n    max_leaves=101,\n    boundaries_expansion_factor=0.1,\n    min_samples_xy=1.0,\n    min_samples_x=1.0,\n    min_samples_y=1.0,\n    min_gain=0.0,\n    min_volume_fraction=0.0,\n    max_depth=5,\n    min_samples_split=2.0,\n    max_samples=0.8,\n    max_features=0.8,\n    random_state=None,\n)\n\n\n\n\n\n\n\n\n\n\nMethod\nDescription\n\n\n\n\nfit(X, y, sample_weights=None)\nFit the forest on training data\n\n\npredict(X)\nPredict class labels (majority vote from averaged probabilities)\n\n\npredict_proba(X)\nPredict class probabilities — np.ndarray of shape (n_samples, n_classes)\n\n\n\n\n\n\n\n\nA single Partition Tree for regression tasks.\nInherits: sklearn.base.RegressorMixin, sklearn.base.BaseEstimator\n\n\nPartitionTreeRegressor(\n    max_leaves=101,\n    boundaries_expansion_factor=0.1,\n    min_samples_xy=1.0,\n    min_samples_x=1.0,\n    min_samples_y=1.0,\n    min_gain=0.0,\n    min_volume_fraction=0.0,\n    max_depth=5,\n    min_samples_split=2.0,\n)\n\n\n\n\n\n\nMethod\nDescription\n\n\n\n\nfit(X, y, sample_weights=None)\nFit the tree on training data\n\n\npredict(X)\nPredict target values — np.ndarray\n\n\n\n\n\n\n\n\nEnsemble of Partition Trees for regression.\nInherits: sklearn.base.RegressorMixin, sklearn.base.BaseEstimator\n\n\nPartitionForestRegressor(\n    n_estimators=100,\n    max_leaves=101,\n    boundaries_expansion_factor=0.1,\n    min_samples_xy=1.0,\n    min_samples_x=1.0,\n    min_samples_y=1.0,\n    min_gain=0.0,\n    min_volume_fraction=0.0,\n    max_depth=5,\n    min_samples_split=2.0,\n    max_samples=0.8,\n    max_features=0.8,\n    random_state=42,\n)\n\n\n\n\n\n\nMethod\nDescription\n\n\n\n\nfit(X, y, sample_weights=None)\nFit the forest on training data\n\n\npredict(X)\nPredict target values — np.ndarray"
+  },
+  {
+    "objectID": "api.html#partition_tree.skpro",
+    "href": "api.html#partition_tree.skpro",
+    "title": "API Reference",
+    "section": "partition_tree.skpro",
+    "text": "partition_tree.skpro\nProbabilistic regressors that return full predictive distributions, based on skpro’s BaseProbaRegressor.\nfrom partition_tree.skpro import (\n    PartitionTreeRegressor,\n    PartitionForestRegressor,\n    IntervalDistribution,\n)\n\n\nPartitionTreeRegressor (skpro)\nA single Partition Tree for probabilistic regression.\nInherits: skpro.regression.base.BaseProbaRegressor\n\nConstructor\nPartitionTreeRegressor(\n    max_leaves=101,\n    boundaries_expansion_factor=0.1,\n    min_samples_xy=1.0,\n    min_samples_x=1.0,\n    min_samples_y=1.0,\n    min_gain=0.0,\n    min_volume_fraction=0.0,\n    max_depth=5,\n    min_samples_split=2.0,\n)\n\n\nMethods\n\n\n\n\n\n\n\n\nMethod\nReturns\nDescription\n\n\n\n\nfit(X, y)\nself\nFit the tree\n\n\npredict(X)\npd.DataFrame\nPoint predictions (posterior mean)\n\n\npredict_proba(X)\nIntervalDistribution\nFull predictive distribution\n\n\napply(X)\narray\nLeaf index per sample\n\n\nget_leaves_info()\nlist[dict]\nMetadata for each leaf\n\n\nget_feature_importances(normalize=True)\ndict\nFeature importances from split gains\n\n\n\n\n\n\n\nPartitionForestRegressor (skpro)\nEnsemble of Partition Trees for probabilistic regression.\nInherits: skpro.regression.base.BaseProbaRegressor\n\nConstructor\nPartitionForestRegressor(\n    n_estimators=100,\n    max_leaves=101,\n    boundaries_expansion_factor=0.1,\n    min_samples_xy=1.0,\n    min_samples_x=1.0,\n    min_samples_y=1.0,\n    min_gain=0.0,\n    min_volume_fraction=0.0,\n    max_depth=5,\n    min_samples_split=2.0,\n    seed=42,\n)\n\n\nMethods\n\n\n\n\n\n\n\n\nMethod\nReturns\nDescription\n\n\n\n\nfit(X, y)\nself\nFit the forest\n\n\npredict(X)\npd.DataFrame\nPoint predictions\n\n\npredict_proba(X)\nIntervalDistribution\nMixed predictive distribution (averaged across trees)\n\n\npredict_proba_per_tree(X)\nlist[IntervalDistribution]\nIndividual distribution from each tree\n\n\n\n\n\n\n\nIntervalDistribution\nPiecewise-uniform distribution over disjoint intervals. Returned by predict_proba on the skpro estimators.\nInherits: skpro.distributions.base.BaseDistribution\n\nConstructor\nIntervalDistribution(\n    intervals,          # list[list[tuple(low, high)]] per instance\n    pdf_values=None,    # list[array] of densities per interval\n    index=None,         # pd.Index\n    columns=None,       # pd.Index\n)\n\n\nMethods\n\n\n\n\n\n\n\n\nMethod\nSignature\nReturns\n\n\n\n\nmean()\n() -&gt; pd.DataFrame\nPosterior mean\n\n\nvar()\n() -&gt; pd.DataFrame\nPosterior variance\n\n\npdf(x)\n(x) -&gt; pd.DataFrame\nDensity at points x\n\n\nlog_pdf(x)\n(x) -&gt; pd.DataFrame\nLog-density at points x\n\n\ncdf(x)\n(x) -&gt; pd.DataFrame\nCDF at points x\n\n\nppf(q)\n(q) -&gt; pd.DataFrame\nQuantile function (inverse CDF)\n\n\nsample(n_samples)\n(int) -&gt; pd.DataFrame\nRandom samples\n\n\nenergy(x)\n(x) -&gt; pd.DataFrame\nEnergy score\n\n\nplot(ax, colors, alpha)\n(...) -&gt; Axes\nPlot the piecewise-constant PDF\n\n\n\n\n\nClass Methods\n\n\n\n\n\n\n\nMethod\nDescription\n\n\n\n\nIntervalDistribution.from_mixture(distributions, weights, index, columns)\nCreate a mixture distribution by weighted averaging"
+  },
+  {
+    "objectID": "api.html#common-parameters",
+    "href": "api.html#common-parameters",
+    "title": "API Reference",
+    "section": "Common Parameters",
+    "text": "Common Parameters\n\n\n\n\n\n\n\n\n\nParameter\nType\nDefault\nDescription\n\n\n\n\nmax_leaves\nint\n101\nMaximum number of tree leaves\n\n\nmax_depth\nint\n5\nMaximum depth of the tree\n\n\nmin_samples_split\nfloat\n2.0\nMinimum samples required to split a node\n\n\nmin_samples_xy\nfloat\n1.0\nMinimum joint-cell sample count\n\n\nmin_samples_x\nfloat\n1.0\nMinimum \\(X\\)-projection sample count\n\n\nmin_samples_y\nfloat\n1.0\nMinimum \\(Y\\)-projection sample count\n\n\nmin_gain\nfloat\n0.0\nMinimum log-loss gain to accept a split\n\n\nmin_volume_fraction\nfloat\n0.0\nMinimum fraction of root \\(Y\\)-volume for leaf\n\n\nboundaries_expansion_factor\nfloat\n0.1\nPadding for the outcome bounding box\n\n\nn_estimators\nint\n100\nNumber of trees in the forest\n\n\nmax_samples\nfloat\n0.8\nFraction of training samples per tree\n\n\nmax_features\nfloat\n0.8\nFraction of features per split\n\n\nseed / random_state\nint \\| None\n42\nRandom seed for reproducibility"
+  },
+  {
+    "objectID": "tutorials/sklearn.html",
+    "href": "tutorials/sklearn.html",
+    "title": "Tutorial: sklearn Interface",
+    "section": "",
+    "text": "The partition_tree.sklearn module provides estimators that follow the familiar scikit-learn API: fit, predict, predict_proba, cross-validation, and pipeline compatibility."
+  },
+  {
+    "objectID": "tutorials/sklearn.html#available-estimators",
+    "href": "tutorials/sklearn.html#available-estimators",
+    "title": "Tutorial: sklearn Interface",
+    "section": "Available estimators",
+    "text": "Available estimators\n\nPartitionTreeClassifier\nPartitionForestClassifier\nPartitionTreeRegressor\nPartitionForestRegressor"
+  },
+  {
+    "objectID": "tutorials/sklearn.html#choose-a-tutorial",
+    "href": "tutorials/sklearn.html#choose-a-tutorial",
+    "title": "Tutorial: sklearn Interface",
+    "section": "Choose a tutorial",
+    "text": "Choose a tutorial\nUse the task-specific walkthroughs for concrete examples and metrics:\n\nClassification\nRegression"
+  },
+  {
+    "objectID": "tutorials/sklearn.html#minimal-example",
+    "href": "tutorials/sklearn.html#minimal-example",
+    "title": "Tutorial: sklearn Interface",
+    "section": "Minimal example",
+    "text": "Minimal example\n\nfrom sklearn.datasets import load_iris\nfrom sklearn.model_selection import train_test_split\n\nfrom partition_tree.sklearn import PartitionTreeClassifier\n\nX, y = load_iris(return_X_y=True)\nX_train, X_test, y_train, y_test = train_test_split(X, y, random_state=42)\n\nclf = PartitionTreeClassifier(max_leaves=20, random_state=42)\nclf.fit(X_train, y_train)\nclf.predict(X_test[:5])\n\n/home/runner/work/partition_tree/partition_tree/partition_tree/src/partition_tree/sklearn/partition_tree.py:27: FutureWarning: Series.__getitem__ treating keys as positions is deprecated. In a future version, integer keys will always be treated as labels (consistent with DataFrame behavior). To access a value by position, use `ser.iloc[pos]`\n  y_dtype = y_df.dtypes[0]\n\n\narray([1, 0, 2, 1, 1])"
+  },
+  {
+    "objectID": "tutorials/sklearn.html#notes",
+    "href": "tutorials/sklearn.html#notes",
+    "title": "Tutorial: sklearn Interface",
+    "section": "Notes",
+    "text": "Notes\n\nUse the classifier variants for discrete targets.\nUse the regressor variants for numeric targets.\nFor full predictive distributions, switch to the skpro tutorial."
+  },
+  {
+    "objectID": "tutorials/skpro.html",
+    "href": "tutorials/skpro.html",
+    "title": "Tutorial: skpro Interface",
+    "section": "",
+    "text": "The partition_tree.skpro module provides probabilistic regressors that return full predictive distributions instead of point estimates. They extend skpro’s BaseProbaRegressor, giving you access to PDF, CDF, quantiles (PPF), sampling, and more.\nFor a worked example with a lattice-valued response, see Quantized Targets."
+  },
+  {
+    "objectID": "tutorials/skpro.html#available-estimators",
+    "href": "tutorials/skpro.html#available-estimators",
+    "title": "Tutorial: skpro Interface",
+    "section": "Available Estimators",
+    "text": "Available Estimators\n\n\n\n\n\n\n\nClass\nDescription\n\n\n\n\nPartitionTreeRegressor\nSingle probabilistic tree\n\n\nPartitionForestRegressor\nEnsemble of probabilistic trees (density averaging)\n\n\n\nBoth return an IntervalDistribution from predict_proba — a piecewise-constant distribution defined over disjoint intervals."
+  },
+  {
+    "objectID": "tutorials/skpro.html#basic-usage",
+    "href": "tutorials/skpro.html#basic-usage",
+    "title": "Tutorial: skpro Interface",
+    "section": "1. Basic Usage",
+    "text": "1. Basic Usage\n\n1.1 Fit and Predict\n\nimport pandas as pd\nfrom sklearn.datasets import fetch_california_housing\nfrom sklearn.model_selection import train_test_split\n\nfrom partition_tree.skpro import PartitionTreeRegressor\n\n# Load data as DataFrames (skpro estimators work best with pandas)\nhousing = fetch_california_housing(as_frame=True)\nX = housing.data\ny = housing.target.rename(\"MedHouseVal\").to_frame()\n\nX_train, X_test, y_train, y_test = train_test_split(\n    X, y, test_size=0.2, random_state=42\n)\n\n# Fit\npt = PartitionTreeRegressor(\n    max_leaves=200,\n    min_samples_x=100,\n    min_samples_y=100,\n    random_state=42,\n)\npt.fit(X_train, y_train)\n\n# Point predictions (posterior mean over the piecewise density)\ny_pred = pt.predict(X_test)\nprint(y_pred.head())\n\n       MedHouseVal\n20046     0.934038\n3024      0.927517\n15663     3.820701\n20484     2.259561\n9814      2.363631\n\n\n\n\n1.2 Probabilistic Predictions\npredict_proba returns an IntervalDistribution object:\n\ndist = pt.predict_proba(X_test)\nprint(type(dist))\n# &lt;class 'partition_tree.skpro.distribution.IntervalDistribution'&gt;\n\n&lt;class 'partition_tree.skpro.distribution.IntervalDistribution'&gt;\n\n\nFrom this distribution you can extract:\n\n# Posterior mean\nmean = dist.mean()\n\n# Posterior variance\nvar = dist.var()\n\n# Quantiles via the percent-point function (inverse CDF)\nmedian   = dist.ppf(0.5)\nlower_90 = dist.ppf(0.05)\nupper_90 = dist.ppf(0.95)\n\n# Random samples\nsamples = dist.sample(n_samples=100)\n\n# PDF / CDF evaluated at specific points\npdf_vals = dist.pdf(y_test)\ncdf_vals = dist.cdf(y_test)"
+  },
+  {
+    "objectID": "tutorials/skpro.html#prediction-intervals",
+    "href": "tutorials/skpro.html#prediction-intervals",
+    "title": "Tutorial: skpro Interface",
+    "section": "2. Prediction Intervals",
+    "text": "2. Prediction Intervals\nOne of the key advantages of probabilistic predictions is the ability to construct prediction intervals at any confidence level.\n\nimport numpy as np\n\n# 80% prediction interval: [10th percentile, 90th percentile]\nlower_80 = dist.ppf(0.10)[\"MedHouseVal\"]\nupper_80 = dist.ppf(0.90)[\"MedHouseVal\"]\n\n# Check empirical coverage\ny_true = y_test.values\ncovered = ((y_true &gt;= lower_80.values) & (y_true &lt;= upper_80.values)).mean()\nprint(f\"80% PI coverage: {covered:.1%}\")\n\n80% PI coverage: 43.6%"
+  },
+  {
+    "objectID": "tutorials/skpro.html#visualizing-the-predictive-pdf",
+    "href": "tutorials/skpro.html#visualizing-the-predictive-pdf",
+    "title": "Tutorial: skpro Interface",
+    "section": "3. Visualizing the Predictive PDF",
+    "text": "3. Visualizing the Predictive PDF\nThe IntervalDistribution has a built-in plot method that draws the piecewise-constant density as histogram-like bars:\n\nimport matplotlib.pyplot as plt\n\n# Plot the predictive PDF for a single test sample\nidx = y_test.index[0]\ndist_single = dist.loc[idx]\n\nfig, ax = plt.subplots(figsize=(8, 3))\ndist_single.plot(ax=ax, alpha=0.7)\nax.axvline(\n    y_test.loc[idx].item(),\n    color=\"red\",\n    linestyle=\"--\",\n    label=f\"Actual = {y_test.loc[idx].item():.2f}\",\n)\nax.set_xlabel(\"MedHouseVal\")\nax.set_ylabel(\"PDF\")\nax.set_title(\"Predictive PDF — Single Test Sample\")\nax.legend()\nplt.tight_layout()\nplt.show()\n\n\n\n\n\n\n\n\n\nMultiple samples side by side\n\nfig, axes = plt.subplots(1, 4, figsize=(16, 3))\nfor ax, i in zip(axes, range(4)):\n    row_idx = y_test.index[i]\n    dist_single = dist.loc[row_idx]\n    dist_single.plot(ax=ax, alpha=0.7)\n    ax.axvline(y_test.iloc[i].item(), color=\"red\", linestyle=\"--\", linewidth=1.5)\n    ax.set_title(f\"Sample {i}\")\n    ax.set_xlabel(\"y\")\n\nplt.suptitle(\"Predictive PDFs — PartitionTreeRegressor\", y=1.02)\nplt.tight_layout()\nplt.show()"
+  },
+  {
+    "objectID": "tutorials/skpro.html#partition-forest-ensemble",
+    "href": "tutorials/skpro.html#partition-forest-ensemble",
+    "title": "Tutorial: skpro Interface",
+    "section": "4. Partition Forest (Ensemble)",
+    "text": "4. Partition Forest (Ensemble)\nPartitionForestRegressor averages the conditional densities from multiple trees, producing smoother and better-calibrated distributions.\n\nfrom partition_tree.skpro import PartitionForestRegressor\n\npf = PartitionForestRegressor(\n    n_estimators=50,\n    random_state=42,\n    min_samples_x=100,\n    min_samples_y=100,\n    output_distribution=\"merged\",\n)\npf.fit(X_train, y_train)\n\ndist_forest = pf.predict_proba(X_test)\ny_pred_forest = pf.predict(X_test)\n\n\nComparing Tree vs Forest\n\nfrom sklearn.metrics import mean_absolute_error, r2_score\n\ny_mean_tree   = pt.predict(X_test)[\"MedHouseVal\"]\ny_mean_forest = pf.predict(X_test)[\"MedHouseVal\"]\n\n# Point-estimate metrics\nresults = pd.DataFrame({\n    \"Model\": [\"PartitionTree\", \"PartitionForest\"],\n    \"MAE\": [\n        mean_absolute_error(y_test, y_mean_tree),\n        mean_absolute_error(y_test, y_mean_forest),\n    ],\n    \"R²\": [\n        r2_score(y_test, y_mean_tree),\n        r2_score(y_test, y_mean_forest),\n    ],\n})\nprint(results.to_string(index=False))\n\n\n\nCoverage comparison\n\nlower_f = dist_forest.ppf(0.10)[\"MedHouseVal\"]\nupper_f = dist_forest.ppf(0.90)[\"MedHouseVal\"]\ncovered_f = ((y_true &gt;= lower_f.values) & (y_true &lt;= upper_f.values)).mean()\n\nprint(f\"Tree   80% PI coverage: {covered:.1%}\")\nprint(f\"Forest 80% PI coverage: {covered_f:.1%}\")"
+  },
+  {
+    "objectID": "tutorials/skpro.html#per-tree-distributions",
+    "href": "tutorials/skpro.html#per-tree-distributions",
+    "title": "Tutorial: skpro Interface",
+    "section": "5. Per-Tree Distributions",
+    "text": "5. Per-Tree Distributions\nThe forest exposes predict_proba_per_tree to access each individual tree’s distribution before mixing:\n\nper_tree_dists = pf.predict_proba_per_tree(X_test)\n\nprint(f\"Number of trees: {len(per_tree_dists)}\")\nprint(f\"Type: {type(per_tree_dists[0])}\")\n\n# Compare posterior means across trees\ntree_means = np.array([d.mean().values.ravel() for d in per_tree_dists])\nprint(f\"Mean std across trees: {tree_means.std(axis=0).mean():.4f}\")"
+  },
+  {
+    "objectID": "tutorials/skpro.html#feature-importances",
+    "href": "tutorials/skpro.html#feature-importances",
+    "title": "Tutorial: skpro Interface",
+    "section": "6. Feature Importances",
+    "text": "6. Feature Importances\nThe tree exposes feature importances based on the log-loss gain accumulated across all splits:\n\nimportances = pt.get_feature_importances(normalize=True)\nfor feat, imp in importances.items():\n    print(f\"  {feat:&gt;20s}: {imp:.4f}\")"
+  },
+  {
+    "objectID": "tutorials/skpro.html#leaf-information",
+    "href": "tutorials/skpro.html#leaf-information",
+    "title": "Tutorial: skpro Interface",
+    "section": "7. Leaf Information",
+    "text": "7. Leaf Information\nInspect the partition structure:\n\nleaves = pt.get_leaves_info()\nprint(f\"Number of leaves: {len(leaves)}\")\nprint(f\"Keys per leaf: {list(leaves[0].keys())}\")"
+  },
+  {
+    "objectID": "tutorials/skpro.html#full-intervaldistribution-api",
+    "href": "tutorials/skpro.html#full-intervaldistribution-api",
+    "title": "Tutorial: skpro Interface",
+    "section": "8. Full IntervalDistribution API",
+    "text": "8. Full IntervalDistribution API\nThe IntervalDistribution object returned by predict_proba supports:\n\n\n\nMethod\nReturns\n\n\n\n\nmean()\nPosterior mean — pd.DataFrame\n\n\nvar()\nPosterior variance — pd.DataFrame\n\n\npdf(x)\nDensity at x — pd.DataFrame\n\n\nlog_pdf(x)\nLog-density at x — pd.DataFrame\n\n\ncdf(x)\nCDF at x — pd.DataFrame\n\n\nppf(q)\nQuantile at level q — pd.DataFrame\n\n\nsample(n_samples)\nRandom samples — pd.DataFrame\n\n\nenergy(x)\nEnergy score — pd.DataFrame\n\n\nplot(ax)\nPlot the piecewise-constant PDF\n\n\n\nAll outputs are pandas DataFrames indexed consistently with the input."
+  },
+  {
+    "objectID": "tutorials/skpro.html#tips",
+    "href": "tutorials/skpro.html#tips",
+    "title": "Tutorial: skpro Interface",
+    "section": "9. Tips",
+    "text": "9. Tips\n\n\n\n\n\n\nTipUse pandas DataFrames\n\n\n\nThe skpro estimators work best when X and y are pandas DataFrames / Series. Column names are preserved through the pipeline and appear in feature importances.\n\n\n\n\n\n\n\n\nTipForest for better calibration\n\n\n\nIf your 80% prediction intervals have coverage far from 80%, try using PartitionForestRegressor — density averaging typically improves calibration.\n\n\n\n\n\n\n\n\nTipScaling features\n\n\n\nAlthough tree-based methods are invariant to monotone feature transformations, scaling can help when feature magnitudes differ wildly, since the split search evaluates thresholds in the original feature scale."
+  },
+  {
+    "objectID": "tutorials/regression.html",
+    "href": "tutorials/regression.html",
+    "title": "Tutorial: Regression",
+    "section": "",
+    "text": "Partition Trees estimate the conditional density \\(p(y \\mid x)\\) as a piecewise-constant function. For regression, the point prediction is the posterior mean of that density — equivalent to the conditional expectation \\(\\mathbb{E}[y \\mid x]\\)."
+  },
+  {
+    "objectID": "tutorials/regression.html#setup",
+    "href": "tutorials/regression.html#setup",
+    "title": "Tutorial: Regression",
+    "section": "Setup",
+    "text": "Setup\n\nfrom sklearn.datasets import fetch_california_housing\nfrom sklearn.model_selection import train_test_split\nfrom sklearn.metrics import mean_absolute_error, r2_score\nimport numpy as np\n\nX, y = fetch_california_housing(return_X_y=True)\nX_train, X_test, y_train, y_test = train_test_split(\n    X, y, test_size=0.2, random_state=42\n)"
+  },
+  {
+    "objectID": "tutorials/regression.html#baselines-decision-tree-random-forest",
+    "href": "tutorials/regression.html#baselines-decision-tree-random-forest",
+    "title": "Tutorial: Regression",
+    "section": "1. Baselines — Decision Tree & Random Forest",
+    "text": "1. Baselines — Decision Tree & Random Forest\n\nfrom sklearn.tree import DecisionTreeRegressor\nfrom sklearn.ensemble import RandomForestRegressor\n\ncart = DecisionTreeRegressor(random_state=42)\ncart.fit(X_train, y_train)\ny_pred_cart = cart.predict(X_test)\n\nprint(\"=== DecisionTreeRegressor ===\")\nprint(f\"MAE  : {mean_absolute_error(y_test, y_pred_cart):.4f}\")\nprint(f\"RMSE : {np.sqrt(((y_test - y_pred_cart) ** 2).mean()):.4f}\")\nprint(f\"R²   : {r2_score(y_test, y_pred_cart):.4f}\")\n\n=== DecisionTreeRegressor ===\nMAE  : 0.4547\nRMSE : 0.7037\nR²   : 0.6221\n\n\n\nrf = RandomForestRegressor(n_estimators=50, random_state=42)\nrf.fit(X_train, y_train)\ny_pred_rf = rf.predict(X_test)\n\nprint(\"=== RandomForestRegressor ===\")\nprint(f\"MAE  : {mean_absolute_error(y_test, y_pred_rf):.4f}\")\nprint(f\"RMSE : {np.sqrt(((y_test - y_pred_rf) ** 2).mean()):.4f}\")\nprint(f\"R²   : {r2_score(y_test, y_pred_rf):.4f}\")\n\n=== RandomForestRegressor ===\nMAE  : 0.3303\nRMSE : 0.5072\nR²   : 0.8037"
+  },
+  {
+    "objectID": "tutorials/regression.html#single-partition-tree",
+    "href": "tutorials/regression.html#single-partition-tree",
+    "title": "Tutorial: Regression",
+    "section": "2. Single Partition Tree",
+    "text": "2. Single Partition Tree\n\nfrom partition_tree.sklearn import PartitionTreeRegressor\n\nreg = PartitionTreeRegressor(random_state=42)\nreg.fit(X_train, y_train)\ny_pred_reg = reg.predict(X_test)\n\nprint(\"=== PartitionTreeRegressor ===\")\nprint(f\"MAE  : {mean_absolute_error(y_test, y_pred_reg):.4f}\")\nprint(f\"RMSE : {np.sqrt(((y_test - y_pred_reg) ** 2).mean()):.4f}\")\nprint(f\"R²   : {r2_score(y_test, y_pred_reg):.4f}\")\n\n=== PartitionTreeRegressor ===\nMAE  : 0.3876\nRMSE : 0.5787\nR²   : 0.7445\n\n\n\nComparison with Baselines\n\nimport pandas as pd\n\npd.DataFrame({\n    \"Model\": [\"DecisionTree (CART)\", \"RandomForest\", \"PartitionTree\"],\n    \"MAE\": [\n        mean_absolute_error(y_test, y_pred_cart),\n        mean_absolute_error(y_test, y_pred_rf),\n        mean_absolute_error(y_test, y_pred_reg),\n    ],\n    \"RMSE\": [\n        np.sqrt(((y_test - y_pred_cart) ** 2).mean()),\n        np.sqrt(((y_test - y_pred_rf) ** 2).mean()),\n        np.sqrt(((y_test - y_pred_reg) ** 2).mean()),\n    ],\n    \"R²\": [\n        r2_score(y_test, y_pred_cart),\n        r2_score(y_test, y_pred_rf),\n        r2_score(y_test, y_pred_reg),\n    ],\n}).round(4)\n\n\n\n\n\n\n\n\nModel\nMAE\nRMSE\nR²\n\n\n\n\n0\nDecisionTree (CART)\n0.4547\n0.7037\n0.6221\n\n\n1\nRandomForest\n0.3303\n0.5072\n0.8037\n\n\n2\nPartitionTree\n0.3876\n0.5787\n0.7445"
+  },
+  {
+    "objectID": "tutorials/regression.html#partition-forest-ensemble",
+    "href": "tutorials/regression.html#partition-forest-ensemble",
+    "title": "Tutorial: Regression",
+    "section": "3. Partition Forest (Ensemble)",
+    "text": "3. Partition Forest (Ensemble)\nPartitionForestRegressor averages the conditional densities of multiple trees, then reports the posterior mean — similar in spirit to a Random Forest but built on the Partition Tree density framework.\n\nfrom partition_tree.sklearn import PartitionForestRegressor\n\nforest_reg = PartitionForestRegressor(\n    n_estimators=50,\n    random_state=42,\n    min_volume_fraction=0.1,\n    min_samples_xy=0,\n)\nforest_reg.fit(X_train, y_train)\ny_pred_forest = forest_reg.predict(X_test)\n\nprint(\"=== PartitionForestRegressor ===\")\nprint(f\"MAE  : {mean_absolute_error(y_test, y_pred_forest):.4f}\")\nprint(f\"RMSE : {np.sqrt(((y_test - y_pred_forest) ** 2).mean()):.4f}\")\nprint(f\"R²   : {r2_score(y_test, y_pred_forest):.4f}\")\n\n=== PartitionForestRegressor ===\nMAE  : 0.3384\nRMSE : 0.5078\nR²   : 0.8032\n\n\n\nFull Comparison\n\npd.DataFrame({\n    \"Model\": [\"DecisionTree (CART)\", \"RandomForest\", \"PartitionTree\", \"PartitionForest\"],\n    \"MAE\": [\n        mean_absolute_error(y_test, y_pred_cart),\n        mean_absolute_error(y_test, y_pred_rf),\n        mean_absolute_error(y_test, y_pred_reg),\n        mean_absolute_error(y_test, y_pred_forest),\n    ],\n    \"RMSE\": [\n        np.sqrt(((y_test - y_pred_cart) ** 2).mean()),\n        np.sqrt(((y_test - y_pred_rf) ** 2).mean()),\n        np.sqrt(((y_test - y_pred_reg) ** 2).mean()),\n        np.sqrt(((y_test - y_pred_forest) ** 2).mean()),\n    ],\n    \"R²\": [\n        r2_score(y_test, y_pred_cart),\n        r2_score(y_test, y_pred_rf),\n        r2_score(y_test, y_pred_reg),\n        r2_score(y_test, y_pred_forest),\n    ],\n}).round(4)\n\n\n\n\n\n\n\n\nModel\nMAE\nRMSE\nR²\n\n\n\n\n0\nDecisionTree (CART)\n0.4547\n0.7037\n0.6221\n\n\n1\nRandomForest\n0.3303\n0.5072\n0.8037\n\n\n2\nPartitionTree\n0.3876\n0.5787\n0.7445\n\n\n3\nPartitionForest\n0.3384\n0.5078\n0.8032"
+  },
+  {
+    "objectID": "tutorials/regression.html#cross-validation",
+    "href": "tutorials/regression.html#cross-validation",
+    "title": "Tutorial: Regression",
+    "section": "4. Cross-Validation",
+    "text": "4. Cross-Validation\n\nfrom sklearn.model_selection import cross_val_score\n\nscores = cross_val_score(\n    PartitionTreeRegressor(random_state=42),\n    X,\n    y,\n    cv=5,\n    scoring=\"r2\",\n)\nprint(f\"CV R²: {scores.mean():.4f} ± {scores.std():.4f}\")\n\nCV R²: 0.5384 ± 0.1111"
+  },
+  {
+    "objectID": "tutorials/regression.html#key-hyperparameters",
+    "href": "tutorials/regression.html#key-hyperparameters",
+    "title": "Tutorial: Regression",
+    "section": "5. Key Hyperparameters",
+    "text": "5. Key Hyperparameters\n\n\n\n\n\n\n\n\nParameter\nDefault\nDescription\n\n\n\n\nmax_leaves\n101\nMaximum number of leaves\n\n\nmax_depth\n5\nMaximum tree depth\n\n\nmin_samples_split\n2.0\nMin samples needed to attempt a split\n\n\nmin_gain\n0.0\nMin gain required to accept a split\n\n\nmin_volume_fraction\n0.0\nMin fraction of root \\(Y\\)-volume for a leaf\n\n\nboundaries_expansion_factor\n0.1\nPadding for the outcome bounding box\n\n\nn_estimators\n100\nNumber of trees (forest only)\n\n\nmax_samples\n0.8\nBootstrap fraction (forest only)\n\n\nmax_features\n0.8\nFeature subsampling fraction (forest only)\n\n\nrandom_state\n42\nRandom seed (forest only)\n\n\n\n\n\n\n\n\n\nTipTip\n\n\n\nFor regression, increasing max_leaves and max_depth improves fit but risks overfitting. Use cross-validation (e.g., cross_val_score with scoring=\"r2\") to find the right balance.\n\n\n\n\n\n\n\n\nTipTip\n\n\n\nmin_samples_split controls the minimum number of samples in a node before the tree even considers splitting it. Setting it to a value like 5.0 or 10.0 is a simple but effective regularizer for noisy datasets."
+  },
+  {
+    "objectID": "tutorials/regression.html#input-formats",
+    "href": "tutorials/regression.html#input-formats",
+    "title": "Tutorial: Regression",
+    "section": "6. Input Formats",
+    "text": "6. Input Formats\nThe estimators accept:\n\nNumPy arrays — standard (n_samples, n_features) float arrays.\nPandas DataFrames — column names are preserved.\nMulti-output — pass a 2-D y array or DataFrame with multiple columns.\nMissing values — NaN values are supported (allow_nan = True)."
+  },
+  {
+    "objectID": "index.html",
+    "href": "index.html",
+    "title": "Partition Tree",
+    "section": "",
+    "text": "🌲 Open-source · Rust-powered · pip install partition-tree\nPartition Tree\nTree-based conditional density estimation over general outcome spaces — classification, regression, and full predictive distributions in one unified framework.\n\nGet Started Read the Theory GitHub ↗"
+  },
+  {
+    "objectID": "index.html#ready-to-try-it",
+    "href": "index.html#ready-to-try-it",
+    "title": "Partition Tree",
+    "section": "Ready to try it?",
+    "text": "Ready to try it?\nInstall from PyPI and start modelling full predictive distributions today.\npip install partition-tree"
+  },
+  {
+    "objectID": "tutorials/quantized_target_skpro.html",
+    "href": "tutorials/quantized_target_skpro.html",
+    "title": "Quantized Target with partition_tree.skpro",
+    "section": "",
+    "text": "This notebook shows how to use the skpro PartitionTreeRegressor when the target lives on a fixed lattice, such as values rounded to the nearest 0.25.\nThe key step is passing a quantized target override through dtype_overrides with Domain.quantized_continuous(resolution).\nimport matplotlib.pyplot as plt\nimport numpy as np\nimport pandas as pd\nfrom sklearn.metrics import mean_absolute_error\nfrom sklearn.model_selection import train_test_split\n\nfrom partition_tree import Domain\nfrom partition_tree.skpro import PartitionTreeRegressor\nrng = np.random.default_rng(42)\nresolution = 0.25\nn_samples = 500\n\nx1 = rng.uniform(-3.0, 3.0, size=n_samples)\nx2 = rng.normal(loc=0.0, scale=1.0, size=n_samples)\nsignal = 3.0 + 1.8 * np.sin(x1) + 0.7 * x2\nnoise = rng.normal(scale=0.20, size=n_samples)\ny_raw = signal + noise\ny_quantized = np.round(y_raw / resolution) * resolution\n\nX = pd.DataFrame({\"x1\": x1, \"x2\": x2})\ny = pd.DataFrame({\"target\": y_quantized})\n\nalignment_error = np.abs((y[\"target\"] / resolution) - np.round(y[\"target\"] / resolution)).max()\nprint(f\"max alignment error: {alignment_error:.2e}\")\nprint(y.head())\n\nX_train, X_test, y_train, y_test = train_test_split(\n    X, y, test_size=0.25, random_state=42\n)\n\nmax alignment error: 0.00e+00\n   target\n0    5.50\n1    2.50\n2    5.00\n3    4.75\n4    1.75"
+  },
+  {
+    "objectID": "tutorials/quantized_target_skpro.html#fit-a-probabilistic-tree-with-a-quantized-target",
+    "href": "tutorials/quantized_target_skpro.html#fit-a-probabilistic-tree-with-a-quantized-target",
+    "title": "Quantized Target with partition_tree.skpro",
+    "section": "Fit a probabilistic tree with a quantized target",
+    "text": "Fit a probabilistic tree with a quantized target\nFor a single-target skpro regression problem, the wrapper keeps the target column name as target, so the override key must use that same name.\n\nmodel = PartitionTreeRegressor(\n    max_leaves=4000,\n    max_depth=600,\n    min_samples_xy=0,\n    min_samples_x=50,\n    min_samples_y=0,\n    min_samples_split=1,\n    min_volume_fraction=0,\n    random_state=42,\n    dtype_overrides={\"target\": Domain.quantized_continuous(resolution)},\n)\nmodel.fit(X_train, y_train)\n\nroot_partitions = model.partition_tree_.get_nodes_info()[0][\"partitions\"]\nroot_partitions[\"target\"]\n\n{'type': 'quantized_continuous',\n 'low': -1.875,\n 'high': 7.125,\n 'resolution': 0.25,\n 'lower_closed': True,\n 'upper_closed': True}\n\n\n\ndist = model.predict_proba(X_test)\nmean_pred = model.predict(X_test)[\"target\"]\nlower_80 = dist.ppf(0.10)[\"target\"]\nupper_80 = dist.ppf(0.90)[\"target\"]\n\nsummary = pd.DataFrame({\n    \"y_true\": y_test[\"target\"],\n    \"mean\": mean_pred,\n    \"p10\": lower_80,\n    \"p90\": upper_80,\n}).head(10)\nsummary\n\n\n\n\n\n\n\n\ny_true\nmean\np10\np90\n\n\n\n\n361\n3.00\n3.713110\n2.315500\n5.842628\n\n\n73\n0.75\n1.541523\n1.169308\n1.871176\n\n\n374\n1.50\n1.711535\n1.208367\n2.521245\n\n\n155\n4.50\n4.022503\n3.400502\n4.746518\n\n\n104\n6.00\n4.319656\n2.467867\n5.655662\n\n\n394\n1.25\n1.133886\n0.312259\n2.187634\n\n\n377\n1.00\n1.588658\n0.398932\n2.964457\n\n\n124\n2.75\n1.856689\n1.409734\n2.353638\n\n\n68\n3.00\n1.856689\n1.409734\n2.353638\n\n\n450\n2.50\n1.856689\n1.409734\n2.353638\n\n\n\n\n\n\n\n\ncoverage_80 = ((y_test[\"target\"] &gt;= lower_80) & (y_test[\"target\"] &lt;= upper_80)).mean()\nmae = mean_absolute_error(y_test[\"target\"], mean_pred)\n\nprint(f\"MAE: {mae:.3f}\")\nprint(f\"80% prediction interval coverage: {coverage_80:.1%}\")\n\nMAE: 0.539\n80% prediction interval coverage: 74.4%\n\n\n\nrows = list(X_test.index[:3])\nfig, axes = plt.subplots(1, 3, figsize=(15, 3.5), sharey=True)\n\nfor ax, row_idx in zip(axes, rows):\n    dist_single = dist.loc[row_idx]\n    dist_single.plot(ax=ax, alpha=0.7)\n    ax.axvline(y_test.loc[row_idx, \"target\"], color=\"crimson\", linestyle=\"--\", linewidth=2)\n    ax.set_title(f\"sample {row_idx}\")\n    ax.set_xlabel(\"target\")\n\naxes[0].set_ylabel(\"density\")\nfig.suptitle(\"Predictive distributions for a quantized target\", y=1.03)\nplt.tight_layout()\nplt.show()\n\n\n\n\n\n\n\n\n\ndist_single.loc[73]\n\nIntervalDistribution(columns=Index(['target'], dtype='object'),\n                     index=Index([374], dtype='int64'),\n                     intervals=[[(-1.875, 0.625), (0.625, 2.375),\n                                 (2.375, 5.375), (5.375, 7.125)]],\n                     pdf_values=[array([0.00144872, 0.52783759, 0.02301354, 0.0020696 ])])Please rerun this cell to show the HTML repr or trust the notebook.IntervalDistributionIntervalDistribution(columns=Index(['target'], dtype='object'),\n                     index=Index([374], dtype='int64'),\n                     intervals=[[(-1.875, 0.625), (0.625, 2.375),\n                                 (2.375, 5.375), (5.375, 7.125)]],\n                     pdf_values=[array([0.00144872, 0.52783759, 0.02301354, 0.0020696 ])])\n\n\n\ny_test.sort_values(\"target\")\n\n\n\n\n\n\n\n\ntarget\n\n\n\n\n262\n-0.00\n\n\n15\n0.00\n\n\n408\n0.25\n\n\n148\n0.25\n\n\n172\n0.25\n\n\n...\n...\n\n\n433\n5.50\n\n\n356\n6.00\n\n\n290\n6.00\n\n\n104\n6.00\n\n\n72\n6.50\n\n\n\n\n125 rows × 1 columns"
+  },
+  {
+    "objectID": "tutorials/classification.html",
+    "href": "tutorials/classification.html",
+    "title": "Tutorial: Classification",
+    "section": "",
+    "text": "Partition Trees model the conditional distribution \\(p(y \\mid x)\\) as a piecewise-constant density over the outcome space. Depending on the dataset and hyperparameters, this can yield not only a better probabilitistic classification but also improved accuracy."
+  },
+  {
+    "objectID": "tutorials/classification.html#setup",
+    "href": "tutorials/classification.html#setup",
+    "title": "Tutorial: Classification",
+    "section": "Setup",
+    "text": "Setup\nWe use the UCI letter recognition dataset — a well-known classification benchmark with 26 classes. We initially use a simple train-test split for clarity, but the same code works with cross-validation and pipelines.\n\nfrom ucimlrepo import fetch_ucirepo\nfrom sklearn.model_selection import train_test_split\nfrom sklearn.datasets import load_digits\nfrom sklearn.metrics import accuracy_score, log_loss\nimport pandas as pd\n\n# fetch dataset\nletter_recognition = fetch_ucirepo(id=59)\n\n# data (as pandas dataframes)\nX = letter_recognition.data.features\ny = letter_recognition.data.targets\n\nX, y = load_digits(return_X_y=True)  # --- IGNORE ---\n\nX_train, X_test, y_train, y_test = train_test_split(\n    X, y, test_size=0.3, random_state=42\n)\nX_train.shape, X_test.shape\n\n((1257, 64), (540, 64))"
+  },
+  {
+    "objectID": "tutorials/classification.html#partition-tree-classifier",
+    "href": "tutorials/classification.html#partition-tree-classifier",
+    "title": "Tutorial: Classification",
+    "section": "Partition Tree Classifier",
+    "text": "Partition Tree Classifier\n\nfrom partition_tree.sklearn import PartitionTreeClassifier\n\n\npt = PartitionTreeClassifier(\n    random_state=42,\n    min_samples_split=2,\n    min_samples_xy=1,\n    min_samples_x=1,\n    min_samples_y=1,\n    min_volume_fraction=0,\n)\n\npt.fit(X_train, y_train)\n\n/home/runner/work/partition_tree/partition_tree/partition_tree/src/partition_tree/sklearn/partition_tree.py:27: FutureWarning: Series.__getitem__ treating keys as positions is deprecated. In a future version, integer keys will always be treated as labels (consistent with DataFrame behavior). To access a value by position, use `ser.iloc[pos]`\n  y_dtype = y_df.dtypes[0]\n\n\nPartitionTreeClassifier(min_samples_split=2, min_samples_x=1, min_samples_xy=1,\n                        min_samples_y=1, min_volume_fraction=0)In a Jupyter environment, please rerun this cell to show the HTML representation or trust the notebook. On GitHub, the HTML representation is unable to render, please try loading this page with nbviewer.org.PartitionTreeClassifieriFitted\n        \n            \n                Parameters\n                \n\n\n\n\nmax_leaves \nNone\n\n\n\nboundaries_expansion_factor \n0.0\n\n\n\nmin_samples_xy \n1\n\n\n\nmin_samples_x \n1\n\n\n\nmin_samples_y \n1\n\n\n\nmin_gain \n0.0\n\n\n\nmin_volume_fraction \n0\n\n\n\nmax_depth \nNone\n\n\n\nmin_samples_split \n2\n\n\n\nloss \nNone\n\n\n\nrandom_state \n42\n\n\n\ndtype_overrides \nNone\n\n\n\n\n            \n        \n    \n\n\n\ny_pred_pt = pt.predict(X_test)\ny_proba_pt = pt.predict_proba(X_test)\ny_pred_train_pt = pt.predict(X_train)\ny_proba_train_pt = pt.predict_proba(X_train)\n\nlogloss_pt = log_loss(y_test, y_proba_pt)\nacc_pt = accuracy_score(y_test, y_pred_pt)\n\nlogloss_pt, acc_pt, log_loss(y_train, y_proba_train_pt), accuracy_score(y_train, y_pred_train_pt)\n\n(0.9631333727990169,\n 0.7703703703703704,\n 0.33763977806183815,\n 0.8695306284805091)\n\n\n\nfrom sklearn.tree import DecisionTreeClassifier\n\ncart = DecisionTreeClassifier(random_state=42, criterion=\"log_loss\")\ncart.fit(X_train, y_train)\n\nDecisionTreeClassifier(criterion='log_loss', random_state=42)In a Jupyter environment, please rerun this cell to show the HTML representation or trust the notebook. On GitHub, the HTML representation is unable to render, please try loading this page with nbviewer.org.DecisionTreeClassifier?Documentation for DecisionTreeClassifieriFitted\n        \n            \n                Parameters\n                \n\n\n\n\ncriterion \n'log_loss'\n\n\n\nsplitter \n'best'\n\n\n\nmax_depth \nNone\n\n\n\nmin_samples_split \n2\n\n\n\nmin_samples_leaf \n1\n\n\n\nmin_weight_fraction_leaf \n0.0\n\n\n\nmax_features \nNone\n\n\n\nrandom_state \n42\n\n\n\nmax_leaf_nodes \nNone\n\n\n\nmin_impurity_decrease \n0.0\n\n\n\nclass_weight \nNone\n\n\n\nccp_alpha \n0.0\n\n\n\nmonotonic_cst \nNone\n\n\n\n\n            \n        \n    \n\n\n\ny_pred_cart = cart.predict(X_test)\ny_proba_cart = cart.predict_proba(X_test)\ny_pred_train_cart = cart.predict(X_train)\ny_proba_train_cart = cart.predict_proba(X_train)\nlogloss_cart = log_loss(y_test, y_proba_cart)\nacc_cart = accuracy_score(y_test, y_pred_cart)\n\nlogloss_cart, acc_cart, log_loss(y_train, y_proba_train_cart), accuracy_score(y_train, y_pred_train_cart)\n\n(4.2050928953970015, 0.8833333333333333, 2.2204460492503136e-16, 1.0)\n\n\n\nfrom partition_tree.sklearn import PartitionForestClassifier\n\npf = PartitionForestClassifier(\n    n_estimators=50,\n    random_state=42,\n    max_samples=1,\n    max_features=1,\n    min_samples_xy=0,\n    max_leaves=10000,\n    max_depth=10000,\n)\n\npf.fit(X_train, y_train)\n\n/home/runner/work/partition_tree/partition_tree/partition_tree/src/partition_tree/sklearn/partition_tree.py:27: FutureWarning: Series.__getitem__ treating keys as positions is deprecated. In a future version, integer keys will always be treated as labels (consistent with DataFrame behavior). To access a value by position, use `ser.iloc[pos]`\n  y_dtype = y_df.dtypes[0]\n\n\nPartitionForestClassifier(max_depth=10000, max_features=1, max_leaves=10000,\n                          max_samples=1, min_samples_xy=0, n_estimators=50,\n                          random_state=42)In a Jupyter environment, please rerun this cell to show the HTML representation or trust the notebook. On GitHub, the HTML representation is unable to render, please try loading this page with nbviewer.org.PartitionForestClassifieriFitted\n        \n            \n                Parameters\n                \n\n\n\n\nn_estimators \n50\n\n\n\nmax_leaves \n10000\n\n\n\nboundaries_expansion_factor \n0.0\n\n\n\nmin_samples_xy \n0\n\n\n\nmin_samples_x \n1.0\n\n\n\nmin_samples_y \n1.0\n\n\n\nmin_gain \n0.0\n\n\n\nmin_volume_fraction \n0\n\n\n\nmax_depth \n10000\n\n\n\nmin_samples_split \n2.0\n\n\n\nmax_samples \n1\n\n\n\nreplace \nTrue\n\n\n\nmax_features \n1\n\n\n\nloss \nNone\n\n\n\nrandom_state \n42\n\n\n\n\n            \n        \n    \n\n\n\ny_pred_pf = pf.predict(X_test)\ny_proba_pf = pf.predict_proba(X_test)\ny_pred_train_pf = pf.predict(X_train)\ny_proba_train_pf = pf.predict_proba(X_train)\n\nlogloss_pf = log_loss(y_test, y_proba_pf)\nacc_pf = accuracy_score(y_test, y_pred_pf)\nlogloss_pf, acc_pf, log_loss(y_train, y_proba_train_pf), accuracy_score(y_train, y_pred_train_pf)\n\n(0.2304735176510748, 0.9740740740740741, 0.08552331466917275, 1.0)\n\n\n\nfrom sklearn.ensemble import RandomForestClassifier\n\nrandom_forest = RandomForestClassifier(\n    n_estimators=50,\n    random_state=42,\n    max_depth=50,\n    min_samples_leaf=1,\n    bootstrap=False,\n    criterion=\"log_loss\",\n)\nrandom_forest.fit(X_train, y_train)\n\nRandomForestClassifier(bootstrap=False, criterion='log_loss', max_depth=50,\n                       n_estimators=50, random_state=42)In a Jupyter environment, please rerun this cell to show the HTML representation or trust the notebook. On GitHub, the HTML representation is unable to render, please try loading this page with nbviewer.org.RandomForestClassifier?Documentation for RandomForestClassifieriFitted\n        \n            \n                Parameters\n                \n\n\n\n\nn_estimators \n50\n\n\n\ncriterion \n'log_loss'\n\n\n\nmax_depth \n50\n\n\n\nmin_samples_split \n2\n\n\n\nmin_samples_leaf \n1\n\n\n\nmin_weight_fraction_leaf \n0.0\n\n\n\nmax_features \n'sqrt'\n\n\n\nmax_leaf_nodes \nNone\n\n\n\nmin_impurity_decrease \n0.0\n\n\n\nbootstrap \nFalse\n\n\n\noob_score \nFalse\n\n\n\nn_jobs \nNone\n\n\n\nrandom_state \n42\n\n\n\nverbose \n0\n\n\n\nwarm_start \nFalse\n\n\n\nclass_weight \nNone\n\n\n\nccp_alpha \n0.0\n\n\n\nmax_samples \nNone\n\n\n\nmonotonic_cst \nNone\n\n\n\n\n            \n        \n    \n\n\n\ny_pred_rf = random_forest.predict(X_test)\ny_proba_rf = random_forest.predict_proba(X_test)\ny_pred_train_rf = random_forest.predict(X_train)\ny_proba_train_rf = random_forest.predict_proba(X_train)\n\nlogloss_rf = log_loss(y_test, y_proba_rf)\nacc_rf = accuracy_score(y_test, y_pred_rf)\nlogloss_rf, acc_rf, log_loss(y_train, y_proba_train_rf), accuracy_score(y_train, y_pred_train_rf)\n\n(0.24943876980216306, 0.9722222222222222, 2.2204460492503136e-16, 1.0)\n\n\n\ncomparison_df = pd.DataFrame({\n    \"Model\": [\"PartitionTree\", \"PartitionForest\", \"DecisionTree (CART)\", \"RandomForest\"],\n    \"Log Loss\": [logloss_pt, logloss_pf, logloss_cart, logloss_rf],\n    \"Accuracy\": [acc_pt, acc_pf, acc_cart, acc_rf],\n})\n\ncomparison_df.sort_values(\"Log Loss\")\n\n\n\n\n\n\n\n\nModel\nLog Loss\nAccuracy\n\n\n\n\n1\nPartitionForest\n0.230474\n0.974074\n\n\n3\nRandomForest\n0.249439\n0.972222\n\n\n0\nPartitionTree\n0.963133\n0.770370\n\n\n2\nDecisionTree (CART)\n4.205093\n0.883333"
+  },
+  {
+    "objectID": "tutorials/probabilistic_regression.html",
+    "href": "tutorials/probabilistic_regression.html",
+    "title": "Tutorial: Probabilistic Regression",
+    "section": "",
+    "text": "The partition_tree.skpro module exposes the same Partition Tree algorithm through the skpro BaseProbaRegressor interface. Instead of a scalar prediction, predict_proba returns an IntervalDistribution — a piecewise-constant density that you can query for PDF values, CDFs, quantiles, prediction intervals, and random samples."
+  },
+  {
+    "objectID": "tutorials/probabilistic_regression.html#setup",
+    "href": "tutorials/probabilistic_regression.html#setup",
+    "title": "Tutorial: Probabilistic Regression",
+    "section": "Setup",
+    "text": "Setup\n\nimport pandas as pd\nfrom sklearn.datasets import fetch_california_housing\nfrom sklearn.model_selection import train_test_split\n\nhousing = fetch_california_housing(as_frame=True)\nX = housing.data\ny = housing.target.rename(\"MedHouseVal\")\n\nX_train, X_test, y_train, y_test = train_test_split(\n    X, y, test_size=0.2, random_state=42\n)"
+  },
+  {
+    "objectID": "tutorials/probabilistic_regression.html#baseline-decision-tree-cart",
+    "href": "tutorials/probabilistic_regression.html#baseline-decision-tree-cart",
+    "title": "Tutorial: Probabilistic Regression",
+    "section": "1. Baseline — Decision Tree (CART)",
+    "text": "1. Baseline — Decision Tree (CART)\nCART produces only point predictions, so we use MAE and R² as the comparison baseline.\n\nfrom sklearn.tree import DecisionTreeRegressor\nfrom sklearn.metrics import root_mean_squared_error, r2_score\nimport numpy as np\n\n\ncart = DecisionTreeRegressor(random_state=42)\ncart.fit(X_train, y_train)\ny_pred_cart = cart.predict(X_test)\n\nprint(\"=== DecisionTreeRegressor (CART) ===\")\nprint(f\"RMSE : {root_mean_squared_error(y_test, y_pred_cart):.4f}\")\nprint(f\"R²  : {r2_score(y_test, y_pred_cart):.4f}\")\nprint(\"(no probabilistic output available)\")\n\n=== DecisionTreeRegressor (CART) ===\nRMSE : 0.7037\nR²  : 0.6221\n(no probabilistic output available)"
+  },
+  {
+    "objectID": "tutorials/probabilistic_regression.html#single-partition-tree",
+    "href": "tutorials/probabilistic_regression.html#single-partition-tree",
+    "title": "Tutorial: Probabilistic Regression",
+    "section": "2. Single Partition Tree",
+    "text": "2. Single Partition Tree\n\nFit and point prediction\n\nfrom partition_tree.skpro import PartitionTreeRegressor\n\npt = PartitionTreeRegressor(\n    min_volume_fraction=0.1,\n)\npt.fit(X_train, y_train)\n\n# Point prediction — posterior mean of the conditional density\ny_pred_pt = pt.predict(X_test)\n\n\nprint(\"=== PartitionTreeRegressor ===\")\nprint(f\"RMSE : {root_mean_squared_error(y_test, y_pred_pt):.4f}\")\nprint(f\"R²  : {r2_score(y_test, y_pred_pt):.4f}\")\n\n=== PartitionTreeRegressor ===\nRMSE : 0.5879\nR²  : 0.7362\n\n\n\n\nComparison with CART\n\npd.DataFrame({\n    \"Model\": [\"DecisionTree (CART)\", \"PartitionTree\"],\n    \"RMSE\": [\n        root_mean_squared_error(y_test, y_pred_cart),\n        root_mean_squared_error(y_test, y_pred_pt),\n    ],\n    \"R²\": [\n        r2_score(y_test, y_pred_cart),\n        r2_score(y_test, y_pred_pt),\n    ],\n}).round(4)\n\n\n\n\n\n\n\n\nModel\nRMSE\nR²\n\n\n\n\n0\nDecisionTree (CART)\n0.7037\n0.6221\n\n\n1\nPartitionTree\n0.5879\n0.7362\n\n\n\n\n\n\n\n\n\nProbabilistic prediction\npredict_proba returns an IntervalDistribution:\n\ndist = pt.predict_proba(X_test)\nprint(type(dist))\n\n&lt;class 'partition_tree.skpro.distribution.IntervalDistribution'&gt;"
+  },
+  {
+    "objectID": "tutorials/probabilistic_regression.html#the-intervaldistribution-api",
+    "href": "tutorials/probabilistic_regression.html#the-intervaldistribution-api",
+    "title": "Tutorial: Probabilistic Regression",
+    "section": "3. The IntervalDistribution API",
+    "text": "3. The IntervalDistribution API\nFrom the distribution object you can extract:\n\n# Posterior mean (same as predict)\nmean = dist.mean()\n\n# Posterior variance\nvar = dist.var()\n\n# Quantiles via the inverse CDF (percent-point function)\nmedian   = dist.ppf(0.5)\nlower_90 = dist.ppf(0.05)\nupper_90 = dist.ppf(0.95)\n\n# Random samples from the predictive distribution\nsamples = dist.sample(n_samples=100)\n\n# PDF / CDF evaluated at specific points\npdf_vals = dist.pdf(y_test.to_frame())\ncdf_vals = dist.cdf(y_test.to_frame())\n\nprint(\"mean shape :\", mean.shape)\nprint(\"var  shape :\", var.shape)\nprint(\"ppf  shape :\", median.shape)\n\nmean shape : (4128, 1)\nvar  shape : (4128, 1)\nppf  shape : (4128, 1)\n\n\n\n\n\nMethod\nReturns\n\n\n\n\nmean()\nPosterior mean — pd.DataFrame\n\n\nvar()\nPosterior variance — pd.DataFrame\n\n\npdf(x)\nDensity at x — pd.DataFrame\n\n\nlog_pdf(x)\nLog-density at x — pd.DataFrame\n\n\ncdf(x)\nCDF at x — pd.DataFrame\n\n\nppf(q)\nQuantile at level q — pd.DataFrame\n\n\nsample(n_samples)\nRandom samples — pd.DataFrame\n\n\nenergy(x)\nEnergy score — pd.DataFrame\n\n\nplot(ax)\nPlot the piecewise-constant PDF"
+  },
+  {
+    "objectID": "tutorials/probabilistic_regression.html#prediction-intervals",
+    "href": "tutorials/probabilistic_regression.html#prediction-intervals",
+    "title": "Tutorial: Probabilistic Regression",
+    "section": "4. Prediction Intervals",
+    "text": "4. Prediction Intervals\nPrediction intervals are constructed directly from the inverse CDF.\n\nimport numpy as np\n\n# 80 % prediction interval: [10th percentile, 90th percentile]\nlower_80 = dist.ppf(0.10)[\"MedHouseVal\"]\nupper_80 = dist.ppf(0.90)[\"MedHouseVal\"]\n\ny_true = y_test.values\ncovered = ((y_true &gt;= lower_80.values) & (y_true &lt;= upper_80.values)).mean()\nprint(f\"80% PI empirical coverage: {covered:.1%}\")\n\n80% PI empirical coverage: 76.1%\n\n\n\n\n\n\n\n\nNoteWhy coverage may differ from the nominal level\n\n\n\nThe Partition Tree density is learned from training data, so calibration improves with more data and better-tuned hyperparameters. Using PartitionForestRegressor (Section 5) typically yields better-calibrated intervals through density averaging."
+  },
+  {
+    "objectID": "tutorials/probabilistic_regression.html#visualizing-the-predictive-pdf",
+    "href": "tutorials/probabilistic_regression.html#visualizing-the-predictive-pdf",
+    "title": "Tutorial: Probabilistic Regression",
+    "section": "5. Visualizing the Predictive PDF",
+    "text": "5. Visualizing the Predictive PDF\nIntervalDistribution has a built-in plot method that renders the piecewise-constant density as histogram-like bars.\n\nimport matplotlib.pyplot as plt\n\n# Single test sample\nidx = y_test.index[0]\ndist_single = dist.loc[[idx]]\n\nfig, ax = plt.subplots(figsize=(8, 3))\ndist_single.plot(ax=ax, alpha=0.7)\nax.axvline(\n    y_test.loc[idx],\n    color=\"red\",\n    linestyle=\"--\",\n    label=f\"Actual = {y_test.loc[idx]:.2f}\",\n)\nax.set_xlabel(\"MedHouseVal (×$100k)\")\nax.set_ylabel(\"PDF\")\nax.set_title(\"Predictive PDF — Single Test Sample\")\nax.legend()\nplt.tight_layout()\nplt.show()\n\n\n\n\n\n\n\n\n\n# Four samples side by side\nfig, axes = plt.subplots(1, 4, figsize=(16, 3))\nfor ax, i in zip(axes, range(4)):\n    row_idx = y_test.index[i]\n    dist.loc[[row_idx]].plot(ax=ax, alpha=0.7)\n    ax.axvline(y_test.iloc[i], color=\"red\", linestyle=\"--\", linewidth=1.5)\n    ax.set_title(f\"Sample {i}\")\n    ax.set_xlabel(\"y\")\n\nplt.suptitle(\"Predictive PDFs — PartitionTreeRegressor\", y=1.02)\nplt.tight_layout()\nplt.show()"
+  },
+  {
+    "objectID": "tutorials/probabilistic_regression.html#partition-forest-better-calibrated-distributions",
+    "href": "tutorials/probabilistic_regression.html#partition-forest-better-calibrated-distributions",
+    "title": "Tutorial: Probabilistic Regression",
+    "section": "6. Partition Forest — Better Calibrated Distributions",
+    "text": "6. Partition Forest — Better Calibrated Distributions\nPartitionForestRegressor averages the conditional densities from multiple trees, producing smoother and better-calibrated distributions.\n\nfrom partition_tree.skpro import PartitionForestRegressor\n\npf = PartitionForestRegressor(\n    n_estimators=50,\n    random_state=42,\n    min_volume_fraction=0.1,\n    output_distribution=\"mixture\",\n)\npf.fit(X_train, y_train)\n\ndist_forest = pf.predict_proba(X_test)\ny_pred_forest = pf.predict(X_test)"
+  },
+  {
+    "objectID": "tutorials/probabilistic_regression.html#random-forest-comparison",
+    "href": "tutorials/probabilistic_regression.html#random-forest-comparison",
+    "title": "Tutorial: Probabilistic Regression",
+    "section": "7. Random Forest comparison",
+    "text": "7. Random Forest comparison\n\nfrom sklearn.ensemble import RandomForestRegressor\n\nrf = RandomForestRegressor(\n    n_estimators=50,\n    random_state=42,\n)\nrf.fit(X_train, y_train)\ny_pred_rf = rf.predict(X_test)\n\n\nPoint metrics comparison\n\npd.DataFrame({\n    \"Model\": [\"DecisionTree (CART)\", \"PartitionTree\", \"PartitionForest\", \"RandomForest\"],\n    \"RMSE\": [\n        root_mean_squared_error(y_test, y_pred_cart),\n        root_mean_squared_error(y_test, y_pred_pt),\n        root_mean_squared_error(y_test, y_pred_forest),\n        root_mean_squared_error(y_test, y_pred_rf),\n    ],\n    \"R²\": [\n        r2_score(y_test, y_pred_cart),\n        r2_score(y_test, y_pred_pt),\n        r2_score(y_test, y_pred_forest),\n        r2_score(y_test, y_pred_rf),\n    ],\n}).round(4)\n\n\n\n\n\n\n\n\nModel\nRMSE\nR²\n\n\n\n\n0\nDecisionTree (CART)\n0.7037\n0.6221\n\n\n1\nPartitionTree\n0.5879\n0.7362\n\n\n2\nPartitionForest\n0.5079\n0.8032\n\n\n3\nRandomForest\n0.5072\n0.8037\n\n\n\n\n\n\n\n\n\nCoverage comparison\n\nlower_f = dist_forest.ppf(0.10)[\"MedHouseVal\"]\nupper_f = dist_forest.ppf(0.90)[\"MedHouseVal\"]\ncovered_f = ((y_true &gt;= lower_f.values) & (y_true &lt;= upper_f.values)).mean()\n\nprint(f\"Tree   80% PI coverage: {covered:.1%}\")\nprint(f\"Forest 80% PI coverage: {covered_f:.1%}\")\n\nTree   80% PI coverage: 76.1%\nForest 80% PI coverage: 94.2%\n\n\n\n\noutput_distribution option\nPartitionForestRegressor supports two strategies for combining per-tree distributions:\n\n\n\n\n\n\n\noutput_distribution\nDescription\n\n\n\n\n\"merged\" (default)\nMerges all tree breakpoints into one IntervalDistribution. Full API support, computed once at predict time.\n\n\n\"mixture\"\nReturns a MixtureIntervalDistribution. PDF/CDF/quantiles computed on-the-fly; avoids the merge cost.\n\n\n\n\npf_mix = PartitionForestRegressor(\n    n_estimators=50,\n    random_state=42,\n    min_volume_fraction=0.1,\n    output_distribution=\"mixture\",\n)\npf_mix.fit(X_train, y_train)\ndist_mix = pf_mix.predict_proba(X_test)"
+  },
+  {
+    "objectID": "tutorials/probabilistic_regression.html#feature-importances",
+    "href": "tutorials/probabilistic_regression.html#feature-importances",
+    "title": "Tutorial: Probabilistic Regression",
+    "section": "8. Feature Importances",
+    "text": "8. Feature Importances\nFeature importances are accumulated log-loss gain across all splits:\n\nimportances = pt.get_feature_importances(normalize=True)\nfor feat, imp in importances.items():\n    print(f\"  {feat:&gt;20s}: {imp:.4f}\")\n\n    target_MedHouseVal: 0.2436\n                MedInc: 0.1911\n             Longitude: 0.1513\n              Latitude: 0.1367\n              AveOccup: 0.1089\n              AveRooms: 0.0481\n              HouseAge: 0.0434\n            Population: 0.0411\n             AveBedrms: 0.0358"
+  },
+  {
+    "objectID": "theory.html",
+    "href": "theory.html",
+    "title": "Theory",
+    "section": "",
+    "text": "This page gives an accessible overview of the Partition Tree algorithm. For the full formal treatment, proofs, and experimental results, see Angelim & Leite (2026)."
+  },
+  {
+    "objectID": "theory.html#motivation",
+    "href": "theory.html#motivation",
+    "title": "Theory",
+    "section": "1. Motivation",
+    "text": "1. Motivation\nClassical decision trees (CART) are designed for point prediction: they output a single value (regression) or class probabilities (classification) at each leaf. However, many applications benefit from a full conditional density estimate \\(\\hat{f}(y \\mid x)\\) — for example, to quantify uncertainty, construct prediction intervals, or model heteroscedastic noise.\nPartition Trees reframe tree-based learning as conditional density estimation: each leaf defines a piecewise-constant density over the outcome space \\(\\mathcal{Y}\\), rather than a single point."
+  },
+  {
+    "objectID": "theory.html#setting",
+    "href": "theory.html#setting",
+    "title": "Theory",
+    "section": "2. Setting",
+    "text": "2. Setting\nLet \\((X, Y)\\) be a random pair with covariates \\(X \\in \\mathcal{X}\\) and outcome \\(Y \\in \\mathcal{Y}\\). We observe a dataset \\(\\mathcal{D} = \\{(x_i, y_i)\\}_{i=1}^N\\) of i.i.d. draws from the joint distribution \\(\\mathbb{P}_{XY}\\).\nBoth \\(\\mathcal{X}\\) and \\(\\mathcal{Y}\\) may contain a mixture of continuous and categorical coordinates:\n\\[\nX = (X^{(c)}, X^{(k)}) \\in \\mathcal{X}^{(c)} \\times \\mathcal{X}^{(k)}, \\qquad\nY = (Y^{(c)}, Y^{(k)}) \\in \\mathcal{Y}^{(c)} \\times \\mathcal{Y}^{(k)}\n\\]\nThis unified representation allows the same algorithm to handle both classification (\\(\\mathcal{Y}\\) categorical) and regression (\\(\\mathcal{Y} \\subseteq \\mathbb{R}^d\\))."
+  },
+  {
+    "objectID": "theory.html#partitioning-the-joint-space",
+    "href": "theory.html#partitioning-the-joint-space",
+    "title": "Theory",
+    "section": "3. Partitioning the Joint Space",
+    "text": "3. Partitioning the Joint Space\nUnlike CART, which only partitions the covariate space \\(\\mathcal{X}\\), a Partition Tree partitions the joint space \\(\\mathcal{Z} = \\mathcal{X} \\times \\mathcal{Y}\\).\nEach leaf \\(A\\) is a product cell:\n\\[\nA = A_X \\times A_Y\n\\]\nwhere \\(A_X \\subseteq \\mathcal{X}\\) is a region of the covariate space and \\(A_Y \\subseteq \\mathcal{Y}\\) is a region (bin) of the outcome space.\n\n\n\n\n\n\nTipIntuition\n\n\n\nFor a fixed query \\(x\\), the leaves whose \\(X\\)-projection contains \\(x\\) form a histogram over \\(\\mathcal{Y}\\): the \\(A_Y\\) intervals are the histogram bins, and the density is constant within each bin."
+  },
+  {
+    "objectID": "theory.html#conditional-density-estimation",
+    "href": "theory.html#conditional-density-estimation",
+    "title": "Theory",
+    "section": "4. Conditional Density Estimation",
+    "text": "4. Conditional Density Estimation\n\n4.1 The Density Estimator\nLet \\(\\mu_Y\\) be a reference measure on \\(\\mathcal{Y}\\) (Lebesgue measure for continuous outcomes, counting measure for discrete ones).\nGiven a partition \\(\\pi\\) of the joint space, the piecewise-constant conditional density estimator on a cell \\(A = A_X \\times A_Y\\) is:\n\\[\n\\hat{f}_{\\pi}(x, y) = \\frac{n_{XY}(A)}{n_X(A) \\cdot \\mu_Y(A_Y)}\n\\]\nwhere:\n\n\\(n_{XY}(A) = \\sum_{i=1}^N \\mathbf{1}\\{(x_i, y_i) \\in A\\}\\) — number of samples in cell \\(A\\)\n\\(n_X(A) = \\sum_{i=1}^N \\mathbf{1}\\{x_i \\in A_X\\}\\) — number of samples whose covariates fall in \\(A_X\\)\n\\(\\mu_Y(A_Y)\\) — the “volume” of the outcome bin (interval width for continuous, category count for discrete)\n\nThis is the empirical version of the Radon–Nikodym derivative \\(d\\mathbb{P}_{XY} / d(\\mathbb{P}_X \\otimes \\mu_Y)\\).\n\n\n4.2 Normalization\nFor a fixed \\(x\\), the map \\(y \\mapsto \\hat{f}_\\pi(x, y)\\) is piecewise constant over the \\(Y\\)-intervals of the matching leaves. When a proper conditional density is required, the estimator is normalized:\n\\[\n\\bar{f}_\\pi(x, y) = \\frac{\\hat{f}_\\pi(x, y)}{\\int_{\\bar{\\mathcal{Y}}_N} \\hat{f}_\\pi(x, y') \\, d\\mu_Y(y')}\n\\]\n\n\n4.3 Bounded Outcome Domain\nWhen the outcome space is unbounded (e.g. \\(\\mathcal{Y} \\subseteq \\mathbb{R}\\)), we restrict the estimator to a data-dependent bounding box:\n\\[\n\\bar{\\mathcal{Y}}_N^{(c)} = \\prod_{j=1}^{d_{y,c}} \\bigl[\\min_i y_{i,j} - \\delta_N, \\; \\max_i y_{i,j} + \\delta_N\\bigr]\n\\]\nThe padding \\(\\delta_N &gt; 0\\) (controlled by boundaries_expansion_factor) avoids boundary effects."
+  },
+  {
+    "objectID": "theory.html#tree-construction",
+    "href": "theory.html#tree-construction",
+    "title": "Theory",
+    "section": "5. Tree Construction",
+    "text": "5. Tree Construction\n\n5.1 Split Criterion — Log-Loss\nThe tree is grown by greedily splitting leaves to minimize the conditional negative log-likelihood:\n\\[\n\\mathcal{L}(\\pi) = -\\sum_{A \\in \\pi} \\frac{n_{XY}(A)}{N} \\log \\frac{n_{XY}(A)}{n_X(A) \\cdot \\mu_Y(A_Y)}\n\\]\nWhen splitting a leaf \\(A\\) into children \\(A_l\\) and \\(A_r\\), the empirical gain is:\n\\[\n\\hat{G} = \\frac{n_{XY}(A_l)}{N} \\log \\frac{n_{XY}(A_l)}{n_X(A_l) \\cdot \\mu_Y(A_{l,Y})}\n+ \\frac{n_{XY}(A_r)}{N} \\log \\frac{n_{XY}(A_r)}{n_X(A_r) \\cdot \\mu_Y(A_{r,Y})}\n- \\frac{n_{XY}(A)}{N} \\log \\frac{n_{XY}(A)}{n_X(A) \\cdot \\mu_Y(A_Y)}\n\\]\nThis gain is always non-negative (it is a Jensen gap) and equals zero only when the split does not improve the density estimate.\n\n\n5.2 Types of Splits\nBecause the tree partitions the joint space \\(\\mathcal{Z} = \\mathcal{X} \\times \\mathcal{Y}\\), there are two types of splits:\n\n\n\n\n\n\n\nSplit type\nEffect\n\n\n\n\nX-split (on a covariate)\nRefines the covariate region: \\(A_X \\to A_{l,X} \\cup A_{r,X}\\), while \\(A_Y\\) stays the same\n\n\nY-split (on the outcome)\nRefines the outcome bin: \\(A_Y \\to A_{l,Y} \\cup A_{r,Y}\\), while \\(A_X\\) stays the same\n\n\n\nFor continuous coordinates, threshold splits (\\(z \\leq t\\) vs. \\(z &gt; t\\)) are used. For categorical coordinates, subset splits (\\(z \\in S\\) vs. \\(z \\notin S\\)) are used.\n\n\n\n\n\n\nNoteWhy split on \\(Y\\)?\n\n\n\nY-splits create finer histogram bins for the conditional density. This is how the model captures heteroscedastic noise and multi-modal target distributions — something a CART tree cannot do.\n\n\n\n\n5.3 Best-First Growth\nThe tree is grown best-first: at each step, the leaf–split pair with the highest gain is selected from a priority queue. Growth stops when the split budget (max_leaves) or depth limit (max_depth) is reached, or no admissible split exists.\n\n\n5.4 Complexity\nThe split search is efficient:\n\nContinuous coordinates: sort samples, scan thresholds with prefix sums — \\(O(n \\log n)\\) per coordinate per leaf.\nCategorical coordinates: sort-and-scan over single-category splits — \\(O(n)\\) per coordinate per leaf.\n\nOverall complexity: \\(O(d \\, N \\log N)\\) with global pre-sorting, matching CART."
+  },
+  {
+    "objectID": "theory.html#hyperparameters",
+    "href": "theory.html#hyperparameters",
+    "title": "Theory",
+    "section": "6. Hyperparameters",
+    "text": "6. Hyperparameters\n\n\n\n\n\n\n\n\nParameter\nDefault\nDescription\n\n\n\n\nmax_leaves\n101\nMaximum number of leaves (split budget + 1)\n\n\nmax_depth\n5\nMaximum tree depth\n\n\nmin_samples_split\n2.0\nMinimum samples in a leaf to attempt a split\n\n\nmin_samples_xy\n1.0\nMinimum samples in the joint cell\n\n\nmin_samples_x\n1.0\nMinimum samples in the \\(X\\)-projection\n\n\nmin_samples_y\n1.0\nMinimum samples in the \\(Y\\)-projection\n\n\nmin_gain\n0.0\nMinimum gain required to accept a split\n\n\nmin_volume_fraction\n0.0\nMinimum fraction of the root \\(Y\\)-volume for a leaf\n\n\nboundaries_expansion_factor\n0.1\nPadding factor \\(\\delta_N\\) for the outcome bounding box"
+  },
+  {
+    "objectID": "theory.html#partition-forests",
+    "href": "theory.html#partition-forests",
+    "title": "Theory",
+    "section": "7. Partition Forests",
+    "text": "7. Partition Forests\nTo improve predictive stability and log-loss, Partition Forests average conditional densities from multiple trees:\n\\[\n\\hat{f}_{\\pi_N}^{\\text{Forest}}(x, y) = \\frac{1}{B} \\sum_{b=1}^{B} \\hat{f}_{\\pi_N}^{(b)}(x, y)\n\\]\nEach tree is trained on a bootstrap sample with optional random feature subsampling (as in Random Forests). The averaged density is then normalized as in §4.2.\n\nForest-specific parameters\n\n\n\nParameter\nDefault\nDescription\n\n\n\n\nn_estimators\n100\nNumber of trees in the forest\n\n\nmax_samples\n0.8\nFraction of samples per bootstrap\n\n\nmax_features\n0.8\nFraction of features considered per split\n\n\nseed / random_state\n42\nRandom seed for reproducibility"
+  },
+  {
+    "objectID": "theory.html#consistency",
+    "href": "theory.html#consistency",
+    "title": "Theory",
+    "section": "8. Consistency",
+    "text": "8. Consistency\nUnder mild regularity conditions, the Partition Tree estimator is \\(L^1(\\nu)\\)-consistent: the density estimate converges to the true conditional density as \\(N \\to \\infty\\).\nThe key conditions are:\n\nThe partition complexity grows sublinearly: \\(m(\\mathcal{A}_N) / N \\to 0\\)\nThe growth function of the partition class is controlled: \\(\\log \\Delta_N^*(\\mathcal{A}_N) / N \\to 0\\)\nCell diameters shrink: \\(\\text{diam}(\\pi_N[z]) \\to 0\\) in probability\nThe number of distinct \\(X\\)-projections is controlled: \\(m_X(\\mathcal{A}_N) \\log N / N \\to 0\\)\n\nThe formal statement and proof are given in Theorem 3.1 of the paper."
+  },
+  {
+    "objectID": "theory.html#references",
+    "href": "theory.html#references",
+    "title": "Theory",
+    "section": "References",
+    "text": "References\n\nAngelim, F. & Leite, A. (2026). Partition Trees: Conditional Density Estimation over General Outcome Spaces. arXiv:2602.04042.\nBreiman, L. et al. (2017). Classification and Regression Trees. Routledge.\nBreiman, L. (2001). Random Forests. Machine Learning, 45(1), 5–32."
+  }
+]
