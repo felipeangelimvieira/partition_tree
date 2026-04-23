@@ -65,17 +65,21 @@ jobs:
           UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
 
   test-pypi:
-    name: Test from PyPI
+    name: Test from PyPI (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'release' && startsWith(github.event.release.tag_name, 'partition_tree-py-v') }}
     needs: [publish-package]
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v6
 
-      - name: Set up Python
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
 
       - name: Extract version from tag
         run: |

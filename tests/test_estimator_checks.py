@@ -17,7 +17,6 @@ def simple_cptree_classifier():
     """Create a simple CPTree classifier for sklearn checks."""
     return PartitionTreeClassifier(
         max_depth=3,
-        min_samples_leaf=5,
         min_samples_split=10,
         # random_state=42,
     )
@@ -28,7 +27,6 @@ def simple_cptree_regressor():
     """Create a simple CPTree regressor for sklearn checks."""
     return PartitionTreeRegressor(
         max_depth=3,
-        min_samples_leaf=5,
         min_samples_split=10,
         # random_state=42,
     )
@@ -39,15 +37,12 @@ def simple_cptree_regressor():
     [
         PartitionTreeClassifier(
             max_depth=3,
-            min_samples_leaf=5,
             min_samples_split=10,
             # random_state=42,
         ),
         # PartitionTreeRegressor(
         #    max_depth=3,
-        #    min_samples_leaf=5,
         #    min_samples_split=10,
-        #    max_splits_to_search=100,
         #    random_state=42,
         # ),
     ]
