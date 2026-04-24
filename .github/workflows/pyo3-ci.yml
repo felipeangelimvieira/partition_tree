@@ -19,6 +19,7 @@ jobs:
     runs-on: ${{ matrix.platform.runner }}
     env:
       CFLAGS_aarch64-unknown-linux-gnu: "-D__ARM_ARCH=8"
+      CARGO_PROFILE_RELEASE_DEBUG: "0"
     strategy:
       matrix:
         platform:
@@ -42,7 +43,7 @@ jobs:
         with:
           working-directory: pyo3_partition_tree
           target: ${{ matrix.platform.target }}
-          args: --release --out dist --find-interpreter
+          args: --release --strip --out dist --find-interpreter
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           manylinux: auto
       - name: Upload wheels
@@ -56,6 +57,7 @@ jobs:
     runs-on: ${{ matrix.platform.runner }}
     env:
       CFLAGS_aarch64-unknown-linux-gnu: "-D__ARM_ARCH=8"
+      CARGO_PROFILE_RELEASE_DEBUG: "0"
     strategy:
       matrix:
         platform:
@@ -79,7 +81,7 @@ jobs:
         with:
           working-directory: pyo3_partition_tree
           target: ${{ matrix.platform.target }}
-          args: --release --out dist --find-interpreter
+          args: --release --strip --out dist --find-interpreter
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           manylinux: musllinux_1_2
       - name: Upload wheels
@@ -91,6 +93,8 @@ jobs:
   windows:
     if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/pyo3-v') }}
     runs-on: ${{ matrix.platform.runner }}
+    env:
+      CARGO_PROFILE_RELEASE_DEBUG: "0"
     strategy:
       matrix:
         platform:
@@ -115,7 +119,7 @@ jobs:
         with:
           working-directory: pyo3_partition_tree
           target: ${{ matrix.platform.target }}
-          args: --release --out dist --find-interpreter
+          args: --release --strip --out dist --find-interpreter
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
       - name: Upload wheels
         uses: actions/upload-artifact@v5
@@ -126,6 +130,8 @@ jobs:
   macos:
     if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/pyo3-v') }}
     runs-on: ${{ matrix.platform.runner }}
+    env:
+      CARGO_PROFILE_RELEASE_DEBUG: "0"
     strategy:
       matrix:
         platform:
@@ -143,7 +149,7 @@ jobs:
         with:
           working-directory: pyo3_partition_tree
           target: ${{ matrix.platform.target }}
-          args: --release --out dist --find-interpreter
+          args: --release --strip --out dist --find-interpreter
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
       - name: Upload wheels
         uses: actions/upload-artifact@v5
@@ -201,7 +207,7 @@ jobs:
         uses: astral-sh/setup-uv@v7
       - name: Publish to PyPI
         if: ${{ startsWith(github.ref, 'refs/tags/pyo3-v') }}
-        run: uv publish 'wheels-*/*'
+        run: uv publish --check-url https://pypi.org/simple/ 'wheels-*/*'
         env:
           UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
 
