@@ -11,6 +11,8 @@ classifiers = [
 ]
 version = "0.0.3"
 description = "A Python package for partition tree algorithms implemented in Rust."
+license = "MIT"
+license-files = ["pyo3_partition_tree/LICENSE"]
 dependencies = [
     "polars~=1.33.1",
     "pyarrow>=23.0.0",

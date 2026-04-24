@@ -4,7 +4,7 @@ version = "0.0.3"
 edition = "2024"
 description = "Partition Tree: conditional density estimation in general outcome spaces"
 repository = "https://github.com/felipeangelimvieira/partition_tree"
-license-file = "LICENSE"
+license = "MIT"
 
 [lib]
 name = "partition_tree"
