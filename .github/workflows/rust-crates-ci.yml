@@ -98,6 +98,16 @@ jobs:
           rustup update stable
           rustup default stable
 
+      - name: Verify crates.io token
+        env:
+          CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        run: |
+          if [[ -z "$CRATES_IO_TOKEN" ]]; then
+            echo "Missing GitHub Actions secret CRATES_IO_TOKEN." >&2
+            echo "Add a crates.io API token in Settings > Secrets and variables > Actions." >&2
+            exit 1
+          fi
+
       - name: Publish estimators
         run: cargo publish -p estimators --token ${{ secrets.CRATES_IO_TOKEN }}
 
@@ -114,6 +124,16 @@ jobs:
         run: |
           rustup update stable
           rustup default stable
+
+      - name: Verify crates.io token
+        env:
+          CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        run: |
+          if [[ -z "$CRATES_IO_TOKEN" ]]; then
+            echo "Missing GitHub Actions secret CRATES_IO_TOKEN." >&2
+            echo "Add a crates.io API token in Settings > Secrets and variables > Actions." >&2
+            exit 1
+          fi
 
       - name: Publish partition_tree
         run: cargo publish -p partition_tree --token ${{ secrets.CRATES_IO_TOKEN }}

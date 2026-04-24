@@ -14,6 +14,45 @@ The Python package workflow also updates the documentation website:
 - Published `partition_tree-py-v*` GitHub releases publish versioned docs to `/<version>/`,
   refresh `latest/`, and update the production root for `partitiontree.com`.
 
+## Required credentials
+
+The release automation uses two different credential scopes:
+
+- Local notebook or terminal authentication for `gh release create`. Run `gh auth login`
+    first, or provide a `GH_TOKEN` with repository write access.
+- GitHub Actions repository secrets for package publishing.
+
+Configure these repository secrets in Settings > Secrets and variables > Actions:
+
+- `CRATES_IO_TOKEN` for publishing the Rust crates.
+- `PYPI_API_TOKEN` for publishing both Python distributions.
+
+## Creating the GitHub release
+
+The publish workflows are triggered by a published GitHub Release with the right tag.
+You can create that release, with GitHub-generated release notes, from a notebook by
+calling the helper script:
+
+```sh
+./scripts/create_github_release.sh estimators --wait
+./scripts/create_github_release.sh partition_tree --wait
+./scripts/create_github_release.sh pyo3 --wait
+./scripts/create_github_release.sh python --wait
+```
+
+The script uses `gh release create --generate-notes` by default. Pass
+`--notes-file <path>` if you want notebook-generated notes instead. If you omit
+the version argument, the script infers it from the relevant manifest:
+`Cargo.toml` for Rust crates, `pyproject.toml` for Python packages, and both
+`pyo3_partition_tree/Cargo.toml` and `pyo3_partition_tree/pyproject.toml` for
+the PyO3 package.
+
+Use the script in that order. `partition_tree` depends on `estimators`, the
+PyO3 package depends on the Rust crates, and the Python package depends on the
+published `pyo3-partition-tree` wheel. The `--wait` flag makes the notebook wait
+for the matching GitHub Actions release workflow to finish before moving to the
+next dependent release.
+
 ## Why this order
 
 The binding crate depends on the Rust core crate, and the high-level Python
