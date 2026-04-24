@@ -1,6 +1,6 @@
 [project]
 name = "partition_tree"
-version = "0.0.3"
+version = "0.0.4"
 description = "Partition Trees for Probabilistic Tasks"
 authors = [ {name = "felipeangelimvieira", email = "felipeangelim@gmail.com"} ]
 readme = "README.md"
@@ -15,7 +15,7 @@ dependencies = [
     "snakeviz>=2.2.2,<3.0.0",
     "polars>=1.33.1,<2.0.0",
     "pyarrow>=21.0.0",
-    "pyo3-partition-tree>=0.0.3,<0.0.4",
+    "pyo3-partition-tree>=0.0.4,<0.0.5",
 ]
 
 [project.urls]

@@ -1,6 +1,6 @@
 [package]
 name = "pyo3_partition_tree"
-version = "0.0.3"
+version = "0.0.4"
 edition = "2024"
 description = "Python bindings for partition_tree implemented with PyO3."
 repository = "https://github.com/felipeangelimvieira/partition_tree"
