@@ -1,7 +1,7 @@
 """
 Test to investigate why get_leaves_info returns partitions on target without any categories.
 
-This test creates a classification dataset with 10 classes and fits a tree with max_iter=3
+This test creates a classification dataset with 10 classes and fits a tree with max_leaves=3
 to reproduce the issue where categorical partitions end up with empty category sets.
 """
 
@@ -16,7 +16,7 @@ def test_leaves_have_nonempty_target_categories():
     """
     Test that all leaves have non-empty category sets for target partitions.
 
-    With 10 classes and max_iter=3, we should have at most 4 leaves.
+    With 10 classes and max_leaves=3, we should have at most 4 leaves.
     Each leaf's target partition should contain at least one category.
     """
     # Create a classification dataset with 10 classes
@@ -34,10 +34,10 @@ def test_leaves_have_nonempty_target_categories():
     for max_iter in [3, 10, 20, 50]:
         print(f"\n--- Testing with max_iter={max_iter} ---")
         clf = PartitionTreeClassifier(
-            max_iter=max_iter,
+            max_leaves=max_iter,
             min_samples_split=1,
-            min_samples_leaf=0,
-            seed=42,
+            min_samples_xy=0.0,
+            random_state=42,
         )
         clf.fit(X, y)
         _check_leaves_have_categories(clf, max_iter)
@@ -91,17 +91,20 @@ def test_leaves_target_categories_cover_samples():
     )
 
     clf = PartitionTreeClassifier(
-        max_iter=3,
+        max_leaves=3,
         min_samples_split=1,
-        min_samples_leaf=0,
-        seed=42,
+        min_samples_xy=0.0,
+        random_state=42,
     )
     clf.fit(X, y)
 
     leaves_info = clf.get_leaves_info()
+    # Map each training sample to its leaf using apply()
+    leaf_ids = np.array(clf.apply(X))
 
     for i, leaf in enumerate(leaves_info):
-        indices_xy = leaf["indices_xy"]
+        leaf_id = leaf["leaf_index"]
+        indices_xy = np.where(leaf_ids == leaf_id)[0]
 
         # Get the actual target values for samples in this leaf
         actual_classes = set(str(y[idx]) for idx in indices_xy)
@@ -143,14 +146,13 @@ def test_exploration_splits_preserve_categories():
     print("--- Testing with exploration_split_budget ---")
     for budget in [5, 10, 20]:
         clf = PartitionTreeClassifier(
-            max_iter=30,
+            max_leaves=30,
             min_samples_split=1,
-            min_samples_leaf=0,
-            exploration_split_budget=budget,
-            seed=42,
+            min_samples_xy=0.0,
+            random_state=42,
         )
         clf.fit(X, y)
-        print(f"  exploration_budget={budget}:")
+        print(f"  budget={budget}:")
         _check_leaves_have_categories(clf, f"budget={budget}")
 
 
@@ -182,10 +184,10 @@ def test_noncontiguous_class_labels():
     print(f"  Mapped labels: {sorted(np.unique(y_noncontig))}")
 
     clf = PartitionTreeClassifier(
-        max_iter=10,
+        max_leaves=10,
         min_samples_split=1,
-        min_samples_leaf=0,
-        seed=42,
+        min_samples_xy=0.0,
+        random_state=42,
     )
     clf.fit(X, y_noncontig)
 

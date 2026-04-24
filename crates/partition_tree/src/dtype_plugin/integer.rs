@@ -11,7 +11,7 @@ use crate::rules::IntegerInterval;
 
 use super::DTypePlugin;
 use crate::column_split::{ColumnSplitSearcher, IntegerColumnSplitSearcher};
-use crate::dataset_view::{ColumnView, LogicalDType};
+use crate::dataset_view::{ColumnView, LogicalDTypeKind};
 use crate::rule::DynRule;
 
 // ---------------------------------------------------------------------------
@@ -44,8 +44,8 @@ impl Default for IntegerPlugin {
 }
 
 impl DTypePlugin for IntegerPlugin {
-    fn logical_dtype(&self) -> LogicalDType {
-        LogicalDType::Integer
+    fn logical_dtype_kind(&self) -> LogicalDTypeKind {
+        LogicalDTypeKind::Integer
     }
 
     fn default_rule(
@@ -147,6 +147,6 @@ mod tests {
     #[test]
     fn integer_plugin_logical_dtype() {
         let plugin = IntegerPlugin::new();
-        assert_eq!(plugin.logical_dtype(), LogicalDType::Integer);
+        assert_eq!(plugin.logical_dtype_kind(), LogicalDTypeKind::Integer);
     }
 }

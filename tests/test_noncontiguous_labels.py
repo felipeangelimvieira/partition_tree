@@ -33,7 +33,7 @@ class TestNonContiguousIntegerLabels:
         )
         y = np.array([0] * (n_samples // 2) + [2] * (n_samples // 2))
 
-        clf = PartitionTreeClassifier(max_depth=5, min_samples_leaf=1, seed=42)
+        clf = PartitionTreeClassifier(max_depth=5, min_samples_xy=1.0, random_state=42)
         clf.fit(X, y)
 
         # Check classes are correct
@@ -70,7 +70,7 @@ class TestNonContiguousIntegerLabels:
         )
         y = np.array([5] * (n_samples // 2) + [10] * (n_samples // 2))
 
-        clf = PartitionTreeClassifier(max_depth=5, min_samples_leaf=1, seed=42)
+        clf = PartitionTreeClassifier(max_depth=5, min_samples_xy=1.0, random_state=42)
         clf.fit(X, y)
 
         assert set(clf.classes_) == {5, 10}
@@ -101,7 +101,7 @@ class TestNonContiguousIntegerLabels:
             [0] * (n_samples // 3) + [2] * (n_samples // 3) + [5] * (n_samples // 3)
         )
 
-        clf = PartitionTreeClassifier(max_depth=5, min_samples_leaf=1, seed=42)
+        clf = PartitionTreeClassifier(max_depth=5, min_samples_xy=1.0, random_state=42)
         clf.fit(X, y)
 
         assert set(clf.classes_) == {0, 2, 5}
@@ -138,7 +138,7 @@ class TestNonContiguousIntegerLabels:
             + [1000] * (n_samples // 3)
         )
 
-        clf = PartitionTreeClassifier(max_depth=5, min_samples_leaf=1, seed=42)
+        clf = PartitionTreeClassifier(max_depth=5, min_samples_xy=1.0, random_state=42)
         clf.fit(X, y)
 
         assert set(clf.classes_) == {1, 100, 1000}
@@ -169,7 +169,7 @@ class TestNonContiguousIntegerLabels:
             [-5] * (n_samples // 3) + [0] * (n_samples // 3) + [7] * (n_samples // 3)
         )
 
-        clf = PartitionTreeClassifier(max_depth=5, min_samples_leaf=1, seed=42)
+        clf = PartitionTreeClassifier(max_depth=5, min_samples_xy=1.0, random_state=42)
         clf.fit(X, y)
 
         assert set(clf.classes_) == {-5, 0, 7}
@@ -191,37 +191,38 @@ class TestProbaColumnAlignment:
     def test_proba_column_order_matches_classes(self):
         """Verify that proba[:, i] corresponds to classes_[i]."""
         np.random.seed(42)
+        n = 20  # samples per class — enough for the tree to learn clean splits
 
-        # Create data where we know the expected class for each sample
-        # Class 3 at center (0, 0)
-        # Class 7 at (10, 0)
-        # Class 11 at (5, 10)
-        X = np.array(
+        # Three well-separated clusters with tight spread
+        X = np.vstack(
             [
-                [0, 0],  # Should be class 3
-                [10, 0],  # Should be class 7
-                [5, 10],  # Should be class 11
-                [0.1, 0],  # Should be class 3
-                [9.9, 0],  # Should be class 7
-                [5, 9.9],  # Should be class 11
+                np.random.randn(n, 2) * 0.01 + [0, 0],  # class 3
+                np.random.randn(n, 2) * 0.01 + [10, 0],  # class 7
+                np.random.randn(n, 2) * 0.01 + [5, 10],  # class 11
             ]
         )
-        y = np.array([3, 7, 11, 3, 7, 11])
+        y = np.array([3] * n + [7] * n + [11] * n)
 
-        clf = PartitionTreeClassifier(max_depth=5, min_samples_leaf=1, seed=42)
+        clf = PartitionTreeClassifier(max_depth=5, min_samples_xy=1.0, random_state=42)
         clf.fit(X, y)
 
         # classes_ should be sorted
         assert list(clf.classes_) == [3, 7, 11]
 
         proba = clf.predict_proba(X)
+        pred = clf.predict(X)  # batch predict is consistent with batch proba
 
-        # For the first sample (0, 0), highest proba should be at index 0 (class 3)
-        # For the second sample (10, 0), highest proba should be at index 1 (class 7)
-        # For the third sample (5, 10), highest proba should be at index 2 (class 11)
-        assert np.argmax(proba[0]) == 0, f"Sample 0 should predict class 3 (idx 0)"
-        assert np.argmax(proba[1]) == 1, f"Sample 1 should predict class 7 (idx 1)"
-        assert np.argmax(proba[2]) == 2, f"Sample 2 should predict class 11 (idx 2)"
+        # For cluster centres, highest proba should align with predicted class
+        for idx, expected_class in [(0, 3), (n, 7), (2 * n, 11)]:
+            pred_class_idx = np.where(clf.classes_ == pred[idx])[0][0]
+            assert np.argmax(proba[idx]) == pred_class_idx, (
+                f"proba argmax ({np.argmax(proba[idx])}) does not match "
+                f"predicted class index ({pred_class_idx}) for sample {idx}"
+            )
+            # Also verify predicted class is the expected one
+            assert (
+                pred[idx] == expected_class
+            ), f"Sample {idx}: expected class {expected_class}, got {pred[idx]}"
 
     def test_proba_consistency_with_predict(self):
         """Test that predict returns classes_[argmax(predict_proba)]."""
@@ -244,7 +245,7 @@ class TestProbaColumnAlignment:
             + [40] * (n_samples // 4)
         )
 
-        clf = PartitionTreeClassifier(max_depth=5, min_samples_leaf=1, seed=42)
+        clf = PartitionTreeClassifier(max_depth=5, min_samples_xy=1.0, random_state=42)
         clf.fit(X, y)
 
         predictions = clf.predict(X)
@@ -281,7 +282,7 @@ class TestManyNonContiguousClasses:
         shuffle_idx = np.random.permutation(len(X))
         X, y = X[shuffle_idx], y[shuffle_idx]
 
-        clf = PartitionTreeClassifier(max_depth=10, min_samples_leaf=1, seed=42)
+        clf = PartitionTreeClassifier(max_depth=10, min_samples_xy=1.0, random_state=42)
         clf.fit(X, y)
 
         assert len(clf.classes_) == n_classes
@@ -314,7 +315,7 @@ class TestManyNonContiguousClasses:
         X = np.vstack(X_list)
         y = np.array(y_list)
 
-        clf = PartitionTreeClassifier(max_depth=10, min_samples_leaf=1, seed=42)
+        clf = PartitionTreeClassifier(max_depth=10, min_samples_xy=1.0, random_state=42)
         clf.fit(X, y)
 
         assert set(clf.classes_) == set(labels)
@@ -350,7 +351,7 @@ class TestMixedNonContiguousLabels:
             + [5.0] * (n_samples // 3)
         )
 
-        clf = PartitionTreeClassifier(max_depth=5, min_samples_leaf=1, seed=42)
+        clf = PartitionTreeClassifier(max_depth=5, min_samples_xy=1.0, random_state=42)
         clf.fit(X, y)
 
         predictions = clf.predict(X)
@@ -387,7 +388,7 @@ class TestTrainTestSplit:
             X, y, test_size=0.3, random_state=42, stratify=y
         )
 
-        clf = PartitionTreeClassifier(max_depth=5, min_samples_leaf=1, seed=42)
+        clf = PartitionTreeClassifier(max_depth=5, min_samples_xy=1.0, random_state=42)
         clf.fit(X_train, y_train)
 
         # Test predictions on unseen data
@@ -429,7 +430,7 @@ class TestForestNonContiguousLabels:
         )
 
         clf = PartitionForestClassifier(
-            n_estimators=10, max_depth=5, min_samples_leaf=1, seed=42
+            n_estimators=10, max_depth=5, min_samples_xy=1.0, random_state=42
         )
         clf.fit(X, y)
 
@@ -456,7 +457,7 @@ class TestEdgeCases:
         )
         y = np.array([0, 5, 10])
 
-        clf = PartitionTreeClassifier(max_depth=5, min_samples_leaf=1, seed=42)
+        clf = PartitionTreeClassifier(max_depth=5, min_samples_xy=1.0, random_state=42)
         clf.fit(X, y)
 
         assert set(clf.classes_) == {0, 5, 10}
@@ -481,7 +482,7 @@ class TestEdgeCases:
         )
         y = np.array([0] * 100 + [100] * 100 + [50])
 
-        clf = PartitionTreeClassifier(max_depth=3, min_samples_leaf=1, seed=42)
+        clf = PartitionTreeClassifier(max_depth=3, min_samples_xy=1.0, random_state=42)
         clf.fit(X, y)
 
         # All 3 classes should be in classes_
@@ -509,7 +510,7 @@ class TestEdgeCases:
         )
         y = np.array([5, 1, 10, 5, 1, 10])
 
-        clf = PartitionTreeClassifier(max_depth=5, min_samples_leaf=1, seed=42)
+        clf = PartitionTreeClassifier(max_depth=5, min_samples_xy=1.0, random_state=42)
         clf.fit(X, y)
 
         # classes_ should be sorted
@@ -539,7 +540,7 @@ class TestEdgeCases:
         )
         y = np.array([1, 3, 7, 9])
 
-        clf = PartitionTreeClassifier(max_depth=5, min_samples_leaf=1, seed=42)
+        clf = PartitionTreeClassifier(max_depth=5, min_samples_xy=1.0, random_state=42)
         clf.fit(X, y)
 
         assert set(clf.classes_) == {1, 3, 7, 9}
@@ -560,7 +561,7 @@ class TestClassesOrderPreservation:
         X = np.random.randn(60, 2)
         y = np.array([99] * 20 + [1] * 20 + [50] * 20)
 
-        clf = PartitionTreeClassifier(max_depth=5, min_samples_leaf=1, seed=42)
+        clf = PartitionTreeClassifier(max_depth=5, min_samples_xy=1.0, random_state=42)
         clf.fit(X, y)
 
         # classes_ should be sorted
@@ -580,7 +581,7 @@ class TestClassesOrderPreservation:
         )
         y_train = np.array([999] * 20 + [1] * 20 + [500] * 20)
 
-        clf = PartitionTreeClassifier(max_depth=5, min_samples_leaf=1, seed=42)
+        clf = PartitionTreeClassifier(max_depth=5, min_samples_xy=1.0, random_state=42)
         clf.fit(X, y_train)
 
         # classes_ should be sorted

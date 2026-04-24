@@ -18,7 +18,7 @@
 use std::collections::HashMap;
 
 use crate::dataset_view::ColumnView;
-use crate::rules::{BelongsTo, ContinuousInterval, Rule};
+use crate::rules::{BelongsTo, ContinuousInterval, QuantizedContinuousInterval, Rule};
 
 use super::conditioned_cell::ConditionedCell;
 
@@ -217,7 +217,7 @@ impl PiecewiseConstantDistribution {
         for cell in &self.cells {
             // Find the first continuous target rule (sorted for determinism)
             let mut sorted_rules: Vec<_> = cell.target_rules.iter().collect();
-            sorted_rules.sort_by_key(|(k, _)| k.clone());
+            sorted_rules.sort_by_key(|(k, _)| (*k).clone());
             for (_, rule) in sorted_rules {
                 if let Some(ci) = rule.as_any().downcast_ref::<ContinuousInterval>() {
                     let vol = ci.volume();
@@ -231,6 +231,18 @@ impl PiecewiseConstantDistribution {
                     };
                     segments.push((density, ci.low, ci.high));
                     break; // only first continuous target per cell
+                } else if let Some(qi) = rule.as_any().downcast_ref::<QuantizedContinuousInterval>() {
+                    let vol = qi.volume();
+                    if vol <= 0.0 {
+                        continue;
+                    }
+                    let density = if uniform {
+                        1.0 / (vol * n)
+                    } else {
+                        cell.mass / (total_mass * vol)
+                    };
+                    segments.push((density, qi.low(), qi.high()));
+                    break;
                 }
             }
         }
@@ -283,7 +295,7 @@ impl PiecewiseConstantDistribution {
 mod tests {
     use super::*;
     use crate::rule::DynRule;
-    use crate::rules::ContinuousInterval;
+    use crate::rules::{ContinuousInterval, QuantizedContinuousInterval};
     use std::collections::HashSet;
     use std::sync::Arc;
 
@@ -311,6 +323,21 @@ mod tests {
 
         let mut target_rules: HashMap<String, Box<dyn DynRule>> = HashMap::new();
         target_rules.insert("target__color".to_string(), Box::new(bt));
+        ConditionedCell::new(target_rules, mass)
+    }
+
+    fn make_quantized_cell(low_idx: i64, high_idx: i64, resolution: f64, mass: f64) -> ConditionedCell {
+        let mut target_rules: HashMap<String, Box<dyn DynRule>> = HashMap::new();
+        target_rules.insert(
+            "target__y1".to_string(),
+            Box::new(QuantizedContinuousInterval::new(
+                low_idx,
+                high_idx,
+                resolution,
+                Some((low_idx, high_idx)),
+                true,
+            )),
+        );
         ConditionedCell::new(target_rules, mass)
     }
 
@@ -399,6 +426,24 @@ mod tests {
         assert!((segs[0].1 - 0.0).abs() < 1e-10);
         assert!((segs[0].2 - 4.0).abs() < 1e-10);
         assert!((segs[1].0 - 0.0625).abs() < 1e-10);
+    }
+
+    #[test]
+    fn pdf_segments_quantized_are_coherent_with_density_and_volume() {
+        let cell = make_quantized_cell(2, 6, 0.5, 1.0);
+        let dist = PiecewiseConstantDistribution::from_single(cell);
+        let segs = dist.pdf_segments();
+
+        assert_eq!(segs.len(), 1);
+        let (density, low, high) = segs[0];
+        let volume = high - low;
+
+        assert!((low - 0.75).abs() < 1e-10);
+        assert!((high - 3.25).abs() < 1e-10);
+        assert!((volume - 2.5).abs() < 1e-10);
+        assert!((density * volume - 1.0).abs() < 1e-10);
+        assert!(((low / 0.5) - (low / 0.5).round()).abs() > 1e-10);
+        assert!(((high / 0.5) - (high / 0.5).round()).abs() > 1e-10);
     }
 
     #[test]

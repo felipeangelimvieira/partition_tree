@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from partition_tree_python import PyPartitionTree
+from pyo3_partition_tree import PyPartitionTree
 from partition_tree.estimators.partition_tree import (
     PartitionTreeRegressor,
     PartitionForestRegressor,
@@ -22,14 +22,14 @@ def test_single_tree_determinism():
 
     # First fit
     tree1 = PyPartitionTree(
-        max_iter=10,
+        max_leaves=10,
         min_samples_split=2,
-        min_samples_leaf_y=1,
-        min_samples_leaf_x=1,
-        min_samples_leaf=1,
-        min_target_volume=0.0,
+        min_samples_y=1.0,
+        min_samples_x=1.0,
+        min_samples_xy=1.0,
+        min_volume_fraction=0.0,
         max_depth=5,
-        min_split_gain=0.0,
+        min_gain=0.0,
         boundaries_expansion_factor=0.0,
         seed=42,
     )
@@ -38,14 +38,14 @@ def test_single_tree_determinism():
 
     # Second fit with same seed
     tree2 = PyPartitionTree(
-        max_iter=10,
+        max_leaves=10,
         min_samples_split=2,
-        min_samples_leaf_y=1,
-        min_samples_leaf_x=1,
-        min_samples_leaf=1,
-        min_target_volume=0.0,
+        min_samples_y=1.0,
+        min_samples_x=1.0,
+        min_samples_xy=1.0,
+        min_volume_fraction=0.0,
         max_depth=5,
-        min_split_gain=0.0,
+        min_gain=0.0,
         boundaries_expansion_factor=0.0,
         seed=42,
     )
@@ -73,14 +73,14 @@ def test_single_tree_determinism_multiple_runs():
     predictions = []
     for run in range(5):
         tree = PyPartitionTree(
-            max_iter=20,
+            max_leaves=20,
             min_samples_split=2,
-            min_samples_leaf_y=1,
-            min_samples_leaf_x=1,
-            min_samples_leaf=1,
-            min_target_volume=0.0,
+            min_samples_y=1.0,
+            min_samples_x=1.0,
+            min_samples_xy=1.0,
+            min_volume_fraction=0.0,
             max_depth=8,
-            min_split_gain=0.0,
+            min_gain=0.0,
             boundaries_expansion_factor=0.0,
             seed=42,
         )
@@ -111,14 +111,14 @@ def test_determinism_with_many_features():
     predictions = []
     for run in range(10):
         tree = PyPartitionTree(
-            max_iter=50,
+            max_leaves=50,
             min_samples_split=2,
-            min_samples_leaf_y=1,
-            min_samples_leaf_x=1,
-            min_samples_leaf=1,
-            min_target_volume=0.0,
+            min_samples_y=1.0,
+            min_samples_x=1.0,
+            min_samples_xy=1.0,
+            min_volume_fraction=0.0,
             max_depth=10,
-            min_split_gain=0.0,
+            min_gain=0.0,
             boundaries_expansion_factor=0.0,
             seed=42,
         )
@@ -159,14 +159,14 @@ def test_determinism_with_correlated_features():
     predictions = []
     for run in range(10):
         tree = PyPartitionTree(
-            max_iter=20,
+            max_leaves=20,
             min_samples_split=2,
-            min_samples_leaf_y=1,
-            min_samples_leaf_x=1,
-            min_samples_leaf=1,
-            min_target_volume=0.0,
+            min_samples_y=1.0,
+            min_samples_x=1.0,
+            min_samples_xy=1.0,
+            min_volume_fraction=0.0,
             max_depth=6,
-            min_split_gain=0.0,
+            min_gain=0.0,
             boundaries_expansion_factor=0.0,
             seed=42,
         )
@@ -194,14 +194,14 @@ def test_different_seeds_give_different_results():
     y_df = pl.DataFrame({"target_y": y[:, 0]})
 
     tree1 = PyPartitionTree(
-        max_iter=10,
+        max_leaves=10,
         min_samples_split=2,
-        min_samples_leaf_y=1,
-        min_samples_leaf_x=1,
-        min_samples_leaf=1,
-        min_target_volume=0.0,
+        min_samples_y=1.0,
+        min_samples_x=1.0,
+        min_samples_xy=1.0,
+        min_volume_fraction=0.0,
         max_depth=5,
-        min_split_gain=0.0,
+        min_gain=0.0,
         boundaries_expansion_factor=0.0,
         seed=42,
     )
@@ -209,14 +209,14 @@ def test_different_seeds_give_different_results():
     pred1 = tree1.predict(x_df)
 
     tree2 = PyPartitionTree(
-        max_iter=10,
+        max_leaves=10,
         min_samples_split=2,
-        min_samples_leaf_y=1,
-        min_samples_leaf_x=1,
-        min_samples_leaf=1,
-        min_target_volume=0.0,
+        min_samples_y=1.0,
+        min_samples_x=1.0,
+        min_samples_xy=1.0,
+        min_volume_fraction=0.0,
         max_depth=5,
-        min_split_gain=0.0,
+        min_gain=0.0,
         boundaries_expansion_factor=0.0,
         seed=123,
     )
@@ -238,9 +238,9 @@ def test_sklearn_estimator_determinism():
     predictions = []
     for run in range(5):
         tree = PartitionTreeRegressor(
-            max_iter=20,
+            max_leaves=20,
             max_depth=6,
-            seed=42,
+            random_state=42,
         )
         tree.fit(X, y)
         pred = tree.predict(X)
@@ -266,9 +266,9 @@ def test_sklearn_forest_determinism():
     for run in range(3):
         forest = PartitionForestRegressor(
             n_estimators=10,
-            max_iter=10,
+            max_leaves=10,
             max_depth=5,
-            seed=42,
+            random_state=42,
         )
         forest.fit(X, y)
         pred = forest.predict(X)

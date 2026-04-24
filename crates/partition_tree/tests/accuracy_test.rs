@@ -95,6 +95,7 @@ fn partition_tree_accuracy_above_threshold() {
         /* max_features */ None,
         /* loss */ None,
         /* seed */ Some(42),
+        /* dtype_overrides */ std::collections::HashMap::new(),
     );
 
     let fitted = model.fit(&x, &y, None).expect("PartitionTree fit failed");
@@ -142,6 +143,7 @@ fn partition_forest_accuracy_above_threshold() {
         /* max_features */ None,
         /* loss */ None,
         /* seed */ Some(42),
+        /* dtype_overrides */ std::collections::HashMap::new(),
     );
 
     let fitted = model.fit(&x, &y, None).expect("PartitionForest fit failed");

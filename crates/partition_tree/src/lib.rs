@@ -90,13 +90,14 @@ pub use rule::{DynRule, DynValue};
 
 /// Split result types, restrictions, and priority-queue entry.
 pub use split_result::{
-    CandidateSplit, CategoricalSplitOp, ContinuousSplitOp, IntegerSplitOp, SplitKind, SplitOp,
-    SplitPoint, SplitRestrictions,
+    CandidateSplit, CategoricalSplitOp, ContinuousSplitOp, IntegerSplitOp,
+    QuantizedContinuousSplitOp, SplitKind, SplitOp, SplitPoint, SplitRestrictions,
 };
 
 /// Dataset abstraction and Polars-backed implementation.
 pub use dataset_view::{
-    ColumnView, DatasetView, LogicalDType, PolarsColumnView, PolarsDatasetView,
+    ColumnView, DatasetView, LogicalDType, LogicalDTypeKind, PolarsColumnView,
+    PolarsDatasetView, QuantizedContinuousSpec,
 };
 
 /// Construction-time tree node.
@@ -105,12 +106,13 @@ pub use node::Node;
 /// Per-column split search trait and built-in implementations.
 pub use column_split::{
     CategoricalColumnSplitSearcher, ColumnSplitSearcher, ContinuousColumnSplitSearcher,
-    IntegerColumnSplitSearcher,
+    IntegerColumnSplitSearcher, QuantizedContinuousColumnSplitSearcher,
 };
 
 /// Dtype plugin trait and registry.
 pub use dtype_plugin::{
     CategoricalPlugin, ContinuousPlugin, DTypePlugin, DTypeRegistry, IntegerPlugin,
+    QuantizedContinuousPlugin,
 };
 
 /// Multi-column split orchestrator.

@@ -6,6 +6,8 @@ use std::hash::Hash;
 use std::ops::BitAnd;
 use std::sync::Arc;
 
+use crate::dataset_view::QuantizedContinuousSpec;
+
 /// Trait alias for types that can be used as rule values.
 /// This simplifies the generic bounds throughout the codebase.
 pub trait RuleValue: Eq + Hash + Clone + 'static {}
@@ -585,12 +587,431 @@ impl fmt::Display for IntegerInterval {
     }
 }
 
+// ---------------------------------------------------------------------------
+// QuantizedContinuousInterval
+// ---------------------------------------------------------------------------
+
+/// Represents a discrete lattice interval over real values.
+///
+/// Values must lie on `resolution * i` for some integer `i`. The stored bounds
+/// are lattice indices, but the rule evaluates and reports values in the
+/// original `f64` space.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct QuantizedContinuousInterval {
+    /// Lower lattice boundary index.
+    pub low_idx: i64,
+    /// Upper lattice boundary index.
+    pub high_idx: i64,
+    /// Whether the lower boundary is closed.
+    pub lower_closed: bool,
+    /// Whether the upper boundary is closed.
+    pub upper_closed: bool,
+    /// Positive lattice resolution.
+    pub resolution: f64,
+    /// Domain bounds in lattice indices.
+    pub domain: (i64, i64),
+    /// Whether to accept `None` (null / missing) values.
+    pub accept_none: bool,
+}
+
+impl QuantizedContinuousInterval {
+    /// Create a new quantized-continuous interval.
+    pub fn new(
+        low_idx: i64,
+        high_idx: i64,
+        resolution: f64,
+        domain: Option<(i64, i64)>,
+        accept_none: bool,
+    ) -> Self {
+        QuantizedContinuousSpec::new(resolution)
+            .expect("QuantizedContinuousInterval requires a finite positive resolution");
+
+        let domain = domain.unwrap_or((low_idx, high_idx));
+        Self {
+            low_idx,
+            high_idx,
+            lower_closed: true,
+            upper_closed: true,
+            resolution,
+            domain,
+            accept_none,
+        }
+    }
+
+    pub fn domain(&self) -> (i64, i64) {
+        self.domain
+    }
+
+    pub fn low(&self) -> f64 {
+        (self.low_idx as f64 + if self.lower_closed { -0.5 } else { 0.5 }) * self.resolution
+    }
+
+    pub fn high(&self) -> f64 {
+        (self.high_idx as f64 + if self.upper_closed { 0.5 } else { -0.5 }) * self.resolution
+    }
+
+    fn boundary_tolerance(boundary: f64, resolution: f64) -> f64 {
+        f64::EPSILON * boundary.abs().max(resolution.abs()).max(1.0) * 16.0
+    }
+
+    pub fn quantize_value(value: f64, resolution: f64) -> Result<i64, String> {
+        QuantizedContinuousSpec::new(resolution)?.quantize_value(value)
+    }
+
+    pub fn split_boundary_from_index(threshold_idx: i64, resolution: f64) -> f64 {
+        (threshold_idx as f64 - 0.5) * resolution
+    }
+
+    fn split_index_from_boundary(point: f64, resolution: f64) -> Result<i64, String> {
+        QuantizedContinuousSpec::new(resolution)
+            .expect("QuantizedContinuousInterval requires a finite positive resolution");
+
+        if !point.is_finite() {
+            return Err(format!(
+                "split point {point} is not a valid half-step boundary for resolution {resolution}"
+            ));
+        }
+
+        let shifted = point / resolution + 0.5;
+        let rounded = shifted.round();
+        let tolerance = shifted.abs().max(1.0) * 1e-9;
+
+        if (shifted - rounded).abs() > tolerance {
+            return Err(format!(
+                "split point {point} is not aligned to half-step boundaries for resolution {resolution}"
+            ));
+        }
+
+        if rounded < i64::MIN as f64 || rounded > i64::MAX as f64 {
+            return Err(format!(
+                "split point {point} is outside the quantized i64 range"
+            ));
+        }
+
+        Ok(rounded as i64)
+    }
+
+    fn discrete_volume(lo: i64, hi: i64, lower_closed: bool, upper_closed: bool) -> f64 {
+        if hi < lo {
+            0.0
+        } else {
+            let mut n_cells = (hi as f64) - (lo as f64) + 1.0;
+            if !lower_closed {
+                n_cells -= 1.0;
+            }
+            if !upper_closed {
+                n_cells -= 1.0;
+            }
+            n_cells.max(0.0)
+        }
+    }
+
+    pub(crate) fn split_at_index(
+        &self,
+        threshold_idx: i64,
+        none_to_left: Option<bool>,
+    ) -> (Self, Self) {
+        let accept_none_left = self.accept_none && none_to_left.unwrap_or(true);
+        let accept_none_right = self.accept_none && !none_to_left.unwrap_or(false);
+        let min_threshold_idx = if self.lower_closed {
+            self.low_idx
+        } else {
+            self.low_idx.saturating_add(1)
+        };
+        let max_threshold_idx = if self.upper_closed {
+            self.high_idx.saturating_add(1)
+        } else {
+            self.high_idx
+        };
+        let threshold_idx = threshold_idx.clamp(min_threshold_idx, max_threshold_idx);
+
+        let left = QuantizedContinuousInterval {
+            low_idx: self.low_idx,
+            high_idx: threshold_idx,
+            lower_closed: self.lower_closed,
+            upper_closed: false,
+            resolution: self.resolution,
+            domain: self.domain,
+            accept_none: accept_none_left,
+        };
+        let right = QuantizedContinuousInterval {
+            low_idx: threshold_idx,
+            high_idx: self.high_idx,
+            lower_closed: true,
+            upper_closed: self.upper_closed,
+            resolution: self.resolution,
+            domain: self.domain,
+            accept_none: accept_none_right,
+        };
+        (left, right)
+    }
+}
+
+impl Rule<f64> for QuantizedContinuousInterval {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn _evaluate_some(&self, value: &f64) -> bool {
+        if !value.is_finite() {
+            return false;
+        }
+
+        let lower_ok = if self.low_idx == i64::MIN {
+            true
+        } else {
+            let low = self.low();
+            let tolerance = Self::boundary_tolerance(low, self.resolution);
+
+            if self.lower_closed {
+                *value >= low - tolerance
+            } else {
+                *value > low + tolerance
+            }
+        };
+        let upper_ok = if self.high_idx == i64::MAX {
+            true
+        } else {
+            let high = self.high();
+            let tolerance = Self::boundary_tolerance(high, self.resolution);
+
+            if self.upper_closed {
+                *value <= high + tolerance
+            } else {
+                *value < high - tolerance
+            }
+        };
+
+        lower_ok && upper_ok
+    }
+
+    fn _evaluate_none(&self) -> bool {
+        self.accept_none
+    }
+
+    fn volume(&self) -> f64 {
+        Self::discrete_volume(
+            self.low_idx,
+            self.high_idx,
+            self.lower_closed,
+            self.upper_closed,
+        ) * self.resolution
+    }
+
+    fn relative_volume(&self) -> f64 {
+        let interval = Self::discrete_volume(
+            self.low_idx,
+            self.high_idx,
+            self.lower_closed,
+            self.upper_closed,
+        );
+        let domain = Self::discrete_volume(self.domain.0, self.domain.1, true, true);
+        if domain <= 0.0 {
+            0.0
+        } else {
+            interval / domain
+        }
+    }
+
+    fn mean(&self) -> Vec<f64> {
+        vec![(self.low() + self.high()) / 2.0]
+    }
+
+    fn split(&self, point: f64, none_to_left: Option<bool>) -> (Self, Self) {
+        let threshold_idx =
+            Self::split_index_from_boundary(point, self.resolution).unwrap_or_else(|_| {
+            panic!(
+                "QuantizedContinuousInterval split point {point} is not aligned to half-step boundaries for resolution {}",
+                self.resolution
+            )
+        });
+        self.split_at_index(threshold_idx, none_to_left)
+    }
+
+    fn inverse_one_hot(&self, vec: &Vec<f64>) -> f64 {
+        assert!(
+            vec.len() == 1,
+            "QuantizedContinuousInterval expects a single-value vector for inverse_one_hot"
+        );
+        vec[0]
+    }
+
+    fn phi_length(u: f64) -> f64 {
+        if !u.is_finite() {
+            1.0
+        } else if u <= 0.0 {
+            0.0
+        } else {
+            u / (1.0 + u)
+        }
+    }
+}
+
+impl BitAnd for QuantizedContinuousInterval {
+    type Output = QuantizedContinuousInterval;
+
+    fn bitand(self, other: Self) -> Self::Output {
+        QuantizedContinuousInterval {
+            low_idx: self.low_idx.max(other.low_idx),
+            high_idx: self.high_idx.min(other.high_idx),
+            lower_closed: self.lower_closed && other.lower_closed,
+            upper_closed: self.upper_closed && other.upper_closed,
+            resolution: self.resolution,
+            domain: self.domain,
+            accept_none: self.accept_none && other.accept_none,
+        }
+    }
+}
+
+impl fmt::Display for QuantizedContinuousInterval {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let open_low = if self.lower_closed { '[' } else { '(' };
+        let open_high = if self.upper_closed { ']' } else { ')' };
+        write!(
+            f,
+            "QuantizedContinuousInterval({}{:.6}, {:.6}{}, resolution={}, domain_idx=[{}, {}])",
+            open_low,
+            self.low(),
+            self.high(),
+            open_high,
+            self.resolution,
+            self.domain.0,
+            self.domain.1
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn quantized_continuous_volume_scales_with_resolution() {
+        let interval = QuantizedContinuousInterval::new(2, 6, 0.5, Some((2, 6)), true);
+        assert!((interval.low() - 0.75).abs() < 1e-10);
+        assert!((interval.high() - 3.25).abs() < 1e-10);
+        assert!((interval.volume() - 2.5).abs() < 1e-10);
+    }
+
+    #[test]
+    fn quantized_continuous_single_point_has_one_cell_of_volume() {
+        let interval = QuantizedContinuousInterval::new(4, 4, 0.5, Some((4, 4)), true);
+        assert!((interval.low() - 1.75).abs() < 1e-10);
+        assert!((interval.high() - 2.25).abs() < 1e-10);
+        assert!((interval.volume() - 0.5).abs() < 1e-10);
+    }
+
+    #[test]
+    fn quantized_continuous_split_preserves_volume() {
+        let interval = QuantizedContinuousInterval::new(2, 6, 0.5, Some((2, 6)), true);
+        let (left, right) = interval.split(1.75, Some(true));
+
+        assert!((left.volume() - 1.0).abs() < 1e-10);
+        assert!((right.volume() - 1.5).abs() < 1e-10);
+        assert!((left.volume() + right.volume() - interval.volume()).abs() < 1e-10);
+        assert!(left.evaluate(&[Some(1.5)])[0]);
+        assert!(!left.evaluate(&[Some(2.0)])[0]);
+        assert!(right.evaluate(&[Some(2.0)])[0]);
+    }
+
+    #[test]
+    fn quantized_continuous_split_boundary_matches_first_right_index() {
+        assert!(
+            (QuantizedContinuousInterval::split_boundary_from_index(4, 0.5) - 1.75).abs() < 1e-10
+        );
+    }
+
+    #[test]
+    fn quantized_continuous_resolution_one_matches_integer_interval_geometry() {
+        let quantized = QuantizedContinuousInterval::new(2, 6, 1.0, Some((2, 6)), true);
+        let integer = IntegerInterval::new(2, 6, Some((2, 6)), true);
+
+        assert!((quantized.volume() - integer.volume()).abs() < 1e-10);
+        assert!((quantized.relative_volume() - integer.relative_volume()).abs() < 1e-10);
+        assert!((quantized.mean()[0] - integer.mean()[0]).abs() < 1e-10);
+
+        let (q_left, q_right) = quantized.split(3.5, Some(true));
+        let (i_left, i_right) = integer.split(4, Some(true));
+
+        assert!((q_left.volume() - i_left.volume()).abs() < 1e-10);
+        assert!((q_right.volume() - i_right.volume()).abs() < 1e-10);
+        assert!(q_left.evaluate(&[Some(3.0)])[0]);
+        assert!(!q_left.evaluate(&[Some(3.5)])[0]);
+        assert!(q_right.evaluate(&[Some(3.5)])[0]);
+        assert!(!q_left.evaluate(&[Some(4.0)])[0]);
+        assert!(q_right.evaluate(&[Some(4.0)])[0]);
+    }
+
+    #[test]
+    fn quantized_continuous_bin_includes_values_within_half_resolution_of_center() {
+        let zero_bin = QuantizedContinuousInterval::new(0, 0, 1.0, Some((0, 0)), true);
+
+        assert_eq!(QuantizedContinuousInterval::quantize_value(0.0, 1.0), Ok(0));
+        assert_eq!(
+            QuantizedContinuousInterval::quantize_value(0.002, 1.0),
+            Ok(0)
+        );
+        assert!(zero_bin.evaluate(&[Some(0.0)])[0]);
+        assert!(zero_bin.evaluate(&[Some(0.002)])[0]);
+    }
+
+    #[test]
+    fn quantized_continuous_quantize_value_maps_points_to_expected_bins() {
+        let cases = [
+            (-1.49, -1),
+            (-0.51, -1),
+            (-0.49, 0),
+            (0.002, 0),
+            (0.49, 0),
+            (0.51, 1),
+            (1.49, 1),
+            (1.51, 2),
+        ];
+
+        for (value, expected_idx) in cases {
+            assert_eq!(
+                QuantizedContinuousInterval::quantize_value(value, 1.0),
+                Ok(expected_idx),
+                "value {value} should quantize to bin {expected_idx}"
+            );
+        }
+    }
+
+    #[test]
+    fn quantized_continuous_single_bin_includes_closed_endpoints() {
+        let zero_bin = QuantizedContinuousInterval::new(0, 0, 1.0, Some((0, 0)), true);
+
+        assert!(zero_bin.evaluate(&[Some(-0.5)])[0]);
+        assert!(zero_bin.evaluate(&[Some(0.5)])[0]);
+        assert!(!zero_bin.evaluate(&[Some(-0.500_000_1)])[0]);
+        assert!(!zero_bin.evaluate(&[Some(0.500_000_1)])[0]);
+    }
+
+    #[test]
+    fn quantized_continuous_unbounded_interval_tolerance_does_not_swallow_values() {
+        let left = QuantizedContinuousInterval {
+            low_idx: i64::MIN,
+            high_idx: 3,
+            lower_closed: true,
+            upper_closed: false,
+            resolution: 1.0,
+            domain: (i64::MIN, i64::MAX),
+            accept_none: false,
+        };
+
+        assert!(left.evaluate(&[Some(1.0)])[0]);
+        assert!(left.evaluate(&[Some(2.49)])[0]);
+        assert!(!left.evaluate(&[Some(2.5)])[0]);
+    }
+}
+
 // Rule types
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum RuleType {
     Continuous(ContinuousInterval),
     BelongsTo(BelongsTo),
     Integer(IntegerInterval),
+    QuantizedContinuous(QuantizedContinuousInterval),
 }
 
 impl RuleType {
@@ -601,6 +1022,10 @@ impl RuleType {
     pub fn is_integer(&self) -> bool {
         matches!(self, RuleType::Integer(_))
     }
+
+    pub fn is_quantized_continuous(&self) -> bool {
+        matches!(self, RuleType::QuantizedContinuous(_))
+    }
 }
 
 impl fmt::Display for RuleType {
@@ -609,6 +1034,7 @@ impl fmt::Display for RuleType {
             RuleType::Continuous(interval) => write!(f, "{}", interval),
             RuleType::BelongsTo(belongs_to) => write!(f, "{}", belongs_to),
             RuleType::Integer(interval) => write!(f, "{}", interval),
+            RuleType::QuantizedContinuous(interval) => write!(f, "{}", interval),
         }
     }
 }

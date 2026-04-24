@@ -16,10 +16,12 @@
 pub mod categorical;
 pub mod continuous;
 pub mod integer;
+pub mod quantized_continuous;
 
 pub use categorical::CategoricalColumnSplitSearcher;
 pub use continuous::ContinuousColumnSplitSearcher;
 pub use integer::IntegerColumnSplitSearcher;
+pub use quantized_continuous::QuantizedContinuousColumnSplitSearcher;
 
 use crate::cell::Cell;
 use crate::dataset_view::{ColumnView, DatasetView};

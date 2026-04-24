@@ -5,10 +5,11 @@ from pyo3_partition_tree import PyPartitionForest, PyPartitionTree
 from sklearn.utils.validation import check_is_fitted
 from skpro.regression.base import BaseProbaRegressor
 
-from partition_tree.utils import _preprocess, _preprocess_X
-from partition_tree.sklearn.partition_tree import (
+from partition_tree.utils import (
     _convert_string_columns_to_categorical,
     _ensure_numeric_float64,
+    _prepare_regression_training_data,
+    _preprocess_X,
 )
 from partition_tree.skpro.distribution import (
     IntervalDistribution,
@@ -35,6 +36,7 @@ class PartitionTreeRegressor(BaseProbaRegressor):
         min_samples_split=2.0,
         loss=None,
         random_state=42,
+        dtype_overrides="auto",
     ):
         self.max_leaves = max_leaves
         self.boundaries_expansion_factor = boundaries_expansion_factor
@@ -47,6 +49,7 @@ class PartitionTreeRegressor(BaseProbaRegressor):
         self.min_samples_split = min_samples_split
         self.loss = loss
         self.random_state = random_state
+        self.dtype_overrides = dtype_overrides
         super().__init__()
 
     @property
@@ -58,6 +61,14 @@ class PartitionTreeRegressor(BaseProbaRegressor):
         return self.max_depth if self.max_depth is not None else int(1e6)
 
     def _fit(self, X, y):
+        (
+            X_pol,
+            y_pol,
+            self._y_columns,
+            self._categorical_metadata,
+            resolved_dtype_overrides,
+        ) = _prepare_regression_training_data(X, y, self.dtype_overrides)
+
         self.partition_tree_ = PyPartitionTree(
             max_leaves=self._max_leaves,
             boundaries_expansion_factor=self.boundaries_expansion_factor,
@@ -70,24 +81,8 @@ class PartitionTreeRegressor(BaseProbaRegressor):
             min_samples_split=self.min_samples_split,
             loss=self.loss,
             seed=self.random_state,
+            dtype_overrides=resolved_dtype_overrides,
         )
-
-        if isinstance(y, pd.Series):
-            y = y.to_frame("target")
-        elif isinstance(y, np.ndarray):
-            y = pd.DataFrame(y, columns=["target"])
-
-        self._y_columns = y.columns
-        X_proc, y_proc = _preprocess(X, y)
-        X_proc = _ensure_numeric_float64(X_proc)
-        y_proc = _ensure_numeric_float64(y_proc)
-
-        X_pol = pl.DataFrame(X_proc)
-        X_pol, self._categorical_metadata = _convert_string_columns_to_categorical(
-            X_pol, return_categories=True
-        )
-        X_pol = _ensure_numeric_float64(X_pol)
-        y_pol = pl.DataFrame(y_proc).cast(pl.Float64)
 
         try:
             self.partition_tree_.fit(X_pol, y_pol, None)
@@ -194,6 +189,7 @@ class PartitionForestRegressor(BaseProbaRegressor):
         loss=None,
         output_distribution="merged",
         random_state=42,
+        dtype_overrides="auto",
     ):
         """
         Parameters
@@ -227,6 +223,7 @@ class PartitionForestRegressor(BaseProbaRegressor):
         self.loss = loss
         self.random_state = random_state
         self.output_distribution = output_distribution
+        self.dtype_overrides = dtype_overrides
         super().__init__()
 
     @property
@@ -238,6 +235,14 @@ class PartitionForestRegressor(BaseProbaRegressor):
         return self.max_depth if self.max_depth is not None else int(1e6)
 
     def _fit(self, X, y):
+        (
+            X_pol,
+            y_pol,
+            self._y_columns,
+            self._categorical_metadata,
+            resolved_dtype_overrides,
+        ) = _prepare_regression_training_data(X, y, self.dtype_overrides)
+
         self.partition_forest_ = PyPartitionForest(
             n_estimators=self.n_estimators,
             max_leaves=self._max_leaves,
@@ -254,27 +259,8 @@ class PartitionForestRegressor(BaseProbaRegressor):
             replace=self.replace,
             loss=self.loss,
             seed=self.random_state,
+            dtype_overrides=resolved_dtype_overrides,
         )
-
-        if isinstance(y, pd.Series):
-            self._y_columns = [y.name]
-            y = y.to_frame("target")
-        elif isinstance(y, pd.DataFrame):
-            self._y_columns = y.columns.to_list()
-        elif isinstance(y, np.ndarray):
-            self._y_columns = ["target"]
-            y = pd.DataFrame(y, columns=["target"])
-
-        X_proc, y_proc = _preprocess(X, y)
-        X_proc = _ensure_numeric_float64(X_proc)
-        y_proc = _ensure_numeric_float64(y_proc)
-
-        X_pol = pl.DataFrame(X_proc)
-        X_pol, self._categorical_metadata = _convert_string_columns_to_categorical(
-            X_pol, return_categories=True
-        )
-        X_pol = _ensure_numeric_float64(X_pol)
-        y_pol = pl.DataFrame(y_proc).cast(pl.Float64)
 
         self.partition_forest_.fit(X_pol, y_pol, None)
         return self

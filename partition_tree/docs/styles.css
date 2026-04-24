@@ -14,6 +14,127 @@
     --pt-radius: 12px;
     --pt-shadow: 0 1px 3px rgba(0, 0, 0, .06), 0 1px 2px rgba(0, 0, 0, .04);
     --pt-shadow-lg: 0 10px 25px rgba(0, 0, 0, .08), 0 4px 10px rgba(0, 0, 0, .04);
+    --pt-code-bg: #f6f8fa;
+    --pt-code-inline-bg: #f6f8fa;
+    --pt-code-border: #d0d7de;
+    --pt-code-text: #24292e;
+    --pt-code-comment: #6a737d;
+    --pt-code-keyword: #d73a49;
+    --pt-code-string: #032f62;
+    --pt-code-number: #005cc5;
+    --pt-code-function: #6f42c1;
+    --pt-code-method: #6f42c1;
+    --pt-code-argument: #e36209;
+    --pt-code-type: #d73a49;
+    --pt-code-variable: #e36209;
+}
+
+/* ─── Code blocks ─────────────────────────────────────────── */
+p code,
+li code,
+td code,
+th code,
+h1 code,
+h2 code,
+h3 code,
+h4 code,
+h5 code,
+h6 code {
+    background: var(--pt-code-inline-bg);
+    border: 1px solid rgba(15, 23, 42, .08);
+    border-radius: 6px;
+    color: var(--pt-code-text);
+    font-family: "JetBrains Mono", "Fira Code", SFMono-Regular, Consolas, monospace;
+    font-size: .92em;
+    padding: .12rem .4rem;
+}
+
+div.sourceCode {
+    background: var(--pt-code-bg);
+    border: 1px solid var(--pt-code-border);
+    border-radius: var(--pt-radius);
+    box-shadow: var(--pt-shadow);
+    margin: 1.25rem 0;
+}
+
+div.sourceCode pre.sourceCode {
+    background: transparent;
+    color: var(--pt-code-text);
+    font-family: "JetBrains Mono", "Fira Code", SFMono-Regular, Consolas, monospace;
+    font-size: .92rem;
+    line-height: 1.6;
+    padding: 1rem 1.2rem;
+}
+
+div.sourceCode code.sourceCode>span,
+div.sourceCode pre.sourceCode>code.sourceCode>span,
+div.sourceCode code span {
+    color: var(--pt-code-text);
+}
+
+div.sourceCode code span.an,
+div.sourceCode code span.co,
+div.sourceCode code span.cv,
+div.sourceCode code span.do,
+div.sourceCode code span.in,
+div.sourceCode code span.re {
+    color: var(--pt-code-comment);
+}
+
+div.sourceCode code span.at,
+div.sourceCode code span.dt {
+    color: var(--pt-code-type);
+}
+
+div.sourceCode code span.bn,
+div.sourceCode code span.cn,
+div.sourceCode code span.dv,
+div.sourceCode code span.fl,
+div.sourceCode code span.sc {
+    color: var(--pt-code-number);
+}
+
+div.sourceCode code span.cf,
+div.sourceCode code span.kw,
+div.sourceCode code span.pp {
+    color: var(--pt-code-keyword);
+}
+
+div.sourceCode code span.ch,
+div.sourceCode code span.im,
+div.sourceCode code span.ss,
+div.sourceCode code span.st,
+div.sourceCode code span.vs {
+    color: var(--pt-code-string);
+}
+
+div.sourceCode code span.bu,
+div.sourceCode code span.ex {
+    color: var(--pt-code-keyword);
+}
+
+div.sourceCode code span.fu {
+    color: var(--pt-code-function);
+}
+
+div.sourceCode code span.va {
+    color: var(--pt-code-variable);
+}
+
+div.sourceCode code span.pt-code-function {
+    color: var(--pt-code-function);
+}
+
+div.sourceCode code span.pt-code-method {
+    color: var(--pt-code-method);
+}
+
+div.sourceCode code span.pt-code-argument {
+    color: var(--pt-code-argument);
+}
+
+div.sourceCode code span.op {
+    color: var(--pt-code-text);
 }
 
 /* ─── Hero ─────────────────────────────────────────────────── */

@@ -49,11 +49,10 @@ class TestFromMixture:
 
         merged = IntervalDistribution.from_mixture([dist1, dist2])
 
-        # With uniform weights, the merged PDF should be 1.0 in each region
-        # (since each point is covered by exactly one dist with weight 0.5,
-        #  and we normalize by total_weight)
-        assert merged.pdf(np.array([0.5])).values[0, 0] == pytest.approx(1.0, rel=1e-6)
-        assert merged.pdf(np.array([2.5])).values[0, 0] == pytest.approx(1.0, rel=1e-6)
+        # With uniform weights (0.5 each), the mix_pdf on each region is 0.5*(1.0/1.0)=0.5.
+        # The merged distribution renormalizes by norm_merged=1.0, so pdf=0.5.
+        assert merged.pdf(np.array([0.5])).values[0, 0] == pytest.approx(0.5, rel=1e-6)
+        assert merged.pdf(np.array([2.5])).values[0, 0] == pytest.approx(0.5, rel=1e-6)
 
     def test_fully_overlapping_intervals_average_pdf(self):
         """Two distributions covering the same interval should average their PDFs."""
@@ -69,8 +68,9 @@ class TestFromMixture:
 
         merged = IntervalDistribution.from_mixture([dist1, dist2])
 
-        # Average of 0.8 and 0.4 is 0.6
-        expected_pdf = 0.6
+        # dist1 norm=0.8 → true density 1.0; dist2 norm=0.4 → true density 1.0.
+        # mix_pdf = 0.5*(0.8/0.8) + 0.5*(0.4/0.4) = 0.5 + 0.5 = 1.0.
+        expected_pdf = 1.0
         assert merged.pdf(np.array([0.5])).values[0, 0] == pytest.approx(
             expected_pdf, rel=1e-6
         )
@@ -90,41 +90,39 @@ class TestFromMixture:
 
         merged = IntervalDistribution.from_mixture([dist1, dist2])
 
-        # In region [0, 1): only dist1 covers, pdf = 0.5
-        # In region [1, 2]: both cover, pdf = (0.5 + 0.5) / 2 * 2 = 0.5 (normalized)
-        # In region (2, 3]: only dist2 covers, pdf = 0.5
-
         # Check the merged distribution has the correct structure
         assert len(merged._intervals[0]) == 3  # Should have 3 disjoint intervals
 
-        # PDF at 0.5 (only dist1): should be 0.5
-        assert merged.pdf(np.array([0.5])).values[0, 0] == pytest.approx(0.5, rel=1e-6)
+        # dist1 norm=1.0, dist2 norm=1.0. Weights=0.5 each.
+        # At 0.5 (only dist1): mix_pdf = 0.5*(0.5/1.0) = 0.25
+        assert merged.pdf(np.array([0.5])).values[0, 0] == pytest.approx(0.25, rel=1e-6)
 
-        # PDF at 1.5 (both dists): average of 0.5 and 0.5 = 0.5
+        # At 1.5 (both): mix_pdf = 0.5*(0.5/1.0) + 0.5*(0.5/1.0) = 0.5; norm_merged=1.0
         assert merged.pdf(np.array([1.5])).values[0, 0] == pytest.approx(0.5, rel=1e-6)
 
-        # PDF at 2.5 (only dist2): should be 0.5
-        assert merged.pdf(np.array([2.5])).values[0, 0] == pytest.approx(0.5, rel=1e-6)
+        # At 2.5 (only dist2): mix_pdf = 0.5*(0.5/1.0) = 0.25
+        assert merged.pdf(np.array([2.5])).values[0, 0] == pytest.approx(0.25, rel=1e-6)
 
     def test_weighted_merge(self):
         """Weighted merge should correctly apply weights to PDFs."""
+        # Non-overlapping dists: dist1=[0,1], dist2=[1,2], both with density=1.0
         dist1 = IntervalDistribution(
             intervals=[[(0.0, 1.0)]],
             pdf_values=[[1.0]],
         )
         dist2 = IntervalDistribution(
-            intervals=[[(0.0, 1.0)]],
-            pdf_values=[[0.0]],
+            intervals=[[(1.0, 2.0)]],
+            pdf_values=[[1.0]],
         )
 
         # Weight dist1 at 0.75 and dist2 at 0.25
         merged = IntervalDistribution.from_mixture([dist1, dist2], weights=[0.75, 0.25])
 
-        # Expected: 0.75 * 1.0 + 0.25 * 0.0 = 0.75
-        expected_pdf = 0.75
-        assert merged.pdf(np.array([0.5])).values[0, 0] == pytest.approx(
-            expected_pdf, rel=1e-6
-        )
+        # At 0.5 (only dist1): mix_pdf = 0.75*(1.0/1.0) = 0.75; norm_merged=1.0 → pdf=0.75
+        assert merged.pdf(np.array([0.5])).values[0, 0] == pytest.approx(0.75, rel=1e-6)
+
+        # At 1.5 (only dist2): mix_pdf = 0.25*(1.0/1.0) = 0.25; norm_merged=1.0 → pdf=0.25
+        assert merged.pdf(np.array([1.5])).values[0, 0] == pytest.approx(0.25, rel=1e-6)
 
     def test_multiple_instances(self):
         """Merge should work correctly with multiple distribution instances."""
@@ -153,10 +151,11 @@ class TestFromMixture:
         merged = IntervalDistribution.from_mixture([dist1, dist2])
 
         # For multi-instance test, we need to use iloc to select individual instances
-        # Check instance 0: average of 1.0 and 0.5 = 0.75
+        # dist1 instance0 norm=1.0 → true density 1.0; dist2 instance0 norm=0.5 → true density 1.0
+        # mix_pdf = 0.5*(1.0/1.0) + 0.5*(0.5/0.5) = 1.0; norm_merged=1.0 → pdf=1.0
         instance0 = merged.iloc[0]
         assert instance0.pdf(np.array([0.5])).values[0, 0] == pytest.approx(
-            0.75, rel=1e-6
+            1.0, rel=1e-6
         )
 
         # Check instance 1: average of 0.5 and 1.5 = 1.0
@@ -324,18 +323,26 @@ class TestFromMixtureIntegration:
 
         merged = IntervalDistribution.from_mixture([dist1, dist2, dist3])
 
-        # Check PDF at various points
-        # 0.5: only dist1
-        assert merged.pdf(np.array([0.5])).values[0, 0] == pytest.approx(0.5, rel=1e-6)
+        # dist1/2/3 each have norm=1.0, weights=1/3 each.
+        # 0.5 (only dist1): mix_pdf = (1/3)*(0.5/1.0) = 1/6; norm_merged=1.0 → pdf=1/6
+        assert merged.pdf(np.array([0.5])).values[0, 0] == pytest.approx(
+            1 / 6, rel=1e-6
+        )
 
-        # 1.5: dist1 and dist2
-        assert merged.pdf(np.array([1.5])).values[0, 0] == pytest.approx(0.5, rel=1e-6)
+        # 1.5 (dist1+dist2): mix_pdf = 2*(1/3)*(0.5) = 1/3; → pdf=1/3
+        assert merged.pdf(np.array([1.5])).values[0, 0] == pytest.approx(
+            1 / 3, rel=1e-6
+        )
 
-        # 2.5: dist2 and dist3
-        assert merged.pdf(np.array([2.5])).values[0, 0] == pytest.approx(0.5, rel=1e-6)
+        # 2.5 (dist2+dist3): mix_pdf = 2*(1/3)*(0.5) = 1/3; → pdf=1/3
+        assert merged.pdf(np.array([2.5])).values[0, 0] == pytest.approx(
+            1 / 3, rel=1e-6
+        )
 
-        # 3.5: only dist3
-        assert merged.pdf(np.array([3.5])).values[0, 0] == pytest.approx(0.5, rel=1e-6)
+        # 3.5 (only dist3): mix_pdf = (1/3)*(0.5/1.0) = 1/6; → pdf=1/6
+        assert merged.pdf(np.array([3.5])).values[0, 0] == pytest.approx(
+            1 / 6, rel=1e-6
+        )
 
     def test_merge_preserves_index_columns(self):
         """Merged distribution should use correct index and columns."""

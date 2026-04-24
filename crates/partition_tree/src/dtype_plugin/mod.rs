@@ -5,15 +5,17 @@
 //! - Creating default (root) rules for a column of that type.
 //! - Providing the appropriate [`ColumnSplitSearcher`].
 //!
-//! The [`DTypeRegistry`] maps [`LogicalDType`] → [`DTypePlugin`], replacing
+//! The [`DTypeRegistry`] maps [`LogicalDTypeKind`] → [`DTypePlugin`], replacing
 //! the monolithic `match` blocks in v1's `DtypeAdapter`.
 //!
 //! ## Built-in Plugins
 //!
-//! | Plugin               | Handles              | Default rule                                                              |
-//! |----------------------|----------------------|---------------------------------------------------------------------------|
-//! | [`ContinuousPlugin`] | `Float64`, etc.      | Unbounded interval (features) or observed-range with expansion (targets)  |
-//! | [`CategoricalPlugin`]| `Enum`, `Categorical`| `BelongsTo` covering all observed codes                                   |
+//! | Plugin                        | Handles                       | Default rule                                                              |
+//! |-------------------------------|-------------------------------|---------------------------------------------------------------------------|
+//! | [`ContinuousPlugin`]          | `Float64`, etc.               | Unbounded interval (features) or observed-range with expansion (targets)  |
+//! | [`CategoricalPlugin`]         | `Enum`, `Categorical`         | `BelongsTo` covering all observed codes                                   |
+//! | [`IntegerPlugin`]             | `Int32`, `Int64`              | Integer interval over the observed or full integer domain                 |
+//! | [`QuantizedContinuousPlugin`] | Quantized real-valued columns | Lattice interval over `resolution * i`                                    |
 //!
 //! ## Extension
 //!
@@ -25,45 +27,25 @@
 pub mod categorical;
 pub mod continuous;
 pub mod integer;
+pub mod quantized_continuous;
 
 pub use categorical::CategoricalPlugin;
 pub use continuous::ContinuousPlugin;
 pub use integer::IntegerPlugin;
+pub use quantized_continuous::QuantizedContinuousPlugin;
 
 use std::collections::HashMap;
 
 use crate::column_split::ColumnSplitSearcher;
-use crate::dataset_view::{ColumnView, LogicalDType};
+use crate::dataset_view::{ColumnView, LogicalDType, LogicalDTypeKind};
 use crate::rule::DynRule;
 
-// ---------------------------------------------------------------------------
-// DTypePlugin trait
-// ---------------------------------------------------------------------------
-
 /// Extension point for adding new data types to the partition tree.
-///
-/// Each plugin knows how to:
-///
-/// 1. **Create a default (root) rule** for a column of its type
-///    (e.g., an interval spanning the observed range for continuous, or a
-///    `BelongsTo` covering all observed categories).
-/// 2. **Return the [`ColumnSplitSearcher`]**
-///    used to find splits on that type.
-///
-/// # Thread Safety
-///
-/// Must be `Send + Sync` because the registry is shared via `Arc` across
-/// parallel split searches.
 pub trait DTypePlugin: Send + Sync {
-    /// The logical dtype this plugin handles.
-    fn logical_dtype(&self) -> LogicalDType;
+    /// The logical dtype kind this plugin handles.
+    fn logical_dtype_kind(&self) -> LogicalDTypeKind;
 
     /// Create a default (root) rule for a column.
-    ///
-    /// - **Continuous features**: unbounded interval $(-\infty, +\infty)$.
-    /// - **Continuous targets**: interval spanning `[min, max]` of observed
-    ///   values, expanded by `boundaries_expansion_factor`.
-    /// - **Categorical**: a `BelongsTo` rule covering all observed category codes.
     fn default_rule(
         &self,
         col: &dyn ColumnView,
@@ -74,17 +56,9 @@ pub trait DTypePlugin: Send + Sync {
     fn split_searcher(&self) -> &dyn ColumnSplitSearcher;
 }
 
-// ---------------------------------------------------------------------------
-// DTypeRegistry
-// ---------------------------------------------------------------------------
-
-/// Maps [`LogicalDType`] → [`DTypePlugin`].
-///
-/// Use [`DTypeRegistry::default()`] to get a registry with built-in plugins
-/// for [`Continuous`](ContinuousPlugin) and [`Categorical`](CategoricalPlugin)
-/// types. Register custom plugins via [`DTypeRegistry::register`].
+/// Maps [`LogicalDTypeKind`] → [`DTypePlugin`].
 pub struct DTypeRegistry {
-    plugins: HashMap<LogicalDType, Box<dyn DTypePlugin>>,
+    plugins: HashMap<LogicalDTypeKind, Box<dyn DTypePlugin>>,
 }
 
 impl DTypeRegistry {
@@ -95,14 +69,14 @@ impl DTypeRegistry {
         }
     }
 
-    /// Register a plugin. Replaces any existing plugin for the same dtype.
+    /// Register a plugin. Replaces any existing plugin for the same dtype kind.
     pub fn register(&mut self, plugin: Box<dyn DTypePlugin>) {
-        self.plugins.insert(plugin.logical_dtype(), plugin);
+        self.plugins.insert(plugin.logical_dtype_kind(), plugin);
     }
 
     /// Get the plugin for a logical dtype.
     pub fn get(&self, dtype: LogicalDType) -> Option<&dyn DTypePlugin> {
-        self.plugins.get(&dtype).map(|p| p.as_ref())
+        self.plugins.get(&dtype.kind()).map(|p| p.as_ref())
     }
 
     /// Get the plugin for a logical dtype, panicking if not found.
@@ -113,19 +87,15 @@ impl DTypeRegistry {
 }
 
 impl Default for DTypeRegistry {
-    /// Create a registry with built-in plugins for Continuous, Categorical, and Integer.
     fn default() -> Self {
         let mut reg = Self::new();
         reg.register(Box::new(ContinuousPlugin::new()));
         reg.register(Box::new(CategoricalPlugin::new()));
         reg.register(Box::new(IntegerPlugin::new()));
+        reg.register(Box::new(QuantizedContinuousPlugin::new()));
         reg
     }
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -137,5 +107,8 @@ mod tests {
         assert!(reg.get(LogicalDType::Continuous).is_some());
         assert!(reg.get(LogicalDType::Categorical).is_some());
         assert!(reg.get(LogicalDType::Integer).is_some());
+        assert!(reg
+            .get(LogicalDType::quantized_continuous(1.0).unwrap())
+            .is_some());
     }
 }
