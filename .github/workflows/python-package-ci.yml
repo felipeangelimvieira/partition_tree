@@ -57,6 +57,15 @@ jobs:
         uses: actions/attest-build-provenance@v3
         with:
           subject-path: 'python-package-dist/*'
+      - name: Verify PyPI token
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          if [[ -z "$UV_PUBLISH_TOKEN" ]]; then
+            echo "Missing GitHub Actions secret PYPI_API_TOKEN." >&2
+            echo "Add a PyPI API token in Settings > Secrets and variables > Actions." >&2
+            exit 1
+          fi
       - name: Install uv
         uses: astral-sh/setup-uv@v7
       - name: Publish to PyPI
