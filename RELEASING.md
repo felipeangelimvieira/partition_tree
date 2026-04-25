@@ -13,6 +13,8 @@ The Python package workflow also updates the documentation website:
 - Pushes to `main` publish the development docs to `dev/`.
 - Published `partition_tree-py-v*` GitHub releases publish versioned docs to `/<version>/`,
   refresh `latest/`, and update the production root for `partitiontree.com`.
+- The `Docs Latest CI` workflow can be triggered manually to rebuild `latest/` and
+    the production root directly from the current `main` branch.
 
 ## Required credentials
 
@@ -46,6 +48,10 @@ the version argument, the script infers it from the relevant manifest:
 `Cargo.toml` for Rust crates, `pyproject.toml` for Python packages, and both
 `pyo3_partition_tree/Cargo.toml` and `pyo3_partition_tree/pyproject.toml` for
 the PyO3 package.
+
+The `partition_tree` Python package workflow builds the package artifact, tests
+that local artifact against the already-published `pyo3-partition-tree`
+dependency from PyPI, and only then publishes the Python package itself.
 
 Use the script in that order. `partition_tree` depends on `estimators`, the
 PyO3 package depends on the Rust crates, and the Python package depends on the

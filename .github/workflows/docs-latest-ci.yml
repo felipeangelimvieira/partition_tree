@@ -1,0 +1,83 @@
+name: Docs Latest CI
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-main
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  docs-latest:
+    name: Build and Publish Latest Docs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v6
+        with:
+          ref: refs/heads/main
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Set up Rust stable
+        run: |
+          rustup update stable
+          rustup default stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-docs-latest-${{ hashFiles('Cargo.toml', 'crates/**/Cargo.toml', 'pyo3_partition_tree/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-docs-latest-
+
+      - name: Install maturin
+        run: pip install maturin
+
+      - name: Build pyo3_partition_tree wheel from source
+        working-directory: pyo3_partition_tree
+        run: maturin build --release --out dist
+
+      - name: Install documentation dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyo3_partition_tree/dist/*.whl
+          python -m pip install -e "./partition_tree[docs]"
+
+      - name: Set PYTHONPATH
+        run: echo "PYTHONPATH=$GITHUB_WORKSPACE/partition_tree/src" >> "$GITHUB_ENV"
+
+      - name: Install Quarto
+        uses: quarto-dev/quarto-actions/setup@v2
+
+      - name: Check Quarto installation
+        run: quarto check
+
+      - name: Render Quarto site
+        working-directory: partition_tree
+        run: quarto render docs
+
+      - name: Publish Latest Alias
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./partition_tree/docs/_site
+          destination_dir: latest
+
+      - name: Publish Production Site
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./partition_tree/docs/_site
+          keep_files: true
+          cname: partitiontree.com
