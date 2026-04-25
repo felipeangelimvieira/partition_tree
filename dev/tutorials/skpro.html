@@ -273,7 +273,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h2 class="anchored" data-anchor-id="basic-usage">1. Basic Usage</h2>
 <section id="fit-and-predict" class="level3">
 <h3 class="anchored" data-anchor-id="fit-and-predict">1.1 Fit and Predict</h3>
-<div id="dc138a12" class="cell" data-execution_count="1">
+<div id="9fe0e1b0" class="cell" data-execution_count="1">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> pandas <span class="im">as</span> pd</span>
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.datasets <span class="im">import</span> fetch_california_housing</span>
 <span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.model_selection <span class="im">import</span> train_test_split</span>
@@ -314,7 +314,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="probabilistic-predictions" class="level3">
 <h3 class="anchored" data-anchor-id="probabilistic-predictions">1.2 Probabilistic Predictions</h3>
 <p><code>predict_proba</code> returns an <code>IntervalDistribution</code> object:</p>
-<div id="24e1c1f6" class="cell" data-execution_count="2">
+<div id="0e92e06f" class="cell" data-execution_count="2">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>dist <span class="op">=</span> pt.predict_proba(X_test)</span>
 <span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="bu">type</span>(dist))</span>
 <span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="co"># &lt;class 'partition_tree.skpro.distribution.IntervalDistribution'&gt;</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
@@ -323,7 +323,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 </div>
 <p>From this distribution you can extract:</p>
-<div id="cd73822f" class="cell" data-execution_count="3">
+<div id="a69e5c96" class="cell" data-execution_count="3">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Posterior mean</span></span>
 <span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>mean <span class="op">=</span> dist.mean()</span>
 <span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a></span>
@@ -348,7 +348,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="prediction-intervals" class="level2">
 <h2 class="anchored" data-anchor-id="prediction-intervals">2. Prediction Intervals</h2>
 <p>One of the key advantages of probabilistic predictions is the ability to construct <strong>prediction intervals</strong> at any confidence level.</p>
-<div id="0fa5b5b7" class="cell" data-execution_count="4">
+<div id="92a97d26" class="cell" data-execution_count="4">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
 <span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="co"># 80% prediction interval: [10th percentile, 90th percentile]</span></span>
@@ -368,7 +368,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="visualizing-the-predictive-pdf" class="level2">
 <h2 class="anchored" data-anchor-id="visualizing-the-predictive-pdf">3. Visualizing the Predictive PDF</h2>
 <p>The <code>IntervalDistribution</code> has a built-in <code>plot</code> method that draws the piecewise-constant density as histogram-like bars:</p>
-<div id="6e43066c" class="cell" data-execution_count="5">
+<div id="cb0643cb" class="cell" data-execution_count="5">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
 <span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a><span class="co"># Plot the predictive PDF for a single test sample</span></span>
@@ -399,7 +399,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 <section id="multiple-samples-side-by-side" class="level3">
 <h3 class="anchored" data-anchor-id="multiple-samples-side-by-side">Multiple samples side by side</h3>
-<div id="9f2b7349" class="cell" data-execution_count="6">
+<div id="178a3227" class="cell" data-execution_count="6">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb9"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>fig, axes <span class="op">=</span> plt.subplots(<span class="dv">1</span>, <span class="dv">4</span>, figsize<span class="op">=</span>(<span class="dv">16</span>, <span class="dv">3</span>))</span>
 <span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> ax, i <span class="kw">in</span> <span class="bu">zip</span>(axes, <span class="bu">range</span>(<span class="dv">4</span>)):</span>
 <span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>    row_idx <span class="op">=</span> y_test.index[i]</span>
@@ -419,7 +419,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="partition-forest-ensemble" class="level2">
 <h2 class="anchored" data-anchor-id="partition-forest-ensemble">4. Partition Forest (Ensemble)</h2>
 <p><code>PartitionForestRegressor</code> averages the conditional densities from multiple trees, producing smoother and better-calibrated distributions.</p>
-<div id="c628f220" class="cell" data-execution_count="7">
+<div id="93ac97e0" class="cell" data-execution_count="7">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> partition_tree.skpro <span class="im">import</span> PartitionForestRegressor</span>
 <span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>pf <span class="op">=</span> PartitionForestRegressor(</span>
@@ -436,7 +436,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 <section id="comparing-tree-vs-forest" class="level3">
 <h3 class="anchored" data-anchor-id="comparing-tree-vs-forest">Comparing Tree vs Forest</h3>
-<div id="45055c99" class="cell" data-execution_count="8">
+<div id="f5455d87" class="cell" data-execution_count="8">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb11"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.metrics <span class="im">import</span> mean_absolute_error, r2_score</span>
 <span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>y_mean_tree   <span class="op">=</span> pt.predict(X_test)[<span class="st">"MedHouseVal"</span>]</span>
@@ -459,7 +459,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </section>
 <section id="coverage-comparison" class="level3">
 <h3 class="anchored" data-anchor-id="coverage-comparison">Coverage comparison</h3>
-<div id="4374f699" class="cell" data-execution_count="9">
+<div id="4058c422" class="cell" data-execution_count="9">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>lower_f <span class="op">=</span> dist_forest.ppf(<span class="fl">0.10</span>)[<span class="st">"MedHouseVal"</span>]</span>
 <span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>upper_f <span class="op">=</span> dist_forest.ppf(<span class="fl">0.90</span>)[<span class="st">"MedHouseVal"</span>]</span>
 <span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>covered_f <span class="op">=</span> ((y_true <span class="op">&gt;=</span> lower_f.values) <span class="op">&amp;</span> (y_true <span class="op">&lt;=</span> upper_f.values)).mean()</span>
@@ -473,7 +473,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="per-tree-distributions" class="level2">
 <h2 class="anchored" data-anchor-id="per-tree-distributions">5. Per-Tree Distributions</h2>
 <p>The forest exposes <code>predict_proba_per_tree</code> to access each individual tree’s distribution before mixing:</p>
-<div id="e9adf864" class="cell" data-execution_count="10">
+<div id="2b49a6fb" class="cell" data-execution_count="10">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb13"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>per_tree_dists <span class="op">=</span> pf.predict_proba_per_tree(X_test)</span>
 <span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Number of trees: </span><span class="sc">{</span><span class="bu">len</span>(per_tree_dists)<span class="sc">}</span><span class="ss">"</span>)</span>
@@ -488,7 +488,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="feature-importances" class="level2">
 <h2 class="anchored" data-anchor-id="feature-importances">6. Feature Importances</h2>
 <p>The tree exposes feature importances based on the log-loss gain accumulated across all splits:</p>
-<div id="16a4e797" class="cell" data-execution_count="11">
+<div id="319084a2" class="cell" data-execution_count="11">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb14"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a>importances <span class="op">=</span> pt.get_feature_importances(normalize<span class="op">=</span><span class="va">True</span>)</span>
 <span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> feat, imp <span class="kw">in</span> importances.items():</span>
 <span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f"  </span><span class="sc">{</span>feat<span class="sc">:&gt;20s}</span><span class="ss">: </span><span class="sc">{</span>imp<span class="sc">:.4f}</span><span class="ss">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
@@ -498,7 +498,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="leaf-information" class="level2">
 <h2 class="anchored" data-anchor-id="leaf-information">7. Leaf Information</h2>
 <p>Inspect the partition structure:</p>
-<div id="4e289b31" class="cell" data-execution_count="12">
+<div id="a435de93" class="cell" data-execution_count="12">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb15"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a>leaves <span class="op">=</span> pt.get_leaves_info()</span>
 <span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Number of leaves: </span><span class="sc">{</span><span class="bu">len</span>(leaves)<span class="sc">}</span><span class="ss">"</span>)</span>
 <span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Keys per leaf: </span><span class="sc">{</span><span class="bu">list</span>(leaves[<span class="dv">0</span>].keys())<span class="sc">}</span><span class="ss">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
