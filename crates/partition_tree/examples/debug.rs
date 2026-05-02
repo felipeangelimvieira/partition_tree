@@ -93,6 +93,7 @@ fn main() {
         &dataset,
         &loss,
         &restrictions,
+        None,
         4.0,
     );
     match &result {
@@ -114,6 +115,7 @@ fn main() {
         &dataset,
         &loss,
         &restrictions,
+        None,
         4.0,
     );
     match &result2 {
