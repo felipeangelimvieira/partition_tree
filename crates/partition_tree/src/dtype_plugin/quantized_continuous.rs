@@ -27,9 +27,7 @@ impl QuantizedContinuousPlugin {
     fn resolution_for_column(col: &dyn ColumnView) -> f64 {
         match col.logical_dtype() {
             LogicalDType::QuantizedContinuous(spec) => spec.resolution(),
-            dtype => panic!(
-                "QuantizedContinuousPlugin requires a quantized column, got {dtype:?}"
-            ),
+            dtype => panic!("QuantizedContinuousPlugin requires a quantized column, got {dtype:?}"),
         }
     }
 
@@ -66,6 +64,35 @@ impl QuantizedContinuousPlugin {
             Some((min_idx, max_idx))
         }
     }
+
+    fn floor_to_i64(value: f64) -> i64 {
+        value.floor().clamp(i64::MIN as f64, i64::MAX as f64) as i64
+    }
+
+    fn ceil_to_i64(value: f64) -> i64 {
+        value.ceil().clamp(i64::MIN as f64, i64::MAX as f64) as i64
+    }
+
+    fn expand_target_bounds_by_magnitude(
+        min_idx: i64,
+        max_idx: i64,
+        resolution: f64,
+        boundaries_expansion_factor: f64,
+    ) -> (i64, i64) {
+        let min_val = min_idx as f64 * resolution;
+        let max_val = max_idx as f64 * resolution;
+        let range = max_val - min_val;
+        let mean = (max_val + min_val) / 2.0;
+        let expanded_width = range * (1.0 + boundaries_expansion_factor);
+        let low = mean - expanded_width / 2.0;
+        let high = mean + expanded_width / 2.0;
+
+        // Keep the quantized rule lattice-aligned, but derive the enclosing
+        // bounds from value-space magnitude rather than whole extra steps.
+        let low_idx = Self::floor_to_i64(low / resolution + 0.5);
+        let high_idx = Self::ceil_to_i64(high / resolution - 0.5);
+        (low_idx, high_idx)
+    }
 }
 
 impl Default for QuantizedContinuousPlugin {
@@ -90,10 +117,12 @@ impl DTypePlugin for QuantizedContinuousPlugin {
 
         if is_target {
             let (min_idx, max_idx) = bounds.unwrap_or((0, 1));
-            let range_steps = (max_idx - min_idx).abs() as f64;
-            let expansion = (range_steps * boundaries_expansion_factor / 2.0).ceil() as i64;
-            let low_idx = min_idx.saturating_sub(expansion);
-            let high_idx = max_idx.saturating_add(expansion);
+            let (low_idx, high_idx) = Self::expand_target_bounds_by_magnitude(
+                min_idx,
+                max_idx,
+                resolution,
+                boundaries_expansion_factor,
+            );
 
             Box::new(QuantizedContinuousInterval::new(
                 low_idx,
@@ -176,6 +205,41 @@ mod tests {
             .expect("expected QuantizedContinuousInterval");
         assert!(qi.low() <= 10.0, "low should be at or below min value");
         assert!(qi.high() >= 11.0, "high should be at or above max value");
+    }
+
+    #[test]
+    fn quantized_plugin_expands_targets_by_value_magnitude() {
+        let df = DataFrame::new(vec![Column::new(
+            "target__y1".into(),
+            &[10.0_f64, 10.5, 11.0],
+        )])
+        .unwrap();
+
+        let mut overrides = std::collections::HashMap::new();
+        overrides.insert(
+            "target__y1".to_string(),
+            LogicalDType::quantized_continuous(0.5).unwrap(),
+        );
+        let view = PolarsDatasetView::try_with_dtype_overrides(&df, &overrides).unwrap();
+        let col = view.column("target__y1").unwrap();
+
+        let plugin = QuantizedContinuousPlugin::new();
+        let rule = plugin.default_rule(col, 0.1);
+
+        let qi = rule
+            .as_any()
+            .downcast_ref::<QuantizedContinuousInterval>()
+            .expect("expected QuantizedContinuousInterval");
+        assert_eq!(
+            qi.low_idx, 20,
+            "small value-space expansion should not add a full extra bin on the left"
+        );
+        assert_eq!(
+            qi.high_idx, 22,
+            "small value-space expansion should not add a full extra bin on the right"
+        );
+        assert!((qi.low() - 9.75).abs() < 1e-10);
+        assert!((qi.high() - 11.25).abs() < 1e-10);
     }
 
     #[test]
