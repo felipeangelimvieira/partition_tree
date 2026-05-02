@@ -2,7 +2,7 @@
 //!
 //! Handles `Int32` and `Int64` Polars columns using a presorted scan
 //! analogous to the continuous searcher but with integer thresholds.
-use super::{ColumnSplitSearcher, cumsum, split_nulls};
+use super::{ColumnSplitSearcher, clip_candidate_positions, cumsum, split_nulls};
 use crate::cell::Cell;
 use crate::dataset_view::{ColumnView, DatasetView};
 use crate::loss::{CellStats, LossFunc};
@@ -42,6 +42,7 @@ impl ColumnSplitSearcher for IntegerColumnSplitSearcher {
         dataset: &dyn DatasetView,
         loss: &dyn LossFunc,
         restrictions: &SplitRestrictions,
+        max_candidate_split_points: Option<usize>,
         dataset_size: f64,
     ) -> Option<SplitPoint> {
         let col_name = col.name();
@@ -80,6 +81,21 @@ impl ColumnSplitSearcher for IntegerColumnSplitSearcher {
             return None;
         }
 
+        let valid_candidate_positions: Vec<usize> = (0..candidates.len() - 1)
+            .filter(|&k| {
+                let i0 = candidates[k] as usize;
+                let i1 = candidates[k + 1] as usize;
+
+                matches!((col.get_i64(i0), col.get_i64(i1)), (Some(v0), Some(v1)) if v0 != v1)
+            })
+            .collect();
+        let candidate_positions =
+            clip_candidate_positions(&valid_candidate_positions, max_candidate_split_points);
+
+        if candidate_positions.is_empty() {
+            return None;
+        }
+
         // Prefix sums on candidate weights
         let candidate_weights: Vec<f64> = match split_kind {
             SplitKind::XSplit => candidates.iter().map(|&i| weights_x[i as usize]).collect(),
@@ -99,7 +115,7 @@ impl ColumnSplitSearcher for IntegerColumnSplitSearcher {
         for &none_to_left in &[true, false] {
             let mut p_xy: usize = 0;
 
-            for k in 0..candidates.len() - 1 {
+            for &k in &candidate_positions {
                 let i0 = candidates[k] as usize;
                 let i1 = candidates[k + 1] as usize;
 

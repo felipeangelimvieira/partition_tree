@@ -206,6 +206,7 @@ impl PyPartitionTree {
         max_samples = None,
         replace = true,
         max_features = None,
+        max_candidate_split_points = None,
         loss = None,
         seed = None,
         dtype_overrides = None,
@@ -224,6 +225,7 @@ impl PyPartitionTree {
         max_samples: Option<f64>,
         replace: bool,
         max_features: Option<f64>,
+        max_candidate_split_points: Option<usize>,
         loss: Option<String>,
         seed: Option<u64>,
         dtype_overrides: Option<Py<PyDict>>,
@@ -245,8 +247,7 @@ impl PyPartitionTree {
         }?;
         let dtype_overrides = parse_dtype_overrides(py, dtype_overrides)?;
 
-        Ok(Self {
-            inner: PartitionTree::new(
+        let mut inner = PartitionTree::new(
                 max_leaves,
                 boundaries_expansion_factor,
                 min_samples_xy,
@@ -262,8 +263,10 @@ impl PyPartitionTree {
                 loss_obj,
                 seed,
                 dtype_overrides,
-            ),
-        })
+            );
+        inner.max_candidate_split_points = max_candidate_split_points;
+
+        Ok(Self { inner })
     }
 
     pub fn fit(
@@ -547,6 +550,7 @@ impl PyPartitionForest {
         max_samples = None,
         replace = true,
         max_features = None,
+        max_candidate_split_points = None,
         loss = None,
         seed = None,
         dtype_overrides = None,
@@ -566,6 +570,7 @@ impl PyPartitionForest {
         max_samples: Option<f64>,
         replace: bool,
         max_features: Option<f64>,
+        max_candidate_split_points: Option<usize>,
         loss: Option<String>,
         seed: Option<usize>,
         dtype_overrides: Option<Py<PyDict>>,
@@ -587,8 +592,7 @@ impl PyPartitionForest {
         }?;
         let dtype_overrides = parse_dtype_overrides(py, dtype_overrides)?;
 
-        Ok(Self {
-            inner: PartitionForest::new(
+        let mut inner = PartitionForest::new(
                 n_estimators,
                 max_leaves,
                 boundaries_expansion_factor,
@@ -605,8 +609,10 @@ impl PyPartitionForest {
                 loss_obj,
                 seed,
                 dtype_overrides,
-            ),
-        })
+            );
+        inner.max_candidate_split_points = max_candidate_split_points;
+
+        Ok(Self { inner })
     }
 
     pub fn fit(

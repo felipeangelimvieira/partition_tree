@@ -65,6 +65,7 @@ pub trait ColumnSplitSearcher: Send + Sync {
         dataset: &dyn DatasetView,
         loss: &dyn LossFunc,
         restrictions: &SplitRestrictions,
+        max_candidate_split_points: Option<usize>,
         dataset_size: f64,
     ) -> Option<SplitPoint>;
 }
@@ -103,6 +104,36 @@ pub(crate) fn cumsum(values: &[f64]) -> Vec<f64> {
     result
 }
 
+/// Deterministically clip valid candidate split positions.
+///
+/// The input is assumed to already contain only valid split boundaries. When a
+/// cap is provided, we keep a deterministic subset that spans the full range of
+/// positions instead of taking the first `max` entries.
+pub(crate) fn clip_candidate_positions(
+    candidate_positions: &[usize],
+    max_candidate_split_points: Option<usize>,
+) -> Vec<usize> {
+    let total = candidate_positions.len();
+
+    match max_candidate_split_points {
+        _ if total == 0 => Vec::new(),
+        None => candidate_positions.to_vec(),
+        Some(0) => Vec::new(),
+        Some(max) if max >= total => candidate_positions.to_vec(),
+        // With a single retained candidate, choose the middle valid position.
+        Some(1) => vec![candidate_positions[total / 2]],
+        Some(max) => (0..max)
+            .map(|slot| {
+                // Map each output slot onto the closed interval [0, total - 1]
+                // so the retained candidates are spread across the full search
+                // range and remain stable across runs.
+                let idx = slot * (total - 1) / (max - 1);
+                candidate_positions[idx]
+            })
+            .collect(),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -116,5 +147,24 @@ mod tests {
         let v = vec![1.0, 2.0, 3.0, 4.0];
         let cs = cumsum(&v);
         assert_eq!(cs, vec![1.0, 3.0, 6.0, 10.0]);
+    }
+
+    #[test]
+    fn clip_candidate_positions_preserves_all_when_unbounded() {
+        let positions = vec![1, 3, 4, 8, 10];
+
+        assert_eq!(clip_candidate_positions(&positions, None), positions);
+    }
+
+    #[test]
+    fn clip_candidate_positions_samples_evenly() {
+        let positions = vec![1, 3, 4, 8, 10];
+
+        assert_eq!(
+            clip_candidate_positions(&positions, Some(3)),
+            vec![1, 4, 10]
+        );
+        assert_eq!(clip_candidate_positions(&positions, Some(1)), vec![4]);
+        assert!(clip_candidate_positions(&positions, Some(0)).is_empty());
     }
 }

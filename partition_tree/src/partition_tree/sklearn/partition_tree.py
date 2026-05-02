@@ -224,6 +224,7 @@ class PartitionTreeClassifier(ClassifierMixin, BaseEstimator):
         min_volume_fraction=0.0,
         max_depth=None,
         min_samples_split=2.0,
+        max_candidate_split_points=None,
         loss=None,
         random_state=42,
         dtype_overrides=None,
@@ -237,6 +238,7 @@ class PartitionTreeClassifier(ClassifierMixin, BaseEstimator):
         self.min_volume_fraction = min_volume_fraction
         self.max_depth = max_depth
         self.min_samples_split = min_samples_split
+        self.max_candidate_split_points = max_candidate_split_points
         self.loss = loss
         self.random_state = random_state
         self.dtype_overrides = dtype_overrides
@@ -261,6 +263,7 @@ class PartitionTreeClassifier(ClassifierMixin, BaseEstimator):
             min_volume_fraction=self.min_volume_fraction,
             max_depth=self._max_depth,
             min_samples_split=self.min_samples_split,
+            max_candidate_split_points=self.max_candidate_split_points,
             loss=self.loss,
             seed=self.random_state,
             dtype_overrides=self.dtype_overrides,
@@ -348,6 +351,7 @@ class PartitionForestClassifier(ClassifierMixin, BaseEstimator):
         max_samples=0.8,
         replace=True,
         max_features=0.8,
+        max_candidate_split_points=None,
         loss=None,
         random_state=None,
     ):
@@ -364,6 +368,7 @@ class PartitionForestClassifier(ClassifierMixin, BaseEstimator):
         self.max_samples = max_samples
         self.replace = replace
         self.max_features = max_features
+        self.max_candidate_split_points = max_candidate_split_points
         self.loss = loss
         self.random_state = random_state
         super().__init__()
@@ -391,6 +396,7 @@ class PartitionForestClassifier(ClassifierMixin, BaseEstimator):
             max_samples=self.max_samples,
             replace=self.replace,
             max_features=self.max_features,
+            max_candidate_split_points=self.max_candidate_split_points,
             loss=self.loss,
             seed=self.random_state,
         )
@@ -465,6 +471,7 @@ class PartitionTreeRegressor(RegressorMixin, BaseEstimator):
         min_volume_fraction=0.1,
         max_depth=None,
         min_samples_split=2.0,
+        max_candidate_split_points=None,
         loss=None,
         random_state=42,
         dtype_overrides="auto",
@@ -478,6 +485,7 @@ class PartitionTreeRegressor(RegressorMixin, BaseEstimator):
         self.min_volume_fraction = min_volume_fraction
         self.max_depth = max_depth
         self.min_samples_split = min_samples_split
+        self.max_candidate_split_points = max_candidate_split_points
         self.loss = loss
         self.random_state = random_state
         self.dtype_overrides = dtype_overrides
@@ -514,6 +522,7 @@ class PartitionTreeRegressor(RegressorMixin, BaseEstimator):
             min_volume_fraction=self.min_volume_fraction,
             max_depth=self._max_depth,
             min_samples_split=self.min_samples_split,
+            max_candidate_split_points=self.max_candidate_split_points,
             loss=self.loss,
             seed=self.random_state,
             dtype_overrides=resolved_dtype_overrides,
@@ -572,6 +581,7 @@ class PartitionForestRegressor(RegressorMixin, BaseEstimator):
         max_samples=0.8,
         replace=True,
         max_features=0.8,
+        max_candidate_split_points=None,
         loss=None,
         random_state=42,
         dtype_overrides="auto",
@@ -589,6 +599,7 @@ class PartitionForestRegressor(RegressorMixin, BaseEstimator):
         self.max_samples = max_samples
         self.replace = replace
         self.max_features = max_features
+        self.max_candidate_split_points = max_candidate_split_points
         self.loss = loss
         self.random_state = random_state
         self.dtype_overrides = dtype_overrides
@@ -629,6 +640,7 @@ class PartitionForestRegressor(RegressorMixin, BaseEstimator):
             max_samples=self.max_samples,
             replace=self.replace,
             max_features=self.max_features,
+            max_candidate_split_points=self.max_candidate_split_points,
             loss=self.loss,
             seed=self.random_state,
             dtype_overrides=resolved_dtype_overrides,

@@ -53,6 +53,7 @@ impl SplitSearcher {
         loss: &dyn LossFunc,
         restrictions: &SplitRestrictions,
         max_features: Option<usize>,
+        max_candidate_split_points: Option<usize>,
         rng: &mut StdRng,
         dataset_size: f64,
     ) -> Option<SplitPoint> {
@@ -110,6 +111,7 @@ impl SplitSearcher {
                     dataset,
                     loss,
                     restrictions,
+                    max_candidate_split_points,
                     dataset_size,
                 )
             })
@@ -187,8 +189,16 @@ mod tests {
         let restrictions = SplitRestrictions::default();
         let mut rng = StdRng::seed_from_u64(42);
 
-        let result =
-            searcher.find_best_split(&node, &dataset, &loss, &restrictions, None, &mut rng, 5.0);
+        let result = searcher.find_best_split(
+            &node,
+            &dataset,
+            &loss,
+            &restrictions,
+            None,
+            None,
+            &mut rng,
+            5.0,
+        );
 
         assert!(result.is_some(), "should find a valid split");
         let split = result.unwrap();
@@ -213,6 +223,7 @@ mod tests {
             &loss,
             &restrictions,
             Some(1),
+            None,
             &mut rng,
             5.0,
         );
@@ -292,6 +303,7 @@ mod tests {
                 &loss,
                 &restrictions,
                 Some(1),
+                None,
                 &mut rng,
                 5.0,
             ) {

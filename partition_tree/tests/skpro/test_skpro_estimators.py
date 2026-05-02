@@ -13,7 +13,6 @@ from partition_tree.skpro import (
 )
 from partition_tree.skpro.distribution import IntervalDistribution
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -168,6 +167,21 @@ class TestPartitionForestEndToEnd:
         dist = model.predict_proba(X_test)
         samples = dist.sample(n_samples=10)
         assert samples.shape[0] == 10 * X_test.shape[0]
+
+
+def test_skpro_estimators_expose_max_candidate_split_points_parameter():
+    tree = PartitionTreeRegressor(
+        max_leaves=20, max_depth=5, max_candidate_split_points=7
+    )
+    forest = PartitionForestRegressor(
+        n_estimators=5,
+        max_leaves=20,
+        max_depth=5,
+        max_candidate_split_points=11,
+    )
+
+    assert tree.get_params()["max_candidate_split_points"] == 7
+    assert forest.get_params()["max_candidate_split_points"] == 11
 
 
 # ---------------------------------------------------------------------------

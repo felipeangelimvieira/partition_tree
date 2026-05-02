@@ -194,3 +194,30 @@ def test_partition_forest_regressor_auto_dtype_override_detects_quantized_resolu
     nodes = model.partition_tree_.get_nodes_info()
     assert nodes[0][0]["partitions"]["x1"]["type"] == "quantized_continuous"
     assert nodes[0][0]["partitions"]["x1"]["resolution"] == pytest.approx(0.5)
+
+
+def test_max_candidate_split_points_zero_prevents_sklearn_tree_and_forest_splits():
+    X = pd.DataFrame({"x1": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]})
+    y = pd.Series([10.0, 10.0, 10.0, 20.0, 20.0, 20.0], name="target")
+
+    tree = PartitionTreeRegressor(
+        max_depth=5,
+        min_samples_split=2,
+        max_candidate_split_points=0,
+        random_state=42,
+    )
+    forest = PartitionForestRegressor(
+        n_estimators=3,
+        max_depth=5,
+        min_samples_split=2,
+        max_candidate_split_points=0,
+        random_state=42,
+    )
+
+    tree.fit(X, y)
+    forest.fit(X, y)
+
+    assert tree.get_params()["max_candidate_split_points"] == 0
+    assert forest.get_params()["max_candidate_split_points"] == 0
+    assert tree.partition_tree_.get_split_history() == []
+    assert all(history == [] for history in forest.partition_tree_.get_split_history())
