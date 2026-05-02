@@ -1,6 +1,6 @@
 [package]
 name = "pyo3_partition_tree"
-version = "0.0.4"
+version = "0.0.5"
 edition = "2024"
 description = "Python bindings for partition_tree implemented with PyO3."
 repository = "https://github.com/felipeangelimvieira/partition_tree"
@@ -14,7 +14,7 @@ crate-type = ["cdylib"]
 [dependencies]
 bincode = "1.3"
 estimators = { version = "0.0.2", path = "../crates/estimators" }
-partition_tree = { version = "0.0.3", path = "../crates/partition_tree" }
+partition_tree = { version = "0.0.4", path = "../crates/partition_tree" }
 polars = { version = "0.51.0", features = ["full"] }
 polars-core = "0.51.0"
 pyo3 = { version = "0.25.1", features = ["extension-module"] }
