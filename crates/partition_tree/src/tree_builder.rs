@@ -56,6 +56,9 @@ pub struct TreeBuilderConfig {
     /// Fraction of *feature* columns to consider at each split. `None` means
     /// use all features (default). Target columns are always included.
     pub max_features: Option<f64>,
+    /// Maximum number of candidate split points evaluated per column during a
+    /// split search. `None` means evaluate every valid candidate.
+    pub max_candidate_split_points: Option<usize>,
     /// RNG seed for reproducible bootstrap / feature subsampling.
     /// `None` uses OS entropy.
     pub seed: Option<u64>,
@@ -70,6 +73,7 @@ impl Default for TreeBuilderConfig {
             max_samples: None,
             replace: true,
             max_features: None,
+            max_candidate_split_points: None,
             seed: None,
         }
     }
@@ -179,6 +183,7 @@ impl TreeBuilder {
                 self.loss.as_ref(),
                 &self.config.restrictions,
                 max_features_count,
+                self.config.max_candidate_split_points,
                 &mut rng,
                 dataset_size,
             ) {
@@ -294,6 +299,7 @@ impl TreeBuilder {
                         self.loss.as_ref(),
                         &self.config.restrictions,
                         max_features_count,
+                        self.config.max_candidate_split_points,
                         &mut rng,
                         dataset_size,
                     ) {
@@ -521,6 +527,7 @@ mod tests {
             max_samples: Some(0.5),
             replace: true,
             max_features: None,
+            max_candidate_split_points: None,
             seed: Some(42),
         };
         let loss = Box::new(ConditionalLogLoss);
@@ -552,6 +559,7 @@ mod tests {
             max_samples: None,
             replace: true,
             max_features: Some(0.5),
+            max_candidate_split_points: None,
             seed: Some(42),
         };
         let loss = Box::new(ConditionalLogLoss);
@@ -579,6 +587,7 @@ mod tests {
                 max_samples: Some(0.7),
                 replace: true,
                 max_features: Some(0.5),
+                max_candidate_split_points: None,
                 seed: Some(seed),
             };
             let loss = Box::new(ConditionalLogLoss);
@@ -617,6 +626,7 @@ mod tests {
                 max_samples: Some(0.5),
                 replace: true,
                 max_features: Some(0.5),
+                max_candidate_split_points: None,
                 seed: Some(seed),
             };
             let loss = Box::new(ConditionalLogLoss);
@@ -648,5 +658,22 @@ mod tests {
             "different seeds with max_samples + max_features should produce \
              different trees for at least one seed pair"
         );
+    }
+
+    #[test]
+    fn max_candidate_split_points_zero_disables_splits() {
+        let dataset = make_dataset();
+        let config = TreeBuilderConfig {
+            max_candidate_split_points: Some(0),
+            ..Default::default()
+        };
+        let loss = Box::new(ConditionalLogLoss);
+        let registry = Arc::new(DTypeRegistry::default());
+        let builder = TreeBuilder::new(config, loss, registry);
+
+        let tree = builder.build(&dataset);
+
+        assert_eq!(tree.n_leaves(), 1, "no candidates means no split");
+        assert!(tree.split_history.is_empty(), "split history should stay empty");
     }
 }

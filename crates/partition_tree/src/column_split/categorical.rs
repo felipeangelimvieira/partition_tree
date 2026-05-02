@@ -4,7 +4,7 @@
 //! prefix scan algorithm.
 use std::collections::HashSet;
 
-use super::{ColumnSplitSearcher, cumsum};
+use super::{ColumnSplitSearcher, clip_candidate_positions, cumsum};
 use crate::cell::Cell;
 use crate::dataset_view::{ColumnView, DatasetView};
 use crate::loss::{CellStats, LossFunc};
@@ -46,6 +46,7 @@ impl ColumnSplitSearcher for CategoricalColumnSplitSearcher {
         dataset: &dyn DatasetView,
         loss: &dyn LossFunc,
         restrictions: &SplitRestrictions,
+        max_candidate_split_points: Option<usize>,
         dataset_size: f64,
     ) -> Option<SplitPoint> {
         let col_name = col.name();
@@ -129,11 +130,18 @@ impl ColumnSplitSearcher for CategoricalColumnSplitSearcher {
 
         let mut best: Option<SplitPoint> = None;
         let mut best_gain = f64::NEG_INFINITY;
+        let valid_candidate_positions: Vec<usize> = (0..cats.len() - 1).collect();
+        let candidate_positions =
+            clip_candidate_positions(&valid_candidate_positions, max_candidate_split_points);
+
+        if candidate_positions.is_empty() {
+            return None;
+        }
 
         // Try both none_to_left options
         for &none_to_left in &[true, false] {
             // 3) Scan prefix splits
-            for t in 0..cats.len() - 1 {
+            for &t in &candidate_positions {
                 let a_left = a_pref[t];
                 let b_left = b_pref[t];
                 let a_right = a_total - a_left;

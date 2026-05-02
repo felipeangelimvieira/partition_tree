@@ -95,6 +95,9 @@ pub struct PartitionForest {
     /// Fraction of feature columns to consider at each split.
     /// `None` means use all features.
     pub max_features: Option<f64>,
+    /// Maximum number of candidate split points evaluated per column during a
+    /// split search. `None` means consider every valid candidate.
+    pub max_candidate_split_points: Option<usize>,
     /// Per-column logical dtype overrides applied during fit and prediction.
     pub dtype_overrides: HashMap<String, LogicalDType>,
 
@@ -143,6 +146,7 @@ impl PartitionForest {
             max_samples: max_samples,
             replace: replace,
             max_features: max_features,
+            max_candidate_split_points: None,
             dtype_overrides,
             loss: loss,
             seed: seed,
@@ -169,6 +173,7 @@ impl PartitionForest {
             max_samples: None,
             replace: true,
             max_features: None,
+            max_candidate_split_points: None,
             dtype_overrides: HashMap::new(),
             loss: None,
             trees: None,
@@ -341,6 +346,7 @@ impl PartitionForest {
             max_samples: self.max_samples,
             replace: self.replace,
             max_features: self.max_features,
+            max_candidate_split_points: self.max_candidate_split_points,
             seed: None, // seed is set per-tree in _fit_impl
         }
     }
@@ -442,6 +448,7 @@ impl Estimator for PartitionForest {
                     max_samples: config_template.max_samples,
                     replace: config_template.replace,
                     max_features: config_template.max_features,
+                    max_candidate_split_points: config_template.max_candidate_split_points,
                     seed: Some((base_seed + idx) as u64),
                 };
                 let loss: Box<dyn LossFunc> = loss_factory.clone_box();
@@ -470,6 +477,7 @@ impl Estimator for PartitionForest {
             max_samples: self.max_samples,
             replace: self.replace,
             max_features: self.max_features,
+            max_candidate_split_points: self.max_candidate_split_points,
             dtype_overrides: self.dtype_overrides.clone(),
             loss: Some(loss_factory),
             trees: self.trees.take(),

@@ -81,6 +81,9 @@ pub struct PartitionTree {
     /// Fraction of feature columns to consider at each split.
     /// `None` means use all features.
     pub max_features: Option<f64>,
+    /// Maximum number of candidate split points evaluated per column during a
+    /// split search. `None` means consider every valid candidate.
+    pub max_candidate_split_points: Option<usize>,
     // Loss function to be used
     pub loss: Option<Box<dyn LossFunc>>,
     /// RNG seed for reproducible bootstrap / feature subsampling.
@@ -132,6 +135,7 @@ impl PartitionTree {
             max_samples,
             replace,
             max_features,
+            max_candidate_split_points: None,
             loss,
             seed,
             dtype_overrides,
@@ -156,6 +160,7 @@ impl PartitionTree {
             max_samples: None,
             replace: true,
             max_features: None,
+            max_candidate_split_points: None,
             loss: None,
             seed: None,
             dtype_overrides: HashMap::new(),
@@ -293,6 +298,7 @@ impl PartitionTree {
             max_samples: self.max_samples,
             replace: self.replace,
             max_features: self.max_features,
+            max_candidate_split_points: self.max_candidate_split_points,
             seed: self.seed,
         }
     }
@@ -376,6 +382,7 @@ impl Estimator for PartitionTree {
             max_samples: self.max_samples,
             replace: self.replace,
             max_features: self.max_features,
+            max_candidate_split_points: self.max_candidate_split_points,
             loss: Some(loss),
             seed: self.seed,
             dtype_overrides: self.dtype_overrides.clone(),
