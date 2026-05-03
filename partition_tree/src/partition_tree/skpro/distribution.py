@@ -51,7 +51,11 @@ def _truncated_interval_length(low: float, high: float, x: float) -> float:
 
 
 def _abs_interval_integral(a: float, b: float, x0: float) -> float:
-    """Integral int_a^b |x - x0| dx."""
+    """Return :math:`\int_a^b |u - x_0|\,du`.
+
+    This is the scalar building block for point-energy computations,
+    :math:`\mathbb{E}|X - x_0| = Z^{-1}\sum_j f_j \int_{a_j}^{b_j}|u - x_0|\,du`.
+    """
     if b <= a:
         return 0.0
     if x0 <= a:
@@ -62,7 +66,17 @@ def _abs_interval_integral(a: float, b: float, x0: float) -> float:
 
 
 def _uniform_cross_energy(a: float, b: float, c: float, d: float) -> float:
-    """E[|U - V|] where U ~ Uniform(a, b), V ~ Uniform(c, d)."""
+    """Return :math:`\mathbb{E}|U - V|` for two uniform intervals.
+
+    Here :math:`U \sim \mathrm{Unif}(a, b)` and
+    :math:`V \sim \mathrm{Unif}(c, d)` are independent. This is the pairwise
+    interval term used in
+    :math:`\mathbb{E}|X - X'| = \sum_{i,j} p_i p_j\,\mathbb{E}|U_i - V_j|`.
+
+    The implementation evaluates the exact double integral
+    :math:`((b-a)(d-c))^{-1} \int_a^b \int_c^d |u-v|\,dv\,du`
+    through an antiderivative of :math:`\int_c^d |x-y|\,dy`.
+    """
     wa = b - a
     wb = d - c
     if wa <= 0 or wb <= 0:
@@ -73,6 +87,172 @@ def _uniform_cross_energy(a: float, b: float, c: float, d: float) -> float:
         return (abs(x - c) ** 3 - abs(x - d) ** 3) / 6.0
 
     return (_H(b) - _H(a)) / (wa * wb)
+
+
+def _intervals_are_sorted_and_disjoint(intervals) -> bool:
+    """Return whether intervals are ordered by `low` and pairwise non-overlapping."""
+    prev_high = float("-inf")
+    for interval in intervals:
+        if interval.low < prev_high:
+            return False
+        prev_high = interval.high
+    return True
+
+
+def _energy_self_general(intervals, masses: np.ndarray) -> float:
+    """Exact self-energy without structural assumptions.
+
+    For normalized interval masses :math:`p_j = m_j / \sum_k m_k`, this
+    computes
+    :math:`\mathbb{E}|X - X'| = \sum_{i,j} p_i p_j\,\mathbb{E}|U_i - V_j|`,
+    where :math:`U_i` and :math:`V_j` are independent uniform draws on the
+    corresponding intervals.
+
+    No shortcut is used here: every interval pair is evaluated explicitly via
+    :func:`_uniform_cross_energy`, so this is the exact :math:`O(k^2)` fallback
+    for overlapping or out-of-order intervals.
+    """
+    total_mass = masses.sum()
+    if total_mass <= 0:
+        return np.nan
+
+    probs = masses / total_mass
+    val = 0.0
+    for ia, iv_a in enumerate(intervals):
+        pa = probs[ia]
+        if pa <= 0:
+            continue
+
+        for ib, iv_b in enumerate(intervals):
+            pb = probs[ib]
+            if pb <= 0:
+                continue
+
+            val += (
+                pa
+                * pb
+                * _uniform_cross_energy(iv_a.low, iv_a.high, iv_b.low, iv_b.high)
+            )
+
+    return val
+
+
+def _energy_self_sorted_disjoint(intervals, masses: np.ndarray) -> float:
+    """Exact self-energy in :math:`O(k)` for sorted, disjoint intervals.
+
+    Let :math:`p_j` be the normalized mass and
+    :math:`\mu_j = (a_j + b_j)/2` the mean of interval :math:`j`.
+    The diagonal term is
+    :math:`\mathbb{E}|U_j - U'_j| = (b_j - a_j)/3`.
+    For :math:`\ell < j`, disjointness implies :math:`U_j \ge U_\ell`, hence
+    :math:`\mathbb{E}|U_j - U_\ell| = \mu_j - \mu_\ell`.
+
+    The shortcut rewrites the full double sum as
+    :math:`\sum_j p_j^2 (b_j-a_j)/3 + 2\sum_j p_j(\mu_j C_{j-1} - M_{j-1})`,
+    where :math:`C_{j-1} = \sum_{\ell<j} p_\ell` and
+    :math:`M_{j-1} = \sum_{\ell<j} p_\ell\mu_\ell`.
+    Running cumulative sums of :math:`C` and :math:`M` make the computation
+    linear.
+    """
+    total_mass = masses.sum()
+    if total_mass <= 0:
+        return np.nan
+
+    probs = masses / total_mass
+    val = 0.0
+    cumulative_prob = 0.0
+    cumulative_prob_mean = 0.0
+
+    for prob, interval in zip(probs, intervals):
+        if prob <= 0:
+            continue
+
+        mean = 0.5 * (interval.low + interval.high)
+        val += prob * prob * interval.measure() / 3.0
+        val += 2.0 * prob * (mean * cumulative_prob - cumulative_prob_mean)
+
+        cumulative_prob += prob
+        cumulative_prob_mean += prob * mean
+
+    return val
+
+
+def _build_energy_x_sorted_disjoint_cache(intervals, masses: np.ndarray):
+    """Precompute prefix masses and first moments for fast point-energy queries.
+
+    With interval masses :math:`m_j = f_j (b_j-a_j)` and means
+    :math:`\mu_j = (a_j+b_j)/2`, the cache stores prefix sums
+    :math:`S_j = \sum_{\ell \le j} m_\ell` and
+    :math:`T_j = \sum_{\ell \le j} m_\ell\mu_\ell`.
+    :func:`_energy_x_sorted_disjoint` uses these arrays together with a binary
+    search on interval right endpoints to collapse left and right blocks into
+    constant-time prefix-sum differences.
+    """
+    if masses.sum() <= 0:
+        return None
+
+    highs = np.asarray([interval.high for interval in intervals], dtype=float)
+    first_moments = masses * np.asarray(
+        [0.5 * (interval.low + interval.high) for interval in intervals],
+        dtype=float,
+    )
+    prefix_masses = np.concatenate(([0.0], np.cumsum(masses)))
+    prefix_first_moments = np.concatenate(([0.0], np.cumsum(first_moments)))
+
+    return highs, prefix_masses, prefix_first_moments
+
+
+def _energy_x_general(intervals, densities, norm: float, x0: float) -> float:
+    """Exact point-energy without assuming any interval structure.
+
+    This evaluates
+    :math:`\mathbb{E}|X - x_0| = Z^{-1}\sum_j f_j \int_{a_j}^{b_j}|u-x_0|\,du`
+    with :math:`Z = \sum_j f_j(b_j-a_j)`.
+
+    No shortcut is used here: every interval contributes its exact
+    absolute-value integral, so this is the fallback for overlapping or
+    out-of-order intervals.
+    """
+    val = 0.0
+    for density, interval in zip(densities, intervals):
+        val += float(density) * _abs_interval_integral(interval.low, interval.high, x0)
+    return val / norm
+
+
+def _energy_x_sorted_disjoint(intervals, densities, norm: float, x0: float, cache):
+    """Exact point-energy in :math:`O(\log k)` for sorted, disjoint intervals.
+
+    If interval :math:`j` lies completely left of :math:`x_0`, then
+    :math:`\int_{a_j}^{b_j}|u-x_0| f_j\,du = x_0 m_j - m_j\mu_j`.
+    If it lies completely right of :math:`x_0`, the contribution is
+    :math:`m_j\mu_j - x_0 m_j`.
+    At most one interval can contain :math:`x_0`; that interval still uses the
+    exact integral :math:`f_j\int_{a_j}^{b_j}|u-x_0|\,du`.
+
+    The shortcut binary-searches the interval right endpoints to identify the
+    split point and then evaluates the left and right blocks from cached prefix
+    sums of :math:`m_j` and :math:`m_j\mu_j`.
+    """
+    highs, prefix_masses, prefix_first_moments = cache
+
+    left_count = np.searchsorted(highs, x0, side="right")
+    left_mass = prefix_masses[left_count]
+    left_first_moment = prefix_first_moments[left_count]
+    val = x0 * left_mass - left_first_moment
+
+    right_start = left_count
+    if left_count < len(intervals) and intervals[left_count].contains(x0):
+        interval = intervals[left_count]
+        val += float(densities[left_count]) * _abs_interval_integral(
+            interval.low, interval.high, x0
+        )
+        right_start += 1
+
+    right_mass = prefix_masses[-1] - prefix_masses[right_start]
+    right_first_moment = prefix_first_moments[-1] - prefix_first_moments[right_start]
+    val += right_first_moment - x0 * right_mass
+
+    return val / norm
 
 
 class Interval:
@@ -161,12 +341,17 @@ class IntervalDistribution(BaseDistribution):
             raise ValueError(f"Invalid interval tuple: {x}")
 
         self._intervals = [list(map(make_interval, ints)) for ints in intervals]
+        self._intervals_are_sorted_and_disjoint = [
+            _intervals_are_sorted_and_disjoint(intervals_i)
+            for intervals_i in self._intervals
+        ]
 
         if len(self._intervals) != len(self.pdf_values):
             raise ValueError("intervals and pdf_values must have the same outer length")
 
         self._mass = []
         self._normalization_factor = []
+        self._energy_x_sorted_disjoint_cache = []
 
         for i in range(len(self._intervals)):
             intervals_i = self._intervals[i]
@@ -182,7 +367,17 @@ class IntervalDistribution(BaseDistribution):
                 for j in range(len(intervals_i))
             ]
             self._mass.append(masses_i)
-            self._normalization_factor.append(float(sum(masses_i)))
+            norm_i = float(sum(masses_i))
+            self._normalization_factor.append(norm_i)
+
+            if self._intervals_are_sorted_and_disjoint[i] and norm_i > 0:
+                self._energy_x_sorted_disjoint_cache.append(
+                    _build_energy_x_sorted_disjoint_cache(
+                        intervals_i, np.asarray(masses_i, dtype=float)
+                    )
+                )
+            else:
+                self._energy_x_sorted_disjoint_cache.append(None)
 
     def _pdf(self, x):
         x = _coerce_1d_per_instance(x, len(self.index), "x")
@@ -325,7 +520,18 @@ class IntervalDistribution(BaseDistribution):
         return pd.DataFrame(variances, index=self.index, columns=self.columns)
 
     def _energy_x(self, x):
-        """Exact E[|X - x|] for each instance."""
+        """Exact point-energy :math:`\mathbb{E}|X - x|` for each instance.
+
+        For a piecewise-uniform law with interval densities :math:`f_j` on
+        :math:`[a_j, b_j]`, this computes
+        :math:`\mathbb{E}|X-x| = Z^{-1}\sum_j f_j\int_{a_j}^{b_j}|u-x|\,du`,
+        where :math:`Z = \sum_j f_j(b_j-a_j)`.
+
+        When an instance's intervals are sorted and pairwise disjoint, the
+        method dispatches to the cached prefix-sum shortcut in
+        :func:`_energy_x_sorted_disjoint`; otherwise it falls back to the
+        general exact integral sum in :func:`_energy_x_general`.
+        """
         x = _coerce_1d_per_instance(x, len(self.index), "x")
         n_instances = len(self.index)
 
@@ -336,51 +542,43 @@ class IntervalDistribution(BaseDistribution):
                 energy[i] = np.nan
                 continue
 
-            val = 0.0
-            for density, interval in zip(self.pdf_values[i], self._intervals[i]):
-                val += float(density) * _abs_interval_integral(
-                    interval.low, interval.high, x[i]
+            intervals_i = self._intervals[i]
+            densities_i = self.pdf_values[i]
+            cache_i = self._energy_x_sorted_disjoint_cache[i]
+
+            if self._intervals_are_sorted_and_disjoint[i] and cache_i is not None:
+                energy[i] = _energy_x_sorted_disjoint(
+                    intervals_i, densities_i, norm, x[i], cache_i
                 )
-            energy[i] = val / norm
+            else:
+                energy[i] = _energy_x_general(intervals_i, densities_i, norm, x[i])
 
         return energy.reshape(-1, 1)
 
     def _energy_self(self):
-        """Exact E[|X - X'|] for each instance."""
+        """Exact self-energy :math:`\mathbb{E}|X - X'|` for each instance.
+
+        For interval masses :math:`p_j`, the general identity is
+        :math:`\mathbb{E}|X-X'| = \sum_{i,j} p_i p_j\,\mathbb{E}|U_i - V_j|`,
+        where :math:`U_i` and :math:`V_j` are uniform draws on the respective
+        intervals.
+
+        When an instance's intervals are sorted and pairwise disjoint, this
+        uses the linear-time cumulative-sum shortcut in
+        :func:`_energy_self_sorted_disjoint`; otherwise it evaluates the full
+        pairwise exact computation in :func:`_energy_self_general`.
+        """
         n_instances = len(self.index)
         out = np.zeros((n_instances, 1), dtype=float)
 
         for i in range(n_instances):
             masses = np.asarray(self._mass[i], dtype=float)
-            total_mass = masses.sum()
-
-            if total_mass <= 0:
-                out[i, 0] = np.nan
-                continue
-
-            probs = masses / total_mass
             intervals = self._intervals[i]
 
-            val = 0.0
-            for ia, iv_a in enumerate(intervals):
-                pa = probs[ia]
-                if pa <= 0:
-                    continue
-
-                for ib, iv_b in enumerate(intervals):
-                    pb = probs[ib]
-                    if pb <= 0:
-                        continue
-
-                    val += (
-                        pa
-                        * pb
-                        * _uniform_cross_energy(
-                            iv_a.low, iv_a.high, iv_b.low, iv_b.high
-                        )
-                    )
-
-            out[i, 0] = val
+            if self._intervals_are_sorted_and_disjoint[i]:
+                out[i, 0] = _energy_self_sorted_disjoint(intervals, masses)
+            else:
+                out[i, 0] = _energy_self_general(intervals, masses)
 
         return out
 
@@ -754,7 +952,14 @@ class MixtureIntervalDistribution(BaseDistribution):
         return pd.DataFrame(variances, index=self.index, columns=self.columns)
 
     def _energy_x(self, x):
-        """E_mix[|X - x|] = Σ w_m E_m[|X - x|]."""
+        """Exact mixture point-energy.
+
+        This method uses the linearity identity
+        :math:`\mathbb{E}_{\mathrm{mix}}|X-x| = \sum_m w_m\,\mathbb{E}_m|X-x|`.
+        Each component term is delegated to
+        :meth:`IntervalDistribution._energy_x`, so any sorted/disjoint shortcut
+        available at the interval level is reused automatically.
+        """
         n = len(self.index)
         energy = np.zeros(n, dtype=float)
         for w, d in zip(self._weights, self.distributions):
@@ -763,7 +968,16 @@ class MixtureIntervalDistribution(BaseDistribution):
         return energy.reshape(-1, 1)
 
     def _energy_self(self):
-        """E_mix[|X - X'|] = Σ_{m,n} w_m w_n E[|X_m - X_n|]."""
+        """Exact mixture self-energy.
+
+        This evaluates
+        :math:`\mathbb{E}_{\mathrm{mix}}|X-X'| = \sum_{m,n} w_m w_n\,\mathbb{E}|X_m-X_n|`
+        as the full pairwise component expansion.
+
+        Unlike :meth:`IntervalDistribution._energy_self`, there is no dedicated
+        shortcut in this method itself; it remains the exact component-pair sum
+        implemented via :meth:`_cross_energy`.
+        """
         n = len(self.index)
         out = np.zeros((n, 1), dtype=float)
         n_dists = len(self.distributions)
