@@ -257,7 +257,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 <section id="setup" class="level2">
 <h2 class="anchored" data-anchor-id="setup">Setup</h2>
-<div id="d23d6026" class="cell" data-execution_count="1">
+<div id="c51c7d08" class="cell" data-execution_count="1">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> pandas <span class="im">as</span> pd</span>
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.datasets <span class="im">import</span> fetch_california_housing</span>
 <span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.model_selection <span class="im">import</span> train_test_split</span>
@@ -275,7 +275,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="baseline-decision-tree-cart" class="level2">
 <h2 class="anchored" data-anchor-id="baseline-decision-tree-cart">1. Baseline — Decision Tree (CART)</h2>
 <p>CART produces only point predictions, so we use MAE and R² as the comparison baseline.</p>
-<div id="337217dc" class="cell" data-execution_count="2">
+<div id="f410ce49" class="cell" data-execution_count="2">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.tree <span class="im">import</span> DecisionTreeRegressor</span>
 <span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.metrics <span class="im">import</span> root_mean_squared_error, r2_score</span>
 <span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
@@ -302,7 +302,7 @@ R²  : 0.6221
 <h2 class="anchored" data-anchor-id="single-partition-tree">2. Single Partition Tree</h2>
 <section id="fit-and-point-prediction" class="level3">
 <h3 class="anchored" data-anchor-id="fit-and-point-prediction">Fit and point prediction</h3>
-<div id="97a19982" class="cell" data-execution_count="3">
+<div id="4404ac89" class="cell" data-execution_count="3">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> partition_tree.skpro <span class="im">import</span> PartitionTreeRegressor</span>
 <span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>pt <span class="op">=</span> PartitionTreeRegressor(</span>
@@ -313,7 +313,7 @@ R²  : 0.6221
 <span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a><span class="co"># Point prediction — posterior mean of the conditional density</span></span>
 <span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>y_pred_pt <span class="op">=</span> pt.predict(X_test)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
-<div id="454d6d38" class="cell" data-execution_count="4">
+<div id="d0060beb" class="cell" data-execution_count="4">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">"=== PartitionTreeRegressor ==="</span>)</span>
 <span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"RMSE : </span><span class="sc">{</span>root_mean_squared_error(y_test, y_pred_pt)<span class="sc">:.4f}</span><span class="ss">"</span>)</span>
 <span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"R²  : </span><span class="sc">{</span>r2_score(y_test, y_pred_pt)<span class="sc">:.4f}</span><span class="ss">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
@@ -326,7 +326,7 @@ R²  : 0.7362</code></pre>
 </section>
 <section id="comparison-with-cart" class="level3">
 <h3 class="anchored" data-anchor-id="comparison-with-cart">Comparison with CART</h3>
-<div id="e3fa49bd" class="cell" data-execution_count="5">
+<div id="be962caa" class="cell" data-execution_count="5">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>pd.DataFrame({</span>
 <span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Model"</span>: [<span class="st">"DecisionTree (CART)"</span>, <span class="st">"PartitionTree"</span>],</span>
 <span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>    <span class="st">"RMSE"</span>: [</span>
@@ -374,7 +374,7 @@ R²  : 0.7362</code></pre>
 <section id="probabilistic-prediction" class="level3">
 <h3 class="anchored" data-anchor-id="probabilistic-prediction">Probabilistic prediction</h3>
 <p><code>predict_proba</code> returns an <code>IntervalDistribution</code>:</p>
-<div id="2be4be47" class="cell" data-execution_count="6">
+<div id="2ca637da" class="cell" data-execution_count="6">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>dist <span class="op">=</span> pt.predict_proba(X_test)</span>
 <span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="bu">type</span>(dist))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stdout">
@@ -387,7 +387,7 @@ R²  : 0.7362</code></pre>
 <section id="the-intervaldistribution-api" class="level2">
 <h2 class="anchored" data-anchor-id="the-intervaldistribution-api">3. The <code>IntervalDistribution</code> API</h2>
 <p>From the distribution object you can extract:</p>
-<div id="11d38636" class="cell" data-execution_count="7">
+<div id="8a79a481" class="cell" data-execution_count="7">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Posterior mean (same as predict)</span></span>
 <span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>mean <span class="op">=</span> dist.mean()</span>
 <span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a></span>
@@ -466,7 +466,7 @@ ppf  shape : (4128, 1)</code></pre>
 <section id="prediction-intervals" class="level2">
 <h2 class="anchored" data-anchor-id="prediction-intervals">4. Prediction Intervals</h2>
 <p>Prediction intervals are constructed directly from the inverse CDF.</p>
-<div id="b6afc485" class="cell" data-execution_count="8">
+<div id="b3bb0b49" class="cell" data-execution_count="8">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
 <span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a><span class="co"># 80 % prediction interval: [10th percentile, 90th percentile]</span></span>
@@ -498,7 +498,7 @@ ppf  shape : (4128, 1)</code></pre>
 <section id="visualizing-the-predictive-pdf" class="level2">
 <h2 class="anchored" data-anchor-id="visualizing-the-predictive-pdf">5. Visualizing the Predictive PDF</h2>
 <p><code>IntervalDistribution</code> has a built-in <code>plot</code> method that renders the piecewise-constant density as histogram-like bars.</p>
-<div id="46dabaf4" class="cell" data-execution_count="9">
+<div id="af66ad92" class="cell" data-execution_count="9">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb14"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
 <span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a><span class="co"># Single test sample</span></span>
@@ -527,7 +527,7 @@ ppf  shape : (4128, 1)</code></pre>
 </div>
 </div>
 </div>
-<div id="7c259399" class="cell" data-execution_count="10">
+<div id="6b1af69b" class="cell" data-execution_count="10">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb15"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Four samples side by side</span></span>
 <span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>fig, axes <span class="op">=</span> plt.subplots(<span class="dv">1</span>, <span class="dv">4</span>, figsize<span class="op">=</span>(<span class="dv">16</span>, <span class="dv">3</span>))</span>
 <span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> ax, i <span class="kw">in</span> <span class="bu">zip</span>(axes, <span class="bu">range</span>(<span class="dv">4</span>)):</span>
@@ -553,7 +553,7 @@ ppf  shape : (4128, 1)</code></pre>
 <section id="partition-forest-better-calibrated-distributions" class="level2">
 <h2 class="anchored" data-anchor-id="partition-forest-better-calibrated-distributions">6. Partition Forest — Better Calibrated Distributions</h2>
 <p><code>PartitionForestRegressor</code> averages the conditional densities from multiple trees, producing smoother and better-calibrated distributions.</p>
-<div id="cd7174a7" class="cell" data-execution_count="11">
+<div id="758b13fb" class="cell" data-execution_count="11">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb16"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> partition_tree.skpro <span class="im">import</span> PartitionForestRegressor</span>
 <span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>pf <span class="op">=</span> PartitionForestRegressor(</span>
@@ -570,7 +570,7 @@ ppf  shape : (4128, 1)</code></pre>
 </section>
 <section id="random-forest-comparison" class="level2">
 <h2 class="anchored" data-anchor-id="random-forest-comparison">7. Random Forest comparison</h2>
-<div id="26a40dba" class="cell" data-execution_count="12">
+<div id="10b3c144" class="cell" data-execution_count="12">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb17"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.ensemble <span class="im">import</span> RandomForestRegressor</span>
 <span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a>rf <span class="op">=</span> RandomForestRegressor(</span>
@@ -582,7 +582,7 @@ ppf  shape : (4128, 1)</code></pre>
 </div>
 <section id="point-metrics-comparison" class="level3">
 <h3 class="anchored" data-anchor-id="point-metrics-comparison">Point metrics comparison</h3>
-<div id="603b5342" class="cell" data-execution_count="13">
+<div id="5830e160" class="cell" data-execution_count="13">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb18"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a>pd.DataFrame({</span>
 <span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Model"</span>: [<span class="st">"DecisionTree (CART)"</span>, <span class="st">"PartitionTree"</span>, <span class="st">"PartitionForest"</span>, <span class="st">"RandomForest"</span>],</span>
 <span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a>    <span class="st">"RMSE"</span>: [</span>
@@ -645,7 +645,7 @@ ppf  shape : (4128, 1)</code></pre>
 </section>
 <section id="coverage-comparison" class="level3">
 <h3 class="anchored" data-anchor-id="coverage-comparison">Coverage comparison</h3>
-<div id="299f4bca" class="cell" data-execution_count="14">
+<div id="e2c13553" class="cell" data-execution_count="14">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb19"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>lower_f <span class="op">=</span> dist_forest.ppf(<span class="fl">0.10</span>)[<span class="st">"MedHouseVal"</span>]</span>
 <span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a>upper_f <span class="op">=</span> dist_forest.ppf(<span class="fl">0.90</span>)[<span class="st">"MedHouseVal"</span>]</span>
 <span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a>covered_f <span class="op">=</span> ((y_true <span class="op">&gt;=</span> lower_f.values) <span class="op">&amp;</span> (y_true <span class="op">&lt;=</span> upper_f.values)).mean()</span>
@@ -683,7 +683,7 @@ Forest 80% PI coverage: 94.1%</code></pre>
 </tr>
 </tbody>
 </table>
-<div id="d3985267" class="cell" data-execution_count="15">
+<div id="e109fbee" class="cell" data-execution_count="15">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb21"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a>pf_mix <span class="op">=</span> PartitionForestRegressor(</span>
 <span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a>    n_estimators<span class="op">=</span><span class="dv">50</span>,</span>
 <span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a>    random_state<span class="op">=</span><span class="dv">42</span>,</span>
@@ -698,7 +698,7 @@ Forest 80% PI coverage: 94.1%</code></pre>
 <section id="feature-importances" class="level2">
 <h2 class="anchored" data-anchor-id="feature-importances">8. Feature Importances</h2>
 <p>Feature importances are accumulated log-loss gain across all splits:</p>
-<div id="bdf73604" class="cell" data-execution_count="16">
+<div id="9849f064" class="cell" data-execution_count="16">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb22"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a>importances <span class="op">=</span> pt.get_feature_importances(normalize<span class="op">=</span><span class="va">True</span>)</span>
 <span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> feat, imp <span class="kw">in</span> importances.items():</span>
 <span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f"  </span><span class="sc">{</span>feat<span class="sc">:&gt;20s}</span><span class="ss">: </span><span class="sc">{</span>imp<span class="sc">:.4f}</span><span class="ss">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
