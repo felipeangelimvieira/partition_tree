@@ -378,6 +378,15 @@ class TestEnergyXMixtureIdentity:
 
 
 class TestIntervalDistributionEnergyX:
+    def test_constructor_rejects_overlapping_intervals(self):
+        with pytest.raises(ValueError, match="must not overlap"):
+            IntervalDistribution(
+                intervals=[[(0.0, 2.0), (1.0, 3.0), (3.5, 4.0)]],
+                pdf_values=[[0.5, 0.25, 0.75]],
+                index=pd.RangeIndex(1),
+                columns=pd.Index([0]),
+            )
+
     def _assert_matches_reference(self, dist, x):
         np.testing.assert_allclose(
             dist._energy_x(x),
@@ -390,17 +399,6 @@ class TestIntervalDistributionEnergyX:
         dist = IntervalDistribution(
             intervals=[[(0.0, 1.0), (1.5, 2.0), (4.0, 6.0)]],
             pdf_values=[[0.8, 0.3, 0.2]],
-            index=pd.RangeIndex(1),
-            columns=pd.Index([0]),
-        )
-
-        self._assert_matches_reference(dist, np.array([[x_val]]))
-
-    @pytest.mark.parametrize("x_val", [-0.5, 1.0, 2.5, 3.75, 4.5])
-    def test_overlapping_intervals_match_reference(self, x_val):
-        dist = IntervalDistribution(
-            intervals=[[(0.0, 2.0), (1.0, 3.0), (3.5, 4.0)]],
-            pdf_values=[[0.5, 0.25, 0.75]],
             index=pd.RangeIndex(1),
             columns=pd.Index([0]),
         )
@@ -439,16 +437,6 @@ class TestIntervalDistributionEnergyXMonteCarlo:
         )
 
         self._assert_matches_monte_carlo(dist, x=1.25, seed=123)
-
-    def test_overlapping_intervals_match_monte_carlo(self):
-        dist = IntervalDistribution(
-            intervals=[[(0.0, 2.0), (1.0, 3.0), (3.5, 4.0)]],
-            pdf_values=[[0.5, 0.25, 0.75]],
-            index=pd.RangeIndex(1),
-            columns=pd.Index([0]),
-        )
-
-        self._assert_matches_monte_carlo(dist, x=2.5, seed=456)
 
     def test_merged_distribution_matches_monte_carlo(self):
         dist_left = IntervalDistribution(
@@ -513,20 +501,6 @@ class TestIntervalDistributionEnergySelf:
             atol=1e-10,
         )
 
-    def test_overlapping_intervals_match_quadratic_reference(self):
-        dist = IntervalDistribution(
-            intervals=[[(0.0, 2.0), (1.0, 3.0), (3.5, 4.0)]],
-            pdf_values=[[0.5, 0.25, 0.75]],
-            index=pd.RangeIndex(1),
-            columns=pd.Index([0]),
-        )
-
-        np.testing.assert_allclose(
-            dist._energy_self(),
-            _slow_interval_energy_self(dist),
-            atol=1e-10,
-        )
-
 
 class TestIntervalDistributionEnergyMonteCarlo:
     def _assert_matches_monte_carlo(self, dist, seed):
@@ -543,16 +517,6 @@ class TestIntervalDistributionEnergyMonteCarlo:
         )
 
         self._assert_matches_monte_carlo(dist, seed=123)
-
-    def test_overlapping_intervals_match_monte_carlo(self):
-        dist = IntervalDistribution(
-            intervals=[[(0.0, 2.0), (1.0, 3.0), (3.5, 4.0)]],
-            pdf_values=[[0.5, 0.25, 0.75]],
-            index=pd.RangeIndex(1),
-            columns=pd.Index([0]),
-        )
-
-        self._assert_matches_monte_carlo(dist, seed=456)
 
     def test_merged_distribution_matches_monte_carlo(self):
         dist_left = IntervalDistribution(

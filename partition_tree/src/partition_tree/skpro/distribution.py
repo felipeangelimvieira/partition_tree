@@ -99,6 +99,24 @@ def _intervals_are_sorted_and_disjoint(intervals) -> bool:
     return True
 
 
+def _has_overlapping_intervals(intervals) -> bool:
+    """Return whether any pair of intervals has a positive-length overlap."""
+    if len(intervals) < 2:
+        return False
+
+    sorted_intervals = sorted(
+        intervals, key=lambda interval: (interval.low, interval.high)
+    )
+    prev_high = sorted_intervals[0].high
+
+    for interval in sorted_intervals[1:]:
+        if interval.low < prev_high:
+            return True
+        prev_high = max(prev_high, interval.high)
+
+    return False
+
+
 def _energy_self_general(intervals, masses: np.ndarray) -> float:
     """Exact self-energy without structural assumptions.
 
@@ -361,6 +379,9 @@ class IntervalDistribution(BaseDistribution):
                 raise ValueError(
                     f"Instance {i}: number of intervals and pdf_values must match"
                 )
+
+            if _has_overlapping_intervals(intervals_i):
+                raise ValueError(f"Instance {i}: intervals must not overlap")
 
             masses_i = [
                 float(densities_i[j]) * intervals_i[j].measure()
