@@ -22,8 +22,9 @@ from scipy import integrate as sci_integrate
 from partition_tree.skpro.distribution import (
     IntervalDistribution,
     MixtureIntervalDistribution,
+    _abs_interval_integral,
+    _uniform_cross_energy,
 )
-
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -123,6 +124,92 @@ def _numerical_integral(mixture, instance_idx, lo, hi, n=5000):
     xs = np.linspace(lo, hi, n)
     ys = [_numerical_pdf(mixture, instance_idx, float(xi)) for xi in xs]
     return float(np.trapezoid(ys, xs))
+
+
+def _slow_interval_energy_self(dist):
+    """Reference implementation for IntervalDistribution._energy_self."""
+    out = np.zeros((len(dist.index), 1), dtype=float)
+
+    for i in range(len(dist.index)):
+        masses = np.asarray(dist._mass[i], dtype=float)
+        total_mass = masses.sum()
+        if total_mass <= 0:
+            out[i, 0] = np.nan
+            continue
+
+        probs = masses / total_mass
+        val = 0.0
+        for ia, iv_a in enumerate(dist._intervals[i]):
+            pa = probs[ia]
+            if pa <= 0:
+                continue
+
+            for ib, iv_b in enumerate(dist._intervals[i]):
+                pb = probs[ib]
+                if pb <= 0:
+                    continue
+
+                val += (
+                    pa
+                    * pb
+                    * _uniform_cross_energy(iv_a.low, iv_a.high, iv_b.low, iv_b.high)
+                )
+
+        out[i, 0] = val
+
+    return out
+
+
+def _slow_interval_energy_x(dist, x):
+    """Reference implementation for IntervalDistribution._energy_x."""
+    x = np.asarray(x, dtype=float).reshape(-1)
+    out = np.zeros((len(dist.index), 1), dtype=float)
+
+    for i in range(len(dist.index)):
+        norm = dist._normalization_factor[i]
+        if norm <= 0:
+            out[i, 0] = np.nan
+            continue
+
+        val = 0.0
+        for density, interval in zip(dist.pdf_values[i], dist._intervals[i]):
+            val += float(density) * _abs_interval_integral(
+                interval.low, interval.high, x[i]
+            )
+
+        out[i, 0] = val / norm
+
+    return out
+
+
+def _monte_carlo_energy_self(dist, n_samples=100000, seed=123):
+    """Approximate E[|X - X'|] from two independent sample draws."""
+    rng_state = np.random.get_state()
+    try:
+        np.random.seed(seed)
+        samples_a = dist.sample(n_samples=n_samples).to_numpy().ravel()
+        np.random.seed(seed + 1)
+        samples_b = dist.sample(n_samples=n_samples).to_numpy().ravel()
+    finally:
+        np.random.set_state(rng_state)
+
+    pairwise_distances = np.abs(samples_a - samples_b)
+    std_err = pairwise_distances.std(ddof=1) / np.sqrt(len(pairwise_distances))
+    return pairwise_distances.mean(), std_err
+
+
+def _monte_carlo_energy_x(dist, x, n_samples=4000, seed=123):
+    """Approximate E[|X - x|] from distribution samples."""
+    rng_state = np.random.get_state()
+    try:
+        np.random.seed(seed)
+        samples = dist.sample(n_samples=n_samples).to_numpy().ravel()
+    finally:
+        np.random.set_state(rng_state)
+
+    distances = np.abs(samples - x)
+    std_err = distances.std(ddof=1) / np.sqrt(len(distances))
+    return distances.mean(), std_err
 
 
 # ===========================================================================
@@ -290,6 +377,87 @@ class TestEnergyXMixtureIdentity:
             assert abs(e_mix - expected) < 1e-10, f"x={x_val}: {e_mix} != {expected}"
 
 
+class TestIntervalDistributionEnergyX:
+    def test_constructor_rejects_overlapping_intervals(self):
+        with pytest.raises(ValueError, match="must not overlap"):
+            IntervalDistribution(
+                intervals=[[(0.0, 2.0), (1.0, 3.0), (3.5, 4.0)]],
+                pdf_values=[[0.5, 0.25, 0.75]],
+                index=pd.RangeIndex(1),
+                columns=pd.Index([0]),
+            )
+
+    def _assert_matches_reference(self, dist, x):
+        np.testing.assert_allclose(
+            dist._energy_x(x),
+            _slow_interval_energy_x(dist, x),
+            atol=1e-10,
+        )
+
+    @pytest.mark.parametrize("x_val", [-1.0, 0.5, 1.25, 4.5, 7.0])
+    def test_sorted_disjoint_matches_reference(self, x_val):
+        dist = IntervalDistribution(
+            intervals=[[(0.0, 1.0), (1.5, 2.0), (4.0, 6.0)]],
+            pdf_values=[[0.8, 0.3, 0.2]],
+            index=pd.RangeIndex(1),
+            columns=pd.Index([0]),
+        )
+
+        self._assert_matches_reference(dist, np.array([[x_val]]))
+
+    def test_multi_instance_matches_reference(self):
+        dist = IntervalDistribution(
+            intervals=[
+                [(0.0, 1.0), (2.0, 3.0)],
+                [(1.0, 2.0), (4.0, 5.0)],
+            ],
+            pdf_values=[
+                [0.5, 0.5],
+                [0.2, 0.8],
+            ],
+            index=pd.RangeIndex(2),
+            columns=pd.Index([0]),
+        )
+
+        self._assert_matches_reference(dist, np.array([[0.5], [4.25]]))
+
+
+class TestIntervalDistributionEnergyXMonteCarlo:
+    def _assert_matches_monte_carlo(self, dist, x, seed):
+        analytical = dist._energy_x(np.array([[x]])).ravel()[0]
+        empirical, std_err = _monte_carlo_energy_x(dist, x, seed=seed)
+        assert abs(analytical - empirical) < 4 * std_err
+
+    def test_sorted_disjoint_matches_monte_carlo(self):
+        dist = IntervalDistribution(
+            intervals=[[(0.0, 1.0), (1.5, 2.0), (4.0, 6.0)]],
+            pdf_values=[[0.8, 0.3, 0.2]],
+            index=pd.RangeIndex(1),
+            columns=pd.Index([0]),
+        )
+
+        self._assert_matches_monte_carlo(dist, x=1.25, seed=123)
+
+    def test_merged_distribution_matches_monte_carlo(self):
+        dist_left = IntervalDistribution(
+            intervals=[[(0.0, 1.0), (2.0, 3.0)]],
+            pdf_values=[[0.5, 0.5]],
+            index=pd.RangeIndex(1),
+            columns=pd.Index([0]),
+        )
+        dist_right = IntervalDistribution(
+            intervals=[[(0.5, 2.5)]],
+            pdf_values=[[0.5]],
+            index=pd.RangeIndex(1),
+            columns=pd.Index([0]),
+        )
+        merged = IntervalDistribution.from_mixture(
+            [dist_left, dist_right], weights=[0.6, 0.4]
+        )
+
+        self._assert_matches_monte_carlo(merged, x=1.75, seed=789)
+
+
 # ===========================================================================
 # Test 7 – energy_self ≥ 0
 # ===========================================================================
@@ -316,6 +484,58 @@ class TestEnergySelfNonNegative:
         es_mix = mix._energy_self().ravel()[0]
         es_raw = dist_a._energy_self().ravel()[0]
         assert abs(es_mix - es_raw) < 1e-8
+
+
+class TestIntervalDistributionEnergySelf:
+    def test_sorted_disjoint_matches_quadratic_reference(self):
+        dist = IntervalDistribution(
+            intervals=[[(0.0, 1.0), (1.5, 2.0), (4.0, 6.0)]],
+            pdf_values=[[0.8, 0.3, 0.2]],
+            index=pd.RangeIndex(1),
+            columns=pd.Index([0]),
+        )
+
+        np.testing.assert_allclose(
+            dist._energy_self(),
+            _slow_interval_energy_self(dist),
+            atol=1e-10,
+        )
+
+
+class TestIntervalDistributionEnergyMonteCarlo:
+    def _assert_matches_monte_carlo(self, dist, seed):
+        analytical = dist._energy_self().ravel()[0]
+        empirical, std_err = _monte_carlo_energy_self(dist, seed=seed)
+        assert abs(analytical - empirical) < 4 * std_err
+
+    def test_sorted_disjoint_matches_monte_carlo(self):
+        dist = IntervalDistribution(
+            intervals=[[(0.0, 1.0), (1.5, 2.0), (4.0, 6.0)]],
+            pdf_values=[[0.8, 0.3, 0.2]],
+            index=pd.RangeIndex(1),
+            columns=pd.Index([0]),
+        )
+
+        self._assert_matches_monte_carlo(dist, seed=123)
+
+    def test_merged_distribution_matches_monte_carlo(self):
+        dist_left = IntervalDistribution(
+            intervals=[[(0.0, 1.0), (2.0, 3.0)]],
+            pdf_values=[[0.5, 0.5]],
+            index=pd.RangeIndex(1),
+            columns=pd.Index([0]),
+        )
+        dist_right = IntervalDistribution(
+            intervals=[[(0.5, 2.5)]],
+            pdf_values=[[0.5]],
+            index=pd.RangeIndex(1),
+            columns=pd.Index([0]),
+        )
+        merged = IntervalDistribution.from_mixture(
+            [dist_left, dist_right], weights=[0.6, 0.4]
+        )
+
+        self._assert_matches_monte_carlo(merged, seed=789)
 
 
 # ===========================================================================
