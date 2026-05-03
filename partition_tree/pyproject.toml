@@ -1,6 +1,6 @@
 [project]
 name = "partition_tree"
-version = "0.0.5"
+version = "0.0.6"
 description = "Partition Trees for Probabilistic Tasks"
 authors = [ {name = "felipeangelimvieira", email = "felipeangelim@gmail.com"} ]
 readme = "README.md"
