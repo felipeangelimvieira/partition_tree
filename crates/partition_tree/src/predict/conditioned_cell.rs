@@ -41,6 +41,29 @@ impl ConditionedCell {
     ///
     /// Extracts only `target__`-prefixed rules and computes the
     /// conditional mass. If `w_x` is zero or negative, mass is set to `0.0`.
+    ///
+    /// When `node.inherited_target_volume` is `Some(inherited)` — i.e. the
+    /// node was produced by [`Tree::refined`](crate::tree::Tree::refined) —
+    /// the raw conditional mass `w_xy / w_x` is **rescaled** by the cell's
+    /// share of the source target volume:
+    ///
+    /// ```text
+    /// mass = (w_xy / w_x) * (cell.target_volume() / inherited)
+    /// ```
+    ///
+    /// This rescaling lives at the prediction boundary (not on the
+    /// `FittedNode` itself) so that:
+    ///
+    /// - Refined leaves keep `w_xy`, `w_x`, `w_y` literally equal to the
+    ///   source leaf's values, and `FittedNode::conditional_density` still
+    ///   reports the source leaf's density via `effective_target_volume`.
+    /// - Sibling refined cells from one source leaf partition the source
+    ///   target region, and their rescaled masses sum back to the source
+    ///   leaf's mass — making `Tree::predict_distributions` and friends
+    ///   invariant under refinement.
+    ///
+    /// For unrefined nodes `inherited_target_volume` is `None` and the mass
+    /// is `w_xy / w_x` unchanged.
     pub fn from_fitted_node(node: &FittedNode) -> Self {
         let target_rules: HashMap<String, Box<dyn DynRule>> = node
             .cell
@@ -49,10 +72,17 @@ impl ConditionedCell {
             .filter(|(k, _)| k.starts_with(TARGET_PREFIX))
             .map(|(k, r)| (k.clone(), r.clone()))
             .collect();
-        let mass = if node.w_x > 0.0 {
+        let raw_mass = if node.w_x > 0.0 {
             node.w_xy / node.w_x
         } else {
             0.0
+        };
+        let mass = match node.inherited_target_volume {
+            Some(inherited) if inherited > 0.0 => {
+                let cell_target_vol = node.cell.target_volume();
+                raw_mass * (cell_target_vol / inherited)
+            }
+            _ => raw_mass,
         };
         Self { target_rules, mass }
     }
@@ -169,6 +199,7 @@ mod tests {
             is_leaf: true,
             split_col: None,
             split_kind: None,
+            inherited_target_volume: None,
         }
     }
 

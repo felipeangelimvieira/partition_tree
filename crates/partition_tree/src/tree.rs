@@ -72,14 +72,34 @@ pub struct FittedNode {
     pub split_col: Option<String>,
     /// Whether the split refines X or Y (`None` for leaves).
     pub split_kind: Option<SplitKind>,
+    /// Optional override for the cell's target volume.
+    ///
+    /// Set on refined leaves produced by [`Tree::refined`] so that
+    /// [`effective_target_volume`](Self::effective_target_volume) and
+    /// [`conditional_density`](Self::conditional_density) report the
+    /// source leaf's target volume even though the refined cell occupies
+    /// a smaller geometric region. `None` for unrefined nodes.
+    #[serde(default)]
+    pub inherited_target_volume: Option<f64>,
 }
 
 impl FittedNode {
+    /// Target volume used for density computations.
+    ///
+    /// Returns [`inherited_target_volume`](Self::inherited_target_volume)
+    /// when set, falling back to the cell's geometric target volume.
+    pub fn effective_target_volume(&self) -> f64 {
+        self.inherited_target_volume
+            .unwrap_or_else(|| self.cell.target_volume())
+    }
+
     /// Conditional density estimate: $\hat{f}(y|x) = w_{xy} / (w_x \cdot V_{\text{target}})$.
     ///
     /// Returns `0.0` when `w_x` or the target volume is non-positive.
+    /// Uses [`effective_target_volume`](Self::effective_target_volume), so
+    /// refined leaves report their source leaf's density.
     pub fn conditional_density(&self) -> f64 {
-        let vol = self.cell.target_volume();
+        let vol = self.effective_target_volume();
         if self.w_x <= 0.0 || vol <= 0.0 {
             0.0
         } else {
@@ -584,7 +604,7 @@ impl Tree {
                     w_x: node.w_x,
                     w_y: node.w_y,
                     conditional_density: node.conditional_density(),
-                    target_volume: node.cell.target_volume(),
+                    target_volume: node.effective_target_volume(),
                 }
             })
             .collect()
@@ -699,6 +719,7 @@ mod tests {
             is_leaf: false,
             split_col: Some("x".to_string()),
             split_kind: Some(SplitKind::XSplit),
+            inherited_target_volume: None,
         };
 
         let left = FittedNode {
@@ -713,6 +734,7 @@ mod tests {
             is_leaf: true,
             split_col: None,
             split_kind: None,
+            inherited_target_volume: None,
         };
 
         let right = FittedNode {
@@ -727,6 +749,7 @@ mod tests {
             is_leaf: true,
             split_col: None,
             split_kind: None,
+            inherited_target_volume: None,
         };
 
         Tree {
@@ -857,6 +880,7 @@ mod tests {
             is_leaf: false,
             split_col: Some("target_y".to_string()),
             split_kind: Some(SplitKind::YSplit),
+            inherited_target_volume: None,
         };
 
         // Internal nodes after target split
@@ -874,6 +898,7 @@ mod tests {
             is_leaf: false,
             split_col: Some("x".to_string()),
             split_kind: Some(SplitKind::XSplit),
+            inherited_target_volume: None,
         };
         let target_right = FittedNode {
             cell: Cell::new()
@@ -889,6 +914,7 @@ mod tests {
             is_leaf: false,
             split_col: Some("x".to_string()),
             split_kind: Some(SplitKind::XSplit),
+            inherited_target_volume: None,
         };
 
         // Leaves
@@ -906,6 +932,7 @@ mod tests {
             is_leaf: true,
             split_col: None,
             split_kind: None,
+            inherited_target_volume: None,
         };
         let lr = FittedNode {
             cell: Cell::new()
@@ -921,6 +948,7 @@ mod tests {
             is_leaf: true,
             split_col: None,
             split_kind: None,
+            inherited_target_volume: None,
         };
         let rl = FittedNode {
             cell: Cell::new()
@@ -936,6 +964,7 @@ mod tests {
             is_leaf: true,
             split_col: None,
             split_kind: None,
+            inherited_target_volume: None,
         };
         let rr = FittedNode {
             cell: Cell::new()
@@ -951,6 +980,7 @@ mod tests {
             is_leaf: true,
             split_col: None,
             split_kind: None,
+            inherited_target_volume: None,
         };
 
         Tree {
@@ -1058,6 +1088,7 @@ mod tests {
             is_leaf: false,
             split_col: Some("x".to_string()),
             split_kind: Some(SplitKind::XSplit),
+            inherited_target_volume: None,
         };
         let left = FittedNode {
             cell: Cell::new()
@@ -1073,6 +1104,7 @@ mod tests {
             is_leaf: true,
             split_col: None,
             split_kind: None,
+            inherited_target_volume: None,
         };
         let right = FittedNode {
             cell: Cell::new()
@@ -1088,6 +1120,7 @@ mod tests {
             is_leaf: true,
             split_col: None,
             split_kind: None,
+            inherited_target_volume: None,
         };
 
         Tree {
@@ -1230,6 +1263,7 @@ mod tests {
             is_leaf: true,
             split_col: None,
             split_kind: None,
+            inherited_target_volume: None,
         };
 
         let tree = Tree {
@@ -1342,6 +1376,7 @@ mod tests {
             is_leaf: false,
             split_col: Some("x1".to_string()),
             split_kind: Some(SplitKind::XSplit),
+            inherited_target_volume: None,
         };
         // node1: x1 < 5, split on x2
         let node1 = FittedNode {
@@ -1359,6 +1394,7 @@ mod tests {
             is_leaf: false,
             split_col: Some("x2".to_string()),
             split_kind: Some(SplitKind::XSplit),
+            inherited_target_volume: None,
         };
         // node2: x1 >= 5, split on target__y
         let node2 = FittedNode {
@@ -1376,6 +1412,7 @@ mod tests {
             is_leaf: false,
             split_col: Some("target__y".to_string()),
             split_kind: Some(SplitKind::YSplit),
+            inherited_target_volume: None,
         };
         // leaf0: x1<5, x2<3
         let leaf0 = FittedNode {
@@ -1393,6 +1430,7 @@ mod tests {
             is_leaf: true,
             split_col: None,
             split_kind: None,
+            inherited_target_volume: None,
         };
         // leaf1: x1<5, x2>=3
         let leaf1 = FittedNode {
@@ -1410,6 +1448,7 @@ mod tests {
             is_leaf: true,
             split_col: None,
             split_kind: None,
+            inherited_target_volume: None,
         };
         // leaf2: x1>=5, y<5
         let leaf2 = FittedNode {
@@ -1427,6 +1466,7 @@ mod tests {
             is_leaf: true,
             split_col: None,
             split_kind: None,
+            inherited_target_volume: None,
         };
         // leaf3: x1>=5, y>=5
         let leaf3 = FittedNode {
@@ -1444,6 +1484,7 @@ mod tests {
             is_leaf: true,
             split_col: None,
             split_kind: None,
+            inherited_target_volume: None,
         };
 
         Tree {

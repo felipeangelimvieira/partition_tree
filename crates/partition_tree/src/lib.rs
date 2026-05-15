@@ -67,6 +67,7 @@ pub mod estimators;
 pub mod loss;
 pub mod node;
 pub mod predict;
+pub mod refine;
 pub mod rule;
 pub mod rules;
 pub mod serde;

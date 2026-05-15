@@ -164,6 +164,7 @@ impl TreeBuilder {
             is_leaf: true,
             split_col: None,
             split_kind: None,
+            inherited_target_volume: None,
         };
         nodes.push(root_fitted);
         build_nodes.push(Some(root_node));
@@ -243,6 +244,7 @@ impl TreeBuilder {
                 is_leaf: true,
                 split_col: None,
                 split_kind: None,
+                inherited_target_volume: None,
             };
             let right_fitted = FittedNode {
                 cell: right_build.cell.clone(),
@@ -256,6 +258,7 @@ impl TreeBuilder {
                 is_leaf: true,
                 split_col: None,
                 split_kind: None,
+                inherited_target_volume: None,
             };
 
             nodes.push(left_fitted);

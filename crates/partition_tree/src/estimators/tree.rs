@@ -90,6 +90,18 @@ pub struct PartitionTree {
     pub seed: Option<u64>,
     /// Per-column logical dtype overrides applied during fit and prediction.
     pub dtype_overrides: HashMap<String, LogicalDType>,
+    /// When `true`, the fitted tree is passed through [`Tree::refined`] at
+    /// the end of `fit`, ensuring no unique split coordinate crosses the
+    /// interior of any leaf cell.
+    ///
+    /// Refinement rescales `w_xy`, `w_x`, `w_y` proportionally to each
+    /// split's volume fraction so that [`Tree::predict_distributions`],
+    /// `predict_mean`, and friends are **invariant**: predictions on the
+    /// same inputs are unchanged whether or not refinement is applied.
+    ///
+    /// Defaults to `false` so behavior is preserved for existing callers.
+    #[serde(default)]
+    pub refine_after_fit: bool,
 
     // ── Fitted state ───────────────────────────────────────────────────
     /// The fitted tree (populated after `fit`).
@@ -139,6 +151,7 @@ impl PartitionTree {
             loss,
             seed,
             dtype_overrides,
+            refine_after_fit: false,
             tree: None,
             schema: None,
             cat_labels: None,
@@ -164,6 +177,7 @@ impl PartitionTree {
             loss: None,
             seed: None,
             dtype_overrides: HashMap::new(),
+            refine_after_fit: false,
             tree: None,
             schema: None,
             cat_labels: None,
@@ -364,6 +378,14 @@ impl Estimator for PartitionTree {
         let builder = TreeBuilder::new(config, loss.clone_box(), registry);
         let tree = builder.build(&dataset);
 
+        // Optionally refine: rescaling preserves prediction outputs
+        // (see `Tree::refined`).
+        let tree = if self.refine_after_fit {
+            tree.refined()
+        } else {
+            tree
+        };
+
         // ── 4. Store fitted state and return ──────────────────────────
         self.tree = Some(tree);
         self.schema = Some(schema.clone());
@@ -386,6 +408,7 @@ impl Estimator for PartitionTree {
             loss: Some(loss),
             seed: self.seed,
             dtype_overrides: self.dtype_overrides.clone(),
+            refine_after_fit: self.refine_after_fit,
             tree: self.tree.take(),
             schema: Some(schema),
             cat_labels: Some(cat_labels),
@@ -839,6 +862,115 @@ mod tests {
 
         let preds = fitted.predict(&x).expect("predict should succeed");
         assert_eq!(preds.height(), x.height());
+    }
+
+    /// `refine_after_fit=true` must not change predictions on the
+    /// training data, because [`Tree::refined`] only adds synthetic
+    /// internal splits and inherited-volume metadata. Mass rescaling in
+    /// [`ConditionedCell::from_fitted_node`] preserves the per-row
+    /// conditional distribution.
+    #[test]
+    fn refine_after_fit_preserves_predictions() {
+        let (x, y) = make_xy();
+
+        let mut model_plain = PartitionTree::new(
+            13,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1e-8,
+            0.0,
+            6,
+            2.0,
+            None,
+            true,
+            None,
+            None,
+            Some(42),
+            HashMap::new(),
+        );
+        // Default: refine_after_fit = false.
+        assert!(!model_plain.refine_after_fit);
+        let fitted_plain = model_plain.fit(&x, &y, None).expect("plain fit");
+
+        let mut model_refined = PartitionTree::new(
+            13,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1e-8,
+            0.0,
+            6,
+            2.0,
+            None,
+            true,
+            None,
+            None,
+            Some(42),
+            HashMap::new(),
+        );
+        model_refined.refine_after_fit = true;
+        let fitted_refined = model_refined.fit(&x, &y, None).expect("refined fit");
+
+        // Sanity: the refined tree must have at least as many leaves as the
+        // plain tree (refinement is a top-down propagation, so leaves only
+        // grow or stay the same).
+        let n_plain = fitted_plain.tree.as_ref().unwrap().n_leaves();
+        let n_refined = fitted_refined.tree.as_ref().unwrap().n_leaves();
+        assert!(
+            n_refined >= n_plain,
+            "refined leaves ({n_refined}) should be >= plain leaves ({n_plain})"
+        );
+
+        // ── predict (mean) must match per-row ──
+        let preds_plain = fitted_plain.predict(&x).expect("plain predict");
+        let preds_refined = fitted_refined.predict(&x).expect("refined predict");
+
+        let col_plain = preds_plain.column("y").unwrap().f64().unwrap();
+        let col_refined = preds_refined.column("y").unwrap().f64().unwrap();
+        for i in 0..x.height() {
+            let a = col_plain.get(i).unwrap();
+            let b = col_refined.get(i).unwrap();
+            assert!(
+                (a - b).abs() < 1e-12,
+                "row {i}: plain prediction {a} vs refined prediction {b} differ"
+            );
+        }
+
+        // ── predict_proba (distributional mean) must match per-row ──
+        let probs_plain = fitted_plain.predict_proba(&x).expect("plain proba");
+        let probs_refined = fitted_refined.predict_proba(&x).expect("refined proba");
+        assert_eq!(probs_plain.len(), probs_refined.len());
+
+        for (i, (dp, dr)) in probs_plain.iter().zip(probs_refined.iter()).enumerate() {
+            // Total mass is invariant: rescaled refined cells sum back to
+            // the source leaf's mass.
+            assert!(
+                (dp.total_mass() - dr.total_mass()).abs() < 1e-10,
+                "row {i}: total_mass differs: plain={} refined={}",
+                dp.total_mass(),
+                dr.total_mass()
+            );
+
+            // Per-column mean vectors must match.
+            let mean_p = dp.mean_vector();
+            let mean_r = dr.mean_vector();
+            assert_eq!(mean_p.keys().collect::<Vec<_>>().len(), mean_r.len());
+            for (col, vp) in &mean_p {
+                let vr = mean_r
+                    .get(col)
+                    .unwrap_or_else(|| panic!("row {i}: refined missing column {col}"));
+                assert_eq!(vp.len(), vr.len(), "row {i}: column {col} length differs");
+                for (j, (a, b)) in vp.iter().zip(vr.iter()).enumerate() {
+                    assert!(
+                        (a - b).abs() < 1e-10,
+                        "row {i} column {col}[{j}]: plain {a} vs refined {b}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

@@ -100,6 +100,18 @@ pub struct PartitionForest {
     pub max_candidate_split_points: Option<usize>,
     /// Per-column logical dtype overrides applied during fit and prediction.
     pub dtype_overrides: HashMap<String, LogicalDType>,
+    /// When `true`, every fitted tree is passed through
+    /// [`Tree::refined`](crate::tree::Tree::refined) at the end of `fit`,
+    /// ensuring no unique split coordinate crosses the interior of any
+    /// leaf cell.
+    ///
+    /// Predictions are invariant under refinement (see
+    /// `crates/partition_tree/src/estimators/tree.rs` and
+    /// [`crate::predict::conditioned_cell::ConditionedCell::from_fitted_node`]).
+    ///
+    /// Defaults to `false` so behavior is preserved for existing callers.
+    #[serde(default)]
+    pub refine_after_fit: bool,
 
     // ── Fitted state ──────────────────────────────────────────────────
     /// Fitted trees (populated after `fit`).
@@ -150,6 +162,7 @@ impl PartitionForest {
             dtype_overrides,
             loss: loss,
             seed: seed,
+            refine_after_fit: false,
             trees: None,
             schema: None,
             cat_labels: None,
@@ -176,6 +189,7 @@ impl PartitionForest {
             max_candidate_split_points: None,
             dtype_overrides: HashMap::new(),
             loss: None,
+            refine_after_fit: false,
             trees: None,
             schema: None,
             cat_labels: None,
@@ -438,6 +452,7 @@ impl Estimator for PartitionForest {
             .map(|l| l.clone_box())
             .unwrap_or_else(|| Box::new(ConditionalLogLoss));
 
+        let refine = self.refine_after_fit;
         let fitted_trees: Vec<Tree> = (0..self.n_estimators)
             .into_par_iter()
             .map(|idx| {
@@ -453,7 +468,11 @@ impl Estimator for PartitionForest {
                 };
                 let loss: Box<dyn LossFunc> = loss_factory.clone_box();
                 let builder = TreeBuilder::new(config, loss, Arc::clone(&registry));
-                builder.build(&dataset)
+                let tree = builder.build(&dataset);
+                // Optionally refine: rescaling in
+                // `ConditionedCell::from_fitted_node` keeps per-tree
+                // predictions invariant (see `Tree::refined`).
+                if refine { tree.refined() } else { tree }
             })
             .collect();
 
@@ -480,6 +499,7 @@ impl Estimator for PartitionForest {
             max_candidate_split_points: self.max_candidate_split_points,
             dtype_overrides: self.dtype_overrides.clone(),
             loss: Some(loss_factory),
+            refine_after_fit: self.refine_after_fit,
             trees: self.trees.take(),
             schema: Some(schema),
             cat_labels: Some(cat_labels),

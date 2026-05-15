@@ -210,6 +210,7 @@ impl PyPartitionTree {
         loss = None,
         seed = None,
         dtype_overrides = None,
+        refine_after_fit = false,
     ))]
     pub fn new(
         py: Python<'_>,
@@ -229,6 +230,7 @@ impl PyPartitionTree {
         loss: Option<String>,
         seed: Option<u64>,
         dtype_overrides: Option<Py<PyDict>>,
+        refine_after_fit: bool,
     ) -> PyResult<Self> {
         let loss_obj: Option<Box<dyn LossFunc>> = match loss {
             Some(l) => match l.as_str() {
@@ -265,8 +267,20 @@ impl PyPartitionTree {
                 dtype_overrides,
             );
         inner.max_candidate_split_points = max_candidate_split_points;
+        inner.refine_after_fit = refine_after_fit;
 
         Ok(Self { inner })
+    }
+
+    /// Whether the tree is refined automatically after every `fit`.
+    #[getter]
+    pub fn refine_after_fit(&self) -> bool {
+        self.inner.refine_after_fit
+    }
+
+    #[setter]
+    pub fn set_refine_after_fit(&mut self, value: bool) {
+        self.inner.refine_after_fit = value;
     }
 
     pub fn fit(
@@ -554,6 +568,7 @@ impl PyPartitionForest {
         loss = None,
         seed = None,
         dtype_overrides = None,
+        refine_after_fit = false,
     ))]
     pub fn new(
         py: Python<'_>,
@@ -574,6 +589,7 @@ impl PyPartitionForest {
         loss: Option<String>,
         seed: Option<usize>,
         dtype_overrides: Option<Py<PyDict>>,
+        refine_after_fit: bool,
     ) -> PyResult<Self> {
         let loss_obj: Option<Box<dyn LossFunc>> = match loss {
             Some(l) => match l.as_str() {
@@ -611,8 +627,20 @@ impl PyPartitionForest {
                 dtype_overrides,
             );
         inner.max_candidate_split_points = max_candidate_split_points;
+        inner.refine_after_fit = refine_after_fit;
 
         Ok(Self { inner })
+    }
+
+    /// Whether each tree is refined automatically after every `fit`.
+    #[getter]
+    pub fn refine_after_fit(&self) -> bool {
+        self.inner.refine_after_fit
+    }
+
+    #[setter]
+    pub fn set_refine_after_fit(&mut self, value: bool) {
+        self.inner.refine_after_fit = value;
     }
 
     pub fn fit(
