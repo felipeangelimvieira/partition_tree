@@ -231,7 +231,6 @@ pf = PartitionForestRegressor(
     n_estimators=50,
     random_state=42,
     min_volume_fraction=0.1,
-    output_distribution="mixture",
 )
 pf.fit(X_train, y_train)
 
@@ -284,26 +283,13 @@ print(f"Tree   80% PI coverage: {covered:.1%}")
 print(f"Forest 80% PI coverage: {covered_f:.1%}")
 ```
 
-### `output_distribution` option
+### Combining per-tree distributions
 
-`PartitionForestRegressor` supports two strategies for combining per-tree
-distributions:
-
-| `output_distribution` | Description |
-|---|---|
-| `"merged"` (default) | Merges all tree breakpoints into one `IntervalDistribution`. Full API support, computed once at predict time. |
-| `"mixture"` | Returns a `MixtureIntervalDistribution`. PDF/CDF/quantiles computed on-the-fly; avoids the merge cost. |
-
-```{python}
-pf_mix = PartitionForestRegressor(
-    n_estimators=50,
-    random_state=42,
-    min_volume_fraction=0.1,
-    output_distribution="mixture",
-)
-pf_mix.fit(X_train, y_train)
-dist_mix = pf_mix.predict_proba(X_test)
-```
+`PartitionForestRegressor.predict_proba` merges the breakpoints of all per-tree
+distributions into a single `IntervalDistribution`. The merge is performed in
+Rust and returned as flat segment arrays, so it scales to large forests and
+sample counts. The resulting object supports the full skpro distribution API
+(PDF, CDF, quantiles, mean, variance, energy).
 
 
 ## 8. Feature Importances

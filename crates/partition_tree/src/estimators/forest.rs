@@ -370,6 +370,203 @@ impl PartitionForest {
             })
             .collect()
     }
+
+    /// Merge per-tree pdf segments for one sample into non-overlapping intervals.
+    ///
+    /// `segments` — `(density, low, high)` tuples, one per tree per sample (each
+    /// sample maps to exactly one leaf per tree, so exactly one segment per tree).
+    /// `n_trees` — uniform weight divisor: weight per tree = 1 / n_trees.
+    ///
+    /// Returns sorted, non-overlapping `(merged_density, low, high)` tuples with
+    /// strictly positive density, ready to pass to Python `IntervalDistribution`.
+    pub(crate) fn merge_segments_for_sample(
+        segments: &[(f64, f64, f64)],
+        n_trees: f64,
+    ) -> Vec<(f64, f64, f64)> {
+        if segments.is_empty() {
+            return Vec::new();
+        }
+
+        // Collect all boundary points
+        let mut bps: Vec<f64> = Vec::with_capacity(2 * segments.len());
+        for &(_, low, high) in segments {
+            bps.push(low);
+            bps.push(high);
+        }
+        bps.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+        // Dedup with floating-point tolerance to avoid spurious sub-intervals
+        let epsilon = 1e-12_f64;
+        bps.dedup_by(|a, b| (*a - *b).abs() <= epsilon);
+
+        if bps.len() < 2 {
+            return Vec::new();
+        }
+
+        let mut result = Vec::with_capacity(bps.len() - 1);
+
+        for j in 0..bps.len() - 1 {
+            let (low, high) = (bps[j], bps[j + 1]);
+            if high <= low + epsilon {
+                continue;
+            }
+            let mid = 0.5 * (low + high);
+
+            let density: f64 = segments
+                .iter()
+                .filter(|&&(_, seg_low, seg_high)| seg_low <= mid && mid < seg_high)
+                .map(|&(d, _, _)| d)
+                .sum::<f64>()
+                / n_trees;
+
+            if density > 0.0 {
+                result.push((density, low, high));
+            }
+        }
+
+        result
+    }
+
+    /// Predict merged piecewise-constant segment arrays for all samples.
+    ///
+    /// Returns four flat arrays in CSR style:
+    /// - `densities[offsets[i]..offsets[i+1]]` — raw densities for sample i
+    /// - `lows[offsets[i]..offsets[i+1]]`     — interval lower bounds
+    /// - `highs[offsets[i]..offsets[i+1]]`    — interval upper bounds
+    /// - `offsets` — length `n_samples + 1`
+    ///
+    /// Segments for each sample are sorted by lower bound and non-overlapping.
+    /// Densities are not normalized (Python `IntervalDistribution` normalizes
+    /// internally via total mass = Σ density × width).
+    pub fn predict_proba_merged_segments(
+        &self,
+        x: &DataFrame,
+    ) -> Result<(Vec<f64>, Vec<f64>, Vec<f64>, Vec<usize>), PredictError> {
+        let trees = self.fitted_trees()?;
+        let xy = self.expand_with_schema(x)?;
+        let dataset = self.build_prediction_dataset(&xy)?;
+        let n_samples = x.height();
+        let n_trees = trees.len() as f64;
+
+        // Parallel per-tree: collect segments for all samples
+        let per_tree: Vec<Vec<Vec<(f64, f64, f64)>>> = trees
+            .par_iter()
+            .map(|tree| {
+                tree.predict_distributions(&dataset)
+                    .into_iter()
+                    .map(|dist| dist.pdf_segments())
+                    .collect()
+            })
+            .collect();
+
+        // Parallel per-sample: merge segments from all trees
+        let merged: Vec<Vec<(f64, f64, f64)>> = (0..n_samples)
+            .into_par_iter()
+            .map(|s| {
+                let sample_segs: Vec<(f64, f64, f64)> = per_tree
+                    .iter()
+                    .flat_map(|tree_segs| tree_segs[s].iter().copied())
+                    .collect();
+                Self::merge_segments_for_sample(&sample_segs, n_trees)
+            })
+            .collect();
+
+        // Flatten into CSR arrays
+        let total: usize = merged.iter().map(|v| v.len()).sum();
+        let mut densities = Vec::with_capacity(total);
+        let mut lows = Vec::with_capacity(total);
+        let mut highs = Vec::with_capacity(total);
+        let mut offsets = Vec::with_capacity(n_samples + 1);
+        offsets.push(0usize);
+
+        for sample_segs in &merged {
+            for &(d, l, h) in sample_segs {
+                densities.push(d);
+                lows.push(l);
+                highs.push(h);
+            }
+            offsets.push(densities.len());
+        }
+
+        Ok((densities, lows, highs, offsets))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod merge_tests {
+    use super::PartitionForest;
+
+    #[test]
+    fn test_single_segment_passthrough() {
+        // One tree, one segment → same segment with density / 1
+        let segs = vec![(0.5_f64, 0.0_f64, 2.0_f64)]; // (density, low, high)
+        let result = PartitionForest::merge_segments_for_sample(&segs, 1.0);
+        assert_eq!(result.len(), 1);
+        let (d, l, h) = result[0];
+        assert!((d - 0.5).abs() < 1e-10, "density={d}");
+        assert!((l - 0.0).abs() < 1e-10);
+        assert!((h - 2.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_two_non_overlapping_trees() {
+        // Tree 1: [0, 1] density=1.0, Tree 2: [2, 4] density=0.5
+        // After merge (weight 0.5 each):
+        //   [0,1] → 1.0/2 = 0.5
+        //   [2,4] → 0.5/2 = 0.25
+        let segs = vec![(1.0_f64, 0.0_f64, 1.0_f64), (0.5_f64, 2.0_f64, 4.0_f64)];
+        let result = PartitionForest::merge_segments_for_sample(&segs, 2.0);
+        assert_eq!(
+            result.len(),
+            2,
+            "expected 2 non-overlapping output segments"
+        );
+        // Sorted by low
+        let (d0, l0, h0) = result[0];
+        let (d1, l1, h1) = result[1];
+        assert!((l0 - 0.0).abs() < 1e-10 && (h0 - 1.0).abs() < 1e-10);
+        assert!((d0 - 0.5).abs() < 1e-10, "d0={d0}");
+        assert!((l1 - 2.0).abs() < 1e-10 && (h1 - 4.0).abs() < 1e-10);
+        assert!((d1 - 0.25).abs() < 1e-10, "d1={d1}");
+    }
+
+    #[test]
+    fn test_two_overlapping_trees() {
+        // Tree 1: [0, 2] density=0.5 (vol=2, mass=1)
+        // Tree 2: [1, 3] density=0.5 (vol=2, mass=1)
+        // Expected sub-intervals:
+        //   [0,1] → only tree1 → 0.5/2 = 0.25
+        //   [1,2] → both → (0.5+0.5)/2 = 0.5
+        //   [2,3] → only tree2 → 0.5/2 = 0.25
+        let segs = vec![(0.5_f64, 0.0_f64, 2.0_f64), (0.5_f64, 1.0_f64, 3.0_f64)];
+        let result = PartitionForest::merge_segments_for_sample(&segs, 2.0);
+        assert_eq!(result.len(), 3);
+        let (d0, l0, h0) = result[0];
+        let (d1, l1, h1) = result[1];
+        let (d2, l2, h2) = result[2];
+        assert!((l0 - 0.0).abs() < 1e-10 && (h0 - 1.0).abs() < 1e-10);
+        assert!((d0 - 0.25).abs() < 1e-10, "d0={d0}");
+        assert!((l1 - 1.0).abs() < 1e-10 && (h1 - 2.0).abs() < 1e-10);
+        assert!((d1 - 0.50).abs() < 1e-10, "d1={d1}");
+        assert!((l2 - 2.0).abs() < 1e-10 && (h2 - 3.0).abs() < 1e-10);
+        assert!((d2 - 0.25).abs() < 1e-10, "d2={d2}");
+    }
+
+    #[test]
+    fn test_identical_trees_density_doubles() {
+        // Two trees, same interval [0, 1] density=1.0 each
+        // Merged: one segment [0,1] with density (1+1)/2 = 1.0, integral = 1.0
+        let segs = vec![(1.0_f64, 0.0_f64, 1.0_f64), (1.0_f64, 0.0_f64, 1.0_f64)];
+        let result = PartitionForest::merge_segments_for_sample(&segs, 2.0);
+        assert_eq!(result.len(), 1);
+        let (d, l, h) = result[0];
+        let integral = d * (h - l);
+        assert!((integral - 1.0).abs() < 1e-10, "integral={integral}");
+    }
 }
 
 // ---------------------------------------------------------------------------
