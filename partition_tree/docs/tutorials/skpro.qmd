@@ -173,7 +173,6 @@ pf = PartitionForestRegressor(
     random_state=42,
     min_samples_x=100,
     min_samples_y=100,
-    output_distribution="merged",
 )
 pf.fit(X_train, y_train)
 

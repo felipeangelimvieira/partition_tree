@@ -248,22 +248,22 @@ impl PyPartitionTree {
         let dtype_overrides = parse_dtype_overrides(py, dtype_overrides)?;
 
         let mut inner = PartitionTree::new(
-                max_leaves,
-                boundaries_expansion_factor,
-                min_samples_xy,
-                min_samples_x,
-                min_samples_y,
-                min_gain,
-                min_volume_fraction,
-                max_depth,
-                min_samples_split,
-                max_samples,
-                replace,
-                max_features,
-                loss_obj,
-                seed,
-                dtype_overrides,
-            );
+            max_leaves,
+            boundaries_expansion_factor,
+            min_samples_xy,
+            min_samples_x,
+            min_samples_y,
+            min_gain,
+            min_volume_fraction,
+            max_depth,
+            min_samples_split,
+            max_samples,
+            replace,
+            max_features,
+            loss_obj,
+            seed,
+            dtype_overrides,
+        );
         inner.max_candidate_split_points = max_candidate_split_points;
 
         Ok(Self { inner })
@@ -593,23 +593,23 @@ impl PyPartitionForest {
         let dtype_overrides = parse_dtype_overrides(py, dtype_overrides)?;
 
         let mut inner = PartitionForest::new(
-                n_estimators,
-                max_leaves,
-                boundaries_expansion_factor,
-                min_samples_xy,
-                min_samples_x,
-                min_samples_y,
-                min_gain,
-                min_volume_fraction,
-                max_depth,
-                min_samples_split,
-                max_samples,
-                replace,
-                max_features,
-                loss_obj,
-                seed,
-                dtype_overrides,
-            );
+            n_estimators,
+            max_leaves,
+            boundaries_expansion_factor,
+            min_samples_xy,
+            min_samples_x,
+            min_samples_y,
+            min_gain,
+            min_volume_fraction,
+            max_depth,
+            min_samples_split,
+            max_samples,
+            replace,
+            max_features,
+            loss_obj,
+            seed,
+            dtype_overrides,
+        );
         inner.max_candidate_split_points = max_candidate_split_points;
 
         Ok(Self { inner })
@@ -694,6 +694,24 @@ impl PyPartitionForest {
             })
             .collect();
         Ok(proba_per_tree)
+    }
+
+    /// Predict merged piecewise-constant segments for all samples.
+    ///
+    /// Returns a 4-tuple ``(densities, lows, highs, offsets)`` of Python lists.
+    /// For sample ``i``, the segments occupy indices ``offsets[i]..offsets[i+1]``
+    /// in the flat arrays.
+    ///
+    /// This is the fast path replacing ``predict_trees_proba`` +
+    /// Python ``IntervalDistribution.from_mixture``.
+    pub fn predict_proba_merged_segments(
+        &self,
+        x: PyDataFrame,
+    ) -> PyResult<(Vec<f64>, Vec<f64>, Vec<f64>, Vec<usize>)> {
+        let x_df: PolarsDataFrame = x.into();
+        self.inner
+            .predict_proba_merged_segments(&x_df)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
     }
 
     /// Get information about every node for each tree in the forest.

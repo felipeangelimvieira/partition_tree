@@ -6,7 +6,7 @@
 //! Results are stored in `target/criterion/` with HTML reports.
 use std::sync::Arc;
 
-use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use polars::datatypes::FrozenCategories;
 use polars::prelude::*;
 
@@ -225,11 +225,67 @@ fn bench_forest_predict_classification(c: &mut Criterion) {
     group.finish();
 }
 
+/// Rust-side ceiling for the probabilistic path.
+///
+/// Measures the cost of `predict_proba` (which already ensembles per-tree cells
+/// in Rust) plus `pdf_segments` extraction for every sample. This is the floor
+/// a "merge in Rust before sending to Python" solution would approach — the
+/// Python diagnostic (`benchmarks/diagnose_forest_proba.py`) shows the current
+/// pure-Python merge path costs orders of magnitude more for the same inputs.
+fn bench_forest_proba_ceiling(c: &mut Criterion) {
+    use estimators::api::Estimator;
+
+    let mut group = c.benchmark_group("forest_proba_ceiling");
+    group.sample_size(10);
+
+    for &(n_test, n_trees) in &[(1_000, 10), (1_000, 100), (10_000, 10), (10_000, 100)] {
+        let (x_train, y_train) = make_regression_data(2_000, 5);
+        let (x_test, _) = make_regression_data(n_test, 5);
+
+        let mut forest = PartitionForest {
+            n_estimators: n_trees,
+            max_leaves: 31,
+            seed: Some(42),
+            ..PartitionForest::with_defaults()
+        };
+        let fitted = forest.fit(&x_train, &y_train, None).unwrap();
+
+        // Ensembled proba: n_test distributions (one per sample).
+        group.bench_with_input(
+            BenchmarkId::new(format!("predict_proba_n={n_test}"), n_trees),
+            &n_trees,
+            |b, _| {
+                b.iter(|| fitted.predict_proba(&x_test).unwrap());
+            },
+        );
+
+        // Ensembled proba + pdf_segments extraction for every sample — the full
+        // Rust work needed to hand merged segments to Python.
+        group.bench_with_input(
+            BenchmarkId::new(format!("proba_plus_segments_n={n_test}"), n_trees),
+            &n_trees,
+            |b, _| {
+                b.iter(|| {
+                    let dists = fitted.predict_proba(&x_test).unwrap();
+                    let mut total = 0usize;
+                    for d in &dists {
+                        total += d.pdf_segments().len();
+                    }
+                    total
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_single_tree_build,
     bench_forest_fit,
     bench_forest_predict,
     bench_forest_predict_classification,
+    bench_forest_proba_ceiling,
 );
 criterion_main!(benches);

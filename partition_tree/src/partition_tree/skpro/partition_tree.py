@@ -11,10 +11,7 @@ from partition_tree.utils import (
     _prepare_regression_training_data,
     _preprocess_X,
 )
-from partition_tree.skpro.distribution import (
-    IntervalDistribution,
-    MixtureIntervalDistribution,
-)
+from partition_tree.skpro.distribution import IntervalDistribution
 
 
 class PartitionTreeRegressor(BaseProbaRegressor):
@@ -191,25 +188,14 @@ class PartitionForestRegressor(BaseProbaRegressor):
         max_features=1.0,
         max_candidate_split_points=None,
         loss=None,
-        output_distribution="merged",
         random_state=42,
         dtype_overrides="auto",
     ):
-        """
-        Parameters
-        ----------
-        output_distribution : {"merged", "mixture"}, default "merged"
-            Controls how the per-tree predictive distributions are combined
-            when calling ``predict_proba``.
+        """Partition forest probabilistic regressor.
 
-            * ``"merged"`` (default) — builds a single :class:`IntervalDistribution`
-              on the union of all tree breakpoints via
-              ``IntervalDistribution.from_mixture``.  The resulting object is a
-              standard piecewise-uniform distribution and supports all skpro methods.
-            * ``"mixture"`` — returns a :class:`MixtureIntervalDistribution` that
-              stores the per-tree distributions and weights without merging.  PDF,
-              CDF, mean, variance, energy and PPF are all computed on-the-fly from
-              the mixture identity, avoiding the up-front merge cost.
+        ``predict_proba`` returns a single :class:`IntervalDistribution` built on
+        the union of all per-tree breakpoints. The breakpoint merge is performed
+        in Rust and returned as flat segment arrays.
         """
         self.n_estimators = n_estimators
         self.max_leaves = max_leaves
@@ -227,7 +213,6 @@ class PartitionForestRegressor(BaseProbaRegressor):
         self.max_candidate_split_points = max_candidate_split_points
         self.loss = loss
         self.random_state = random_state
-        self.output_distribution = output_distribution
         self.dtype_overrides = dtype_overrides
         super().__init__()
 
@@ -282,20 +267,15 @@ class PartitionForestRegressor(BaseProbaRegressor):
         preds = self.partition_forest_.predict(X_pol)
         return pd.DataFrame(preds, columns=self._y_columns, index=X_proc.index)
 
-    def predict_proba_per_tree(self, X) -> list:
-        """Return per-tree predictive distributions without mixing them.
+    def _predict_proba(self, X):
+        """Merged predictive distribution via Rust segment merge.
 
-        Parameters
-        ----------
-        X : array-like
-            Features to predict for.
-
-        Returns
-        -------
-        list of IntervalDistribution
-            One ``IntervalDistribution`` per tree in the forest, in tree order.
+        Calls the Rust forest, which merges each sample's per-tree
+        piecewise-constant segments in parallel and returns flat CSR arrays
+        ``(densities, lows, highs, offsets)``. A single
+        :class:`IntervalDistribution` is constructed directly from those arrays.
         """
-
+        check_is_fitted(self)
         X_proc = _ensure_numeric_float64(_preprocess_X(X))
         X_pol = pl.DataFrame(X_proc)
         X_pol = _convert_string_columns_to_categorical(
@@ -303,58 +283,29 @@ class PartitionForestRegressor(BaseProbaRegressor):
         )
         X_pol = _ensure_numeric_float64(X_pol)
 
-        piecewise_probas = self.partition_forest_.predict_trees_proba(X_pol)
+        densities_flat, lows_flat, highs_flat, offsets = (
+            self.partition_forest_.predict_proba_merged_segments(X_pol)
+        )
 
-        interval_dists = []
-        for piecewise_proba in piecewise_probas:
-            intervals_per_row = []
-            pdf_values_per_row = []
-            for dist in piecewise_proba:
-                row_intervals = []
-                row_pdfs = []
-                for density, low, high in dist.pdf_segments():
-                    row_intervals.append((float(low), float(high)))
-                    row_pdfs.append(float(density))
+        densities_arr = np.asarray(densities_flat, dtype=float)
+        lows_arr = np.asarray(lows_flat, dtype=float)
+        highs_arr = np.asarray(highs_flat, dtype=float)
 
-                sorted_indices = np.argsort([iv[0] for iv in row_intervals])
-                row_intervals = [row_intervals[i] for i in sorted_indices]
-                row_pdfs = [row_pdfs[i] for i in sorted_indices]
+        n_samples = len(offsets) - 1
+        intervals_per_row = []
+        pdf_values_per_row = []
 
-                intervals_per_row.append(row_intervals)
-                pdf_values_per_row.append(np.asarray(row_pdfs, dtype=float))
+        for i in range(n_samples):
+            start, end = offsets[i], offsets[i + 1]
+            row_lows = lows_arr[start:end]
+            row_highs = highs_arr[start:end]
+            row_densities = densities_arr[start:end]
+            intervals_per_row.append(list(zip(row_lows.tolist(), row_highs.tolist())))
+            pdf_values_per_row.append(row_densities)
 
-            interval_dists.append(
-                IntervalDistribution(
-                    intervals_per_row,
-                    pdf_values=pdf_values_per_row,
-                    index=X_proc.index,
-                    columns=self._y_columns,
-                )
-            )
-
-        return interval_dists
-
-    def _predict_proba(self, X):
-        check_is_fitted(self)
-        if self.output_distribution not in ("merged", "mixture"):
-            raise ValueError(
-                f"output_distribution must be 'merged' or 'mixture', "
-                f"got {self.output_distribution!r}"
-            )
-        X_proc = _ensure_numeric_float64(_preprocess_X(X))
-        interval_dists = self.predict_proba_per_tree(X)
-        weights = [1.0 / len(interval_dists)] * len(interval_dists)
-        if self.output_distribution == "mixture":
-            return MixtureIntervalDistribution(
-                distributions=interval_dists,
-                weights=weights,
-                index=X_proc.index,
-                columns=self._y_columns,
-            )
-
-        return IntervalDistribution.from_mixture(
-            distributions=interval_dists,
-            weights=weights,
+        return IntervalDistribution(
+            intervals=intervals_per_row,
+            pdf_values=pdf_values_per_row,
             index=X_proc.index,
             columns=self._y_columns,
         )
